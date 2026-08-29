@@ -2,9 +2,9 @@
 
 ## Disposition
 
-`remediation blocked`
+`installer cleanup safety remediated and focused lifecycle validated`
 
-The packaging remediation is implemented and all non-interactive focused validation completed successfully. The required real interactive foreign-directory rejection test (T4) could not be run because Quail-Lab had no logged-in desktop session. The VM was intentionally not reset, restored, or otherwise normalized to create one. Static verification confirms that the compiled directory-page callback invokes the same ownership validator as the silent path, but that is not presented as an interactive runtime result.
+The remaining real interactive foreign-directory rejection test (T4) passed after Quail-Lab provided an unlocked desktop session. The actual installer UI displayed the ownership-rejection error before any payload mutation. No VM checkpoint restore, deletion, rename, or overwrite was used.
 
 ## Root cause and remediation
 
@@ -47,7 +47,7 @@ All runs used the same hash-verified candidate above; legacy setup was hash-veri
 | T1 default fresh install | PASS | GUI/CLI hashes, one PATH entry, one uninstall entry, shortcut |
 | T2 empty custom directory | PASS | payload, PATH, shortcut, and uninstall location targeted custom directory |
 | T3 silent unowned custom directory | PASS | install rejected; root and nested foreign sentinels remained; no payload/global registration |
-| T4 interactive unowned directory | BLOCKED | no logged-in VM desktop session; static callback guard only |
+| T4 interactive unowned directory | PASS | actual setup UI rejected the non-empty unrecognized directory; root and nested sentinels retained their pre-test SHA-256 values; no payload/global state |
 | T5 unowned default directory | PASS | install rejected; root and nested sentinels remained; no partial payload |
 | T6 real 0.1 to 0.2 upgrade | PASS | AppId continuity, foreign sentinels retained, `coreclr.dll` absent, all 187 legacy paths absent |
 | T7 same-version reinstall | PASS | default and custom owned directories retained foreign and nested foreign files |
