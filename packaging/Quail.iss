@@ -76,6 +76,7 @@ ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 PrivilegesRequired=admin
 ChangesEnvironment=yes
+RedirectionGuard=yes
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#AppVersion}
 CloseApplications=yes
@@ -86,7 +87,7 @@ RestartApplications=no
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
-Type: filesandordirs; Name: "{app}\*"
+#include "LegacySelfContained0_1.issinc"
 
 [Icons]
 Name: "{autoprograms}\Quail"; Filename: "{app}\Quail.exe"; WorkingDir: "{app}"
@@ -102,6 +103,7 @@ const
   AllowsDesktopRuntimeMajorRollForward = {#DotNetAllowsMajorRollForward};
   RequiredWindowsAppRuntime = '{#WindowsAppRuntimeMinimumVersion}';
   RequiredVcRedist = '{#VcRedistMinimumVersion}';
+  QuailUninstallRegistryKey = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{D67D6288-D90A-429F-9FFD-D1EE472E5D43}_is1';
 
 function IsVersionAtLeast(const Candidate, Minimum: String): Boolean;
 var
@@ -202,6 +204,176 @@ begin
     IsVersionAtLeast(NormalizeRegistryVersion(Version), RequiredVcRedist);
 end;
 
+function CanonicalPath(const Value: String): String;
+begin
+  Result := RemoveBackslashUnlessRoot(ExpandFileName(Value));
+end;
+
+function IsReparsePoint(const Path: String): Boolean;
+var
+  FindData: TFindRec;
+begin
+  Result := False;
+  if not FindFirst(Path, FindData) then Exit;
+
+  try
+    Result := (FindData.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0;
+  finally
+    FindClose(FindData);
+  end;
+end;
+
+function ContainsReparsePoint(const Directory: String): Boolean;
+var
+  FindData: TFindRec;
+  ChildPath: String;
+begin
+  Result := False;
+  if not FindFirst(AddBackslash(Directory) + '*', FindData) then Exit;
+
+  try
+    repeat
+    begin
+      if (FindData.Name <> '.') and (FindData.Name <> '..') then
+      begin
+        ChildPath := PathCombine(Directory, FindData.Name);
+        if (FindData.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0 then
+        begin
+          Result := True;
+          Exit;
+        end;
+
+        if ((FindData.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+           ContainsReparsePoint(ChildPath) then
+        begin
+          Result := True;
+          Exit;
+        end;
+      end;
+    end;
+    until not FindNext(FindData);
+  finally
+    FindClose(FindData);
+  end;
+end;
+
+function HasReparsePointInDestinationPath(const Destination: String): Boolean;
+var
+  CurrentPath: String;
+  ParentPath: String;
+begin
+  Result := False;
+  CurrentPath := CanonicalPath(Destination);
+
+  while CurrentPath <> '' do
+  begin
+    if FileOrDirExists(CurrentPath) and IsReparsePoint(CurrentPath) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    ParentPath := RemoveBackslashUnlessRoot(ExtractFileDir(CurrentPath));
+    if (ParentPath = '') or PathSame(ParentPath, CurrentPath) then Exit;
+    CurrentPath := ParentPath;
+  end;
+end;
+
+function IsDirectoryEmpty(const Directory: String): Boolean;
+var
+  FindData: TFindRec;
+begin
+  Result := True;
+  if not FindFirst(AddBackslash(Directory) + '*', FindData) then Exit;
+
+  try
+    repeat
+    begin
+      if (FindData.Name <> '.') and (FindData.Name <> '..') then
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
+    until not FindNext(FindData);
+  finally
+    FindClose(FindData);
+  end;
+end;
+
+function ExtractExecutableFromCommandLine(const Value: String): String;
+var
+  ClosingQuote: Integer;
+  FirstSpace: Integer;
+begin
+  Result := '';
+  if Value = '' then Exit;
+
+  if Value[1] = '"' then
+  begin
+    ClosingQuote := Pos('"', Copy(Value, 2, Length(Value) - 1));
+    if ClosingQuote > 0 then
+      Result := Copy(Value, 2, ClosingQuote - 1);
+    Exit;
+  end;
+
+  FirstSpace := Pos(' ', Value);
+  if FirstSpace = 0 then
+    Result := Value
+  else
+    Result := Copy(Value, 1, FirstSpace - 1);
+end;
+
+function IsRecognizedQuailInstallation: Boolean;
+var
+  Destination: String;
+  InstallLocation: String;
+  UninstallCommand: String;
+  UninstallerPath: String;
+begin
+  Result := False;
+  Destination := CanonicalPath(WizardDirValue);
+
+  if not RegQueryStringValue(HKLM64, QuailUninstallRegistryKey,
+    'InstallLocation', InstallLocation) then Exit;
+  if not PathSame(CanonicalPath(InstallLocation), Destination) then Exit;
+
+  if not RegQueryStringValue(HKLM64, QuailUninstallRegistryKey,
+    'UninstallString', UninstallCommand) then Exit;
+  UninstallerPath := ExtractExecutableFromCommandLine(UninstallCommand);
+
+  Result := SameText(ExtractFileName(UninstallerPath), 'unins000.exe') and
+    PathSame(CanonicalPath(ExtractFileDir(UninstallerPath)), Destination) and
+    FileExists(UninstallerPath);
+end;
+
+function ValidateDestinationOwnership: String;
+var
+  Destination: String;
+begin
+  Result := '';
+  Destination := CanonicalPath(WizardDirValue);
+
+  if HasReparsePointInDestinationPath(Destination) then
+  begin
+    Result := 'Quail cannot install through a reparse-point destination path.';
+    Exit;
+  end;
+
+  if not DirExists(Destination) then Exit;
+
+  if IsDirectoryEmpty(Destination) then Exit;
+
+  if not IsRecognizedQuailInstallation then
+  begin
+    Result := 'Quail will not install into a non-empty directory that is not a recognized Quail installation.';
+    Exit;
+  end;
+
+  if ContainsReparsePoint(Destination) then
+    Result := 'Quail cannot update an installation containing reparse points.';
+end;
+
 function DownloadAndRun(const Name, Url, Sha256, Parameters: String): Boolean;
 var
   InstallerPath: String;
@@ -230,7 +402,9 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  Result := '';
+  Result := ValidateDestinationOwnership;
+  if Result <> '' then Exit;
+
   if not HasDesktopRuntime then
   begin
     if not DownloadAndRun('windowsdesktop-runtime-10.0.11-win-x64.exe', '{#DotNetDesktopUrl}', '{#DotNetDesktopSha256}', '/install /quiet /norestart') or not HasDesktopRuntime then
@@ -256,6 +430,21 @@ begin
       Result := 'The required Windows App Runtime is unavailable. Quail was not installed.';
       Exit;
     end;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  ValidationError: String;
+begin
+  Result := True;
+  if CurPageID <> wpSelectDir then Exit;
+
+  ValidationError := ValidateDestinationOwnership;
+  if ValidationError <> '' then
+  begin
+    MsgBox(ValidationError, mbCriticalError, MB_OK);
+    Result := False;
   end;
 end;
 

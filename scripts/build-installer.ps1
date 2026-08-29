@@ -2,7 +2,8 @@
 param(
     [string] $IsccPath,
     [string] $PrerequisiteManifestPath,
-    [string] $PrerequisitePinsPath
+    [string] $PrerequisitePinsPath,
+    [string] $PayloadSourceDirectory
 )
 
 Set-StrictMode -Version Latest
@@ -97,21 +98,27 @@ foreach ($directory in @($stage, $installerDirectory)) {
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 }
 
-foreach ($publish in @(
-    @{ Project = 'src\Quail.App\Quail.App.csproj'; Output = $appPublish },
-    @{ Project = 'src\Quail.Cli\Quail.Cli.csproj'; Output = $cliPublish })) {
-    & dotnet restore (Join-Path $root $publish.Project) --runtime win-x64 --ignore-failed-sources -p:NuGetAudit=false
-    if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $($publish.Project) with exit code $LASTEXITCODE." }
-    & dotnet publish (Join-Path $root $publish.Project) --configuration Release --runtime win-x64 --self-contained false --output $publish.Output --no-restore -p:Platform=x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:PublishAot=false
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $($publish.Project) with exit code $LASTEXITCODE." }
-}
-
-$appBuildOutput = Join-Path $root 'src\Quail.App\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64'
-foreach ($artifact in @('App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png')) { Copy-RequiredAppArtifact $appBuildOutput $appPublish $artifact }
-
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
-Copy-Payload $appPublish $payload
-Copy-Payload $cliPublish $payload
+if ($PayloadSourceDirectory) {
+    $payloadSource = (Resolve-Path -LiteralPath $PayloadSourceDirectory -ErrorAction Stop).Path
+    Copy-Payload $payloadSource $payload
+}
+else {
+    foreach ($publish in @(
+        @{ Project = 'src\Quail.App\Quail.App.csproj'; Output = $appPublish },
+        @{ Project = 'src\Quail.Cli\Quail.Cli.csproj'; Output = $cliPublish })) {
+        & dotnet restore (Join-Path $root $publish.Project) --runtime win-x64 --ignore-failed-sources -p:NuGetAudit=false
+        if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $($publish.Project) with exit code $LASTEXITCODE." }
+        & dotnet publish (Join-Path $root $publish.Project) --configuration Release --runtime win-x64 --self-contained false --output $publish.Output --no-restore -p:Platform=x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:PublishAot=false
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $($publish.Project) with exit code $LASTEXITCODE." }
+    }
+
+    $appBuildOutput = Join-Path $root 'src\Quail.App\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64'
+    foreach ($artifact in @('App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png')) { Copy-RequiredAppArtifact $appBuildOutput $appPublish $artifact }
+
+    Copy-Payload $appPublish $payload
+    Copy-Payload $cliPublish $payload
+}
 
 $required = @('Quail.exe', 'Quail.Cli.exe', 'App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll')
 foreach ($artifact in $required) { if (-not (Test-Path -LiteralPath (Join-Path $payload $artifact) -PathType Leaf)) { throw "Final installer payload is missing required artifact: $artifact" } }
@@ -123,7 +130,7 @@ if (Get-ChildItem -LiteralPath $payload -Filter 'Microsoft.Windows.AI.*.Projecti
 
 if (-not $PrerequisiteManifestPath) {
     & (Join-Path $PSScriptRoot 'get-installer-prerequisites.ps1') -PinsPath $pinsPath
-    if ($LASTEXITCODE -ne 0) { throw 'Prerequisite acquisition failed.' }
+    if (-not $?) { throw 'Prerequisite acquisition failed.' }
     $PrerequisiteManifestPath = Join-Path $root '.quail-tooling\installer-prerequisites\prerequisites.json'
 }
 if (-not (Test-Path -LiteralPath $PrerequisiteManifestPath -PathType Leaf)) { throw "Prerequisite manifest does not exist: $PrerequisiteManifestPath" }
