@@ -26,6 +26,7 @@ metadata was changed. No private-archive ref or history was migrated.
 | Entry tags / Releases / pull requests | 0 / 0 / 0 |
 | Worktree | clean |
 | Audit branch | `m14-a-public-release-readiness` |
+| Stopped-audit handoff | [PR #1](https://github.com/calorypher/Quail-public-staging/pull/1), open and not merged |
 
 The old `calorypher/Quail` repository was not modified. Its stopped M14-A and
 M14-R/M14-S results were read only as historical reference after staging had

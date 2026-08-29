@@ -14,6 +14,7 @@ The fetched entry state contained only `origin/main` at
 `26bf068c982422e4c85d4727218fe260c5e730d1`. The history consisted of one
 parentless commit. There were no tags, GitHub Releases, release assets, or pull
 requests. The M14-A audit branch is the only ref created by this run.
+The stopped-audit handoff is open as PR #1 against `main`; it is not merged.
 
 ## Explicit legacy exclusions
 
