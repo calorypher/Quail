@@ -1,0 +1,50 @@
+{
+  "capturedAt": "2026-08-22",
+  "host": {
+    "os": "Windows 11 Pro build 26200",
+    "session": "unelevated physical desktop",
+    "powerPlan": "Balanced",
+    "cpu": {
+      "name": "AMD Ryzen 7 7800X3D 8-Core Processor",
+      "physicalCores": 8,
+      "logicalProcessors": 16,
+      "maxClockMHz": 4201
+    },
+    "installedRamBytes": 68304699392,
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4080 SUPER",
+      "driverVersion": "32.0.16.1088"
+    }
+  },
+  "toolchain": {
+    "dotnetSdk": "10.0.400",
+    "dotnetRuntime": "10.0.11",
+    "msbuild": "18.9.6",
+    "buildConfiguration": "Release x64"
+  },
+  "dpiMeasurement": {
+    "method": "fresh PER_MONITOR_AWARE_V2 process before HWND creation; EnumDisplaySettings for current signal mode; GetDpiForMonitor for effective DPI",
+    "note": "The earlier DPI-unaware probe was virtualized and is not evidence."
+  },
+  "topology": "extended desktop",
+  "displays": [
+    {
+      "device": "DISPLAY1",
+      "primary": true,
+      "currentSignalResolution": "3440x1440",
+      "physicalDesktopBounds": "3440x1440+0+0",
+      "scalingPercent": 100,
+      "effectiveDpi": 96,
+      "refreshHz": 160
+    },
+    {
+      "device": "DISPLAY2",
+      "primary": false,
+      "currentSignalResolution": "3840x2160",
+      "physicalDesktopBounds": "3840x2160+3440-720",
+      "scalingPercent": 150,
+      "effectiveDpi": 144,
+      "refreshHz": 60
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+Test ID: T03
+Date/time: 2026-08-20T13:03:40.9151674+02:00
+Environment: physical host
+Volume: C:
+Elevation: elevated
+Command: journal
+Raw output:
+JOURNAL volume=C: journalId=0x01dce2a9ec38f4e6 firstUsn=8564768768 nextUsn=8600216624 lowestValidUsn=0 maxUsn=17592185978880 maximumSize=33554432 allocationDelta=8388608 minMajor=2 maxMajor=4
+
+Test ID: T04
+Environment: physical host
+Volume: C:
+Elevation: elevated
+Command: enumerate
+Raw output:
+ENUMERATION volume=C: records=854597 parseErrors=0 unsupportedRecords=0 elapsedMs=1598.524 recordsPerSecond=534616 cpuMs=1671.875 peakWorkingSetBytes=294375424
+
+Test ID: T05 warm-up plus three measured runs
+Environment: physical host
+Volume: C:
+Elevation: elevated
+Command: enumerate
+Raw output:
+ENUMERATION volume=C: records=854575 parseErrors=0 unsupportedRecords=0 elapsedMs=1438.900 recordsPerSecond=593909 cpuMs=1421.875 peakWorkingSetBytes=295149568
+ENUMERATION volume=C: records=854566 parseErrors=0 unsupportedRecords=0 elapsedMs=1418.700 recordsPerSecond=602359 cpuMs=1468.750 peakWorkingSetBytes=291778560
+ENUMERATION volume=C: records=854565 parseErrors=0 unsupportedRecords=0 elapsedMs=1423.291 recordsPerSecond=600415 cpuMs=1468.750 peakWorkingSetBytes=291807232
+ENUMERATION volume=C: records=854566 parseErrors=0 unsupportedRecords=0 elapsedMs=1436.149 recordsPerSecond=595040 cpuMs=1484.375 peakWorkingSetBytes=291774464

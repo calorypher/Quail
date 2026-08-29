@@ -1,0 +1,33 @@
+variant,fixtureVersion,metric,value,unit,status,notes
+self-contained,0.9.0,publish-directory-bytes,237518505,bytes,pass,Final Release x64 publish including required XAML/PRI artifacts
+self-contained,0.9.0,publish-file-count,523,files,pass,Final Release x64 publish
+self-contained,0.9.0,installer-bytes,70098985,bytes,pass,Final Inno Setup 7.1.0 installer after QA fixes
+self-contained,0.9.0,installed-directory-bytes,242121776,bytes,pass,M01-clean install including uninstaller
+self-contained,0.9.0,installed-file-count,525,files,pass,M01-clean install including uninstaller files
+framework-dependent,0.9.0,publish-directory-bytes,83820750,bytes,pass,Final Release x64 publish including required XAML/PRI artifacts
+framework-dependent,0.9.0,publish-file-count,56,files,pass,Final Release x64 publish
+framework-dependent,0.9.0,installer-bytes,22529096,bytes,pass,Final Inno Setup 7.1.0 installer after QA fixes
+framework-dependent,0.9.0,installed-directory-bytes,88324373,bytes,pass,M01-clean install including uninstaller
+framework-dependent,0.9.0,installed-file-count,58,files,pass,M01-clean install including uninstaller files
+framework-dependent,0.9.0,vc-redist-download-bytes,18731856,bytes,observed,Missing on M01-clean and SHA-256 verified
+framework-dependent,0.9.0,windows-app-runtime-download-bytes,116423480,bytes,observed,M01-clean had Framework only; final detector required Main Singleton and x64 DDLM too
+framework-dependent,0.9.0,clean-baseline-prerequisite-download-bytes,135155336,bytes,pass,Final B online clean install downloaded only VC++ x64 and Windows App Runtime
+framework-dependent,0.9.0,targeted-missing-dotnet-download-bytes,60001888,bytes,pass,Normal SDK uninstall in Quail-Lab then final bootstrap download and SHA-256 verification
+framework-dependent,0.9.0,targeted-missing-dotnet-full-prerequisite-download-bytes,195157224,bytes,pass,Final directory-based detector on M01-clean after normal SDK uninstall downloaded .NET VC++ and Windows App Runtime then installed payload
+framework-dependent,0.9.1,upgrade-prerequisite-download-count,0,count,pass,Final 0.9.0 to 0.9.1 bounded upgrade after all prerequisites were present
+self-contained,0.9.1,upgrade-required-xbf-pri-present,3,count,pass,Final 0.9.0 to 0.9.1 bounded upgrade
+framework-dependent,0.9.1,upgrade-required-xbf-pri-present,3,count,pass,Final 0.9.0 to 0.9.1 bounded upgrade
+self-contained,0.9.0,startup-p50,395.286,milliseconds,pass,Physical host; 5 warmups and 30 measured visible-ready runs
+self-contained,0.9.0,startup-p95,416.002,milliseconds,pass,Physical host
+self-contained,0.9.0,startup-max,432.476,milliseconds,pass,Physical host
+self-contained,0.9.0,startup-average,396.687,milliseconds,pass,Physical host
+framework-dependent,0.9.0,startup-p50,389.425,milliseconds,pass,Physical host; 5 warmups and 30 measured visible-ready runs
+framework-dependent,0.9.0,startup-p95,427.986,milliseconds,pass,Physical host
+framework-dependent,0.9.0,startup-max,431.002,milliseconds,pass,Physical host
+framework-dependent,0.9.0,startup-average,395.606,milliseconds,pass,Physical host
+self-contained,0.9.0,hidden-idle-working-set-average,150791373,bytes,observed,Physical host; 3-second settle then 10 samples
+self-contained,0.9.0,hidden-idle-private-bytes-average,163876864,bytes,observed,Physical host; bounded sample
+self-contained,0.9.0,hidden-idle-cpu-average,0.0000,percent,observed,Physical host; bounded sample
+framework-dependent,0.9.0,hidden-idle-working-set-average,151880909,bytes,observed,Physical host; 3-second settle then 10 samples
+framework-dependent,0.9.0,hidden-idle-private-bytes-average,164941824,bytes,observed,Physical host; bounded sample
+framework-dependent,0.9.0,hidden-idle-cpu-average,0.0097,percent,observed,Physical host; bounded sample

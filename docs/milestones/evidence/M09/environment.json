@@ -1,0 +1,67 @@
+{
+  "status": "completed-after-qa-fixes",
+  "sourceHead": "82ba69525ee33fd53f2e5e832155887e5473cd6a",
+  "qaFixBaseHead": "b29d097cf119b134de7b68f1f92f81ad4fb2f9a7",
+  "branch": "m09-deployment-spike",
+  "host": {
+    "os": "Windows 11 Pro",
+    "build": "26200",
+    "architecture": "x64",
+    "dotnetSdk": "10.0.400",
+    "dotnetRuntime": "10.0.11",
+    "windowsAppSdkNuGet": "2.4.0",
+    "innoSetup": "7.1.0"
+  },
+  "fixture": "spikes/m08/winui/Quail.M08.WinUi.csproj",
+  "cleanTarget": {
+    "checkpoint": "M01-clean",
+    "provenance": "Approved pre-implementation/project Windows 11 Pro baseline with pre-existing quailadmin SSH/minimal automation, the observed SDK/runtime inventory, and no later Quail development. It is not represented as an untouched retail/factory Windows installation.",
+    "inventory": {
+      "windows": "Windows 11 Pro 10.0.26200 x64",
+      "dotnetSdk": ["10.0.400"],
+      "windowsDesktopRuntime": ["10.0.11"],
+      "windowsAppRuntimeBefore": ["Microsoft.WindowsAppRuntime.2 2.4.0.0 x64", "Microsoft.WindowsAppRuntime.2 2.4.0.0 x86"],
+      "windowsAppRuntimeMissingBefore": ["MicrosoftCorporationII.WinAppRuntime.Main.2 x64", "MicrosoftCorporationII.WinAppRuntime.Singleton x64", "Microsoft.WinAppRuntime.DDLM.2.4.0.0-x6 x64"],
+      "windowsAppRuntimeCompleteAfterInstaller": ["Microsoft.WindowsAppRuntime.2 2.4.0.0 x64", "MicrosoftCorporationII.WinAppRuntime.Main.2 2.4.0.0 x64", "MicrosoftCorporationII.WinAppRuntime.Singleton 8002.4.0.0 x64", "Microsoft.WinAppRuntime.DDLM.2.4.0.0-x6 2.4.0.0 x64"],
+      "vcRedistX64": "absent traditional v14 registration"
+    },
+    "automation": "SSH is Session 0 and non-interactive; it is unsuitable for visual GUI or SendInput smoke."
+  },
+  "officialPrerequisites": [
+    {
+      "id": "dotnet-desktop-runtime-x64",
+      "requiredVersion": "10.0.11",
+      "originalSource": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.11/windowsdesktop-runtime-10.0.11-win-x64.exe",
+      "resolvedSource": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.11/windowsdesktop-runtime-10.0.11-win-x64.exe",
+      "sizeBytes": 60001888,
+      "sha256": "61d2e1447b185d6f99c0d5799896240b48246f5440648bc031ebdb159a3bf3d1"
+    },
+    {
+      "id": "windows-app-runtime-x64",
+      "requiredVersion": "2.4.0.0",
+      "originalSource": "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe",
+      "resolvedSource": "https://download.microsoft.com/download/097dbd99-ea76-49de-994b-eb935c72dcf1/WindowsAppRuntimeInstall-x64.exe",
+      "sizeBytes": 116423480,
+      "sha256": "851c35b0b0a59ce4c55f9171f601193322fc3413143b0dc3390ea11e14cfa7fc"
+    },
+    {
+      "id": "vc-redist-x64",
+      "minimumVersion": "14.51.36247.0",
+      "originalSource": "https://aka.ms/vc14/vc_redist.x64.exe",
+      "resolvedSource": "https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",
+      "sizeBytes": 18731856,
+      "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c"
+    }
+  ],
+  "targetedMissingDotNet": {
+    "method": "Normal supported uninstall of SDK 10.0.400 inside Quail-Lab removed Microsoft.WindowsDesktop.App 10.0.11; no files were manually deleted.",
+    "postUninstallEvidence": "dotnet command unavailable; x64 Microsoft.WindowsDesktop.App directory absent.",
+    "result": "Final directory-based detector completed an end-to-end bootstrap: it downloaded all three missing prerequisites from their resolved official URLs, SHA-256-verified each, installed .NET Desktop Runtime 10.0.11, and installed the fixture payload."
+  },
+  "checkpointSequence": ["M09-clean restore", "M01-clean restore(s) for T05-T11 and QA rechecks", "M09-clean final restore"],
+  "deviations": [
+    "M09-pristine and M09-no-prereqs were not created.",
+    "T08B used a temporary VM-wide HTTP(S) firewall block; it proved no verification, no VC registration, and no payload, but did not show the silent Session 0 UI dialog.",
+    "Guest visual GUI/hotkey/tray smoke remains unclaimable through SSH Session 0; host pipe-based visible-ready verifies the final staged payload launch boundary."
+  ]
+}

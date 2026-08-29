@@ -1,0 +1,205 @@
+using Quail.Core;
+
+namespace Quail.Core.Tests;
+
+public sealed class FileSearchRankingTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), "Quail-Search-Ranking-" + Guid.NewGuid());
+    private static readonly FileSearchRankingContext Context = new("X:\\Users\\Alice", ["X:\\Windows"]);
+
+    public FileSearchRankingTests() => Directory.CreateDirectory(_directory);
+
+    [Fact]
+    public void Current_user_downloads_outranks_deep_appdata_without_a_downloads_boost()
+    {
+        var store = Build("downloads.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var downloads = AddDirectory(sink, alice, 4, "Downloads");
+            AddFile(sink, downloads, 5, "download-guide.txt");
+            var appData = AddDirectory(sink, alice, 6, "AppData", hidden: true);
+            var roaming = AddDirectory(sink, appData, 7, "Roaming");
+            AddFile(sink, roaming, 8, "cached-download-history.txt");
+        });
+
+        var results = store.Search(new FileSearchQuery("download", SearchEntryType.File), Context);
+
+        Assert.Equal("download-guide.txt", results[0].Name);
+        Assert.Equal(FileSearchLocation.CurrentUserVisible, FileSearchRanking.Classify(results[0], "download", Context).Location);
+        Assert.Equal(FileSearchLocation.CurrentUserInternal, FileSearchRanking.Classify(results[1], "download", Context).Location);
+    }
+
+    [Fact]
+    public void Current_user_desktop_outranks_internal_recent_link()
+    {
+        var store = Build("recent.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "desktop-plan.txt");
+            var appData = AddDirectory(sink, alice, 6, "AppData", hidden: true);
+            var roaming = AddDirectory(sink, appData, 7, "Roaming");
+            var microsoft = AddDirectory(sink, roaming, 8, "Microsoft");
+            var windows = AddDirectory(sink, microsoft, 9, "Windows");
+            var recent = AddDirectory(sink, windows, 10, "Recent");
+            AddFile(sink, recent, 11, "desktop-plan.txt.lnk");
+        });
+
+        var results = store.Search(new FileSearchQuery("desktop", SearchEntryType.File), Context);
+
+        Assert.Equal(new[] { "desktop-plan.txt", "desktop-plan.txt.lnk" }, results.Select(result => result.Name));
+    }
+
+    [Fact]
+    public void Current_user_desktop_outranks_windows_winsxs_infrastructure()
+    {
+        var store = Build("winsxs.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "desktop-notes.txt");
+            var windows = AddDirectory(sink, Root, 6, "Windows");
+            var winsxs = AddDirectory(sink, windows, 7, "WinSxS");
+            var fileMaps = AddDirectory(sink, winsxs, 8, "FileMaps");
+            AddFile(sink, fileMaps, 9, "desktop-infrastructure.dat");
+        });
+
+        var results = store.Search(new FileSearchQuery("desktop", SearchEntryType.File), Context);
+
+        Assert.Equal("desktop-notes.txt", results[0].Name);
+        Assert.Equal(FileSearchLocation.SystemHeavy, FileSearchRanking.Classify(results[1], "desktop", Context).Location);
+    }
+
+    [Fact]
+    public void Visible_non_profile_user_space_outranks_current_user_appdata()
+    {
+        var currentUserStore = Build("current-user.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var appData = AddDirectory(sink, alice, 4, "AppData", hidden: true);
+            var roaming = AddDirectory(sink, appData, 5, "Roaming");
+            AddFile(sink, roaming, 6, "download-cache.txt");
+        });
+        var projectsStore = Build("projects.db", "D:\\", sink =>
+        {
+            var projects = AddDirectory(sink, Root, 2, "Projects");
+            AddFile(sink, projects, 3, "download-guide.txt");
+        });
+
+        var results = MultiIndexSearch.Search(
+            [currentUserStore, projectsStore],
+            new FileSearchQuery("download", SearchEntryType.File),
+            Context);
+
+        Assert.Equal(new[] { "download-guide.txt", "download-cache.txt" }, results.Select(result => result.Result.Name));
+        Assert.Equal(FileSearchLocation.OtherVisible, FileSearchRanking.Classify(results[0].Result, "download", Context).Location);
+        Assert.Equal(FileSearchLocation.CurrentUserInternal, FileSearchRanking.Classify(results[1].Result, "download", Context).Location);
+    }
+
+    [Fact]
+    public void Candidate_retrieval_does_not_lose_a_useful_prefix_after_more_than_fifty_alphabetical_substrings()
+    {
+        var store = Build("candidate-cutoff.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "needle-useful.txt");
+            for (var index = 0; index < 75; index++)
+            {
+                AddFile(sink, Root, 100 + index, $"aaa-{index:D3}-needle-noise.txt");
+            }
+        });
+
+        var results = store.Search(new FileSearchQuery("needle", Limit: 50), Context);
+
+        Assert.Equal(50, results.Count);
+        Assert.Equal("needle-useful.txt", results[0].Name);
+        Assert.Contains(results, result => result.Name == "needle-useful.txt");
+    }
+
+    [Fact]
+    public void Token_prefix_separator_semantics_match_bounded_candidate_retrieval()
+    {
+        var store = Build("token-separator.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "foo!needle.txt");
+            for (var index = 0; index < 75; index++)
+            {
+                AddFile(sink, Root, 100 + index, $"aaa{index:D3}xneedle-noise.txt");
+            }
+        });
+
+        var results = store.Search(new FileSearchQuery("needle", Limit: 50), Context);
+
+        var tokenPrefix = Assert.Single(results, result => result.Name == "foo!needle.txt");
+        Assert.Equal(FileSearchTextMatch.TokenPrefix, FileSearchRanking.Classify(tokenPrefix, "needle", Context).TextMatch);
+        Assert.Equal("foo!needle.txt", results[0].Name);
+    }
+
+    [Fact]
+    public void Text_match_quality_is_exact_then_prefix_then_token_prefix_then_substring()
+    {
+        var store = Build("text-quality.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "query");
+            AddFile(sink, desktop, 6, "query-prefix.txt");
+            AddFile(sink, desktop, 7, "word_query.txt");
+            AddFile(sink, desktop, 8, "subquery.txt");
+        });
+
+        var results = store.Search(new FileSearchQuery("query"), Context);
+
+        Assert.Equal(
+            new[] { "query", "query-prefix.txt", "word_query.txt", "subquery.txt" },
+            results.Select(result => result.Name));
+        Assert.Equal(
+            new[] { FileSearchTextMatch.Exact, FileSearchTextMatch.Prefix, FileSearchTextMatch.TokenPrefix, FileSearchTextMatch.Substring },
+            results.Select(result => FileSearchRanking.Classify(result, "query", Context).TextMatch));
+    }
+
+    private IndexStore Build(string fileName, Action<Action<NamespaceRecord>> produce) => Build(fileName, "X:\\", produce);
+
+    private IndexStore Build(string fileName, string volumeRoot, Action<Action<NamespaceRecord>> produce)
+    {
+        var store = new IndexStore(Path.Combine(_directory, fileName));
+        store.BuildFromRecords(
+            new VolumeDescriptor(fileName, volumeRoot, "NTFS", "Search ranking test"),
+            sink =>
+            {
+                sink(new NamespaceRecord(Root, Root, "", 0x10, 0, 2));
+                produce(sink);
+            },
+            checkpoint: new IncrementalCheckpoint(1, 2, 0, 0));
+        return store;
+    }
+
+    private static NativeFileId Root => Id(1);
+
+    private static NativeFileId AddDirectory(Action<NamespaceRecord> sink, NativeFileId parent, int id, string name, bool hidden = false)
+    {
+        var fileId = Id(id);
+        sink(new NamespaceRecord(fileId, parent, name, 0x10 | (hidden ? 0x2u : 0), 0, 2));
+        return fileId;
+    }
+
+    private static void AddFile(Action<NamespaceRecord> sink, NativeFileId parent, int id, string name) =>
+        sink(new NamespaceRecord(Id(id), parent, name, 0, 0, 2));
+
+    private static NativeFileId Id(int value) => new(BitConverter.GetBytes((long)value));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
+    }
+}

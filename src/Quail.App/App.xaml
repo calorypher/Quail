@@ -1,0 +1,94 @@
+<Application
+    x:Class="Quail.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Default">
+          <SolidColorBrush x:Key="QuailSurfaceBrush" Color="#101923" />
+          <SolidColorBrush x:Key="QuailSecondarySurfaceBrush" Color="#162230" />
+          <SolidColorBrush x:Key="QuailSearchBrush" Color="#14202C" />
+          <SolidColorBrush x:Key="QuailBorderBrush" Color="#2A3A4A" />
+          <SolidColorBrush x:Key="QuailSubtleBorderBrush" Color="#203040" />
+          <SolidColorBrush x:Key="QuailResultSelectedBrush" Color="#1D4D78" />
+          <SolidColorBrush x:Key="QuailResultPointerOverBrush" Color="#1B2C3C" />
+          <SolidColorBrush x:Key="QuailAccentBrush" Color="#3A8DDE" />
+          <SolidColorBrush x:Key="QuailAccentTextBrush" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="QuailTextBrush" Color="#F4F8FC" />
+          <SolidColorBrush x:Key="QuailSecondaryTextBrush" Color="#9CB0C4" />
+          <SolidColorBrush x:Key="QuailIconBrush" Color="#B8D6F8" />
+          <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#1B2C3C" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#1D4D78" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#275E8D" />
+          <SolidColorBrush x:Key="ListViewItemForeground" Color="#F4F8FC" />
+          <SolidColorBrush x:Key="ListViewItemForegroundPointerOver" Color="#F4F8FC" />
+          <SolidColorBrush x:Key="ListViewItemForegroundSelected" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ListViewItemForegroundSelectedPointerOver" Color="#FFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="QuailSurfaceBrush" Color="#F7FAFD" />
+          <SolidColorBrush x:Key="QuailSecondarySurfaceBrush" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="QuailSearchBrush" Color="#FDFEFF" />
+          <SolidColorBrush x:Key="QuailBorderBrush" Color="#C7D5E3" />
+          <SolidColorBrush x:Key="QuailSubtleBorderBrush" Color="#DEE7F0" />
+          <SolidColorBrush x:Key="QuailResultSelectedBrush" Color="#D7EAFE" />
+          <SolidColorBrush x:Key="QuailResultPointerOverBrush" Color="#EDF5FD" />
+          <SolidColorBrush x:Key="QuailAccentBrush" Color="#0F6CBD" />
+          <SolidColorBrush x:Key="QuailAccentTextBrush" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="QuailTextBrush" Color="#132235" />
+          <SolidColorBrush x:Key="QuailSecondaryTextBrush" Color="#536A82" />
+          <SolidColorBrush x:Key="QuailIconBrush" Color="#1677F2" />
+          <SolidColorBrush x:Key="ListViewItemBackground" Color="Transparent" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#EDF5FD" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#D7EAFE" />
+          <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#C6E1FB" />
+          <SolidColorBrush x:Key="ListViewItemForeground" Color="#132235" />
+          <SolidColorBrush x:Key="ListViewItemForegroundPointerOver" Color="#132235" />
+          <SolidColorBrush x:Key="ListViewItemForegroundSelected" Color="#0B3768" />
+          <SolidColorBrush x:Key="ListViewItemForegroundSelectedPointerOver" Color="#082D55" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <Style x:Key="QuailIndexCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource QuailSecondarySurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="14" />
+      </Style>
+      <Style x:Key="QuailSecondaryTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource QuailSecondaryTextBrush}" />
+      </Style>
+      <Style x:Key="QuailSettingsCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource QuailSecondarySurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="10" />
+      </Style>
+      <Style x:Key="QuailSettingsNavigationButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource QuailSecondarySurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="10" />
+      </Style>
+      <Style x:Key="QuailPrimaryActionButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource QuailAccentBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource QuailAccentTextBrush}" />
+        <Setter Property="Padding" Value="14,7" />
+      </Style>
+      <Style x:Key="QuailTertiaryActionButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="8,6" />
+      </Style>
+      <Style x:Key="QuailIndexRootStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource QuailSurfaceBrush}" />
+      </Style>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

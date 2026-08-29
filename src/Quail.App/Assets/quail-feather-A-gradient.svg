@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img">
+  <defs>
+    <linearGradient id="quailBlue" x1="225" y1="790" x2="830" y2="205" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F62FE"/>
+      <stop offset="0.52" stop-color="#167CFF"/>
+      <stop offset="1" stop-color="#43B1FF"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#quailBlue)" fill-rule="evenodd" d="M 204 877 C 216 846, 239 807, 272 772 C 257 752, 257 730, 263 700 C 279 620, 321 534, 386 456 C 477 346, 603 257, 747 207 C 780 196, 806 188, 829 185 C 833 224, 826 278, 811 332 C 797 385, 776 437, 746 486 C 737 501, 726 516, 713 530 L 630 573 L 748 548 C 721 591, 686 630, 646 664 C 586 716, 513 752, 432 770 C 366 785, 311 786, 272 773 C 244 811, 224 846, 216 877 C 213 888, 207 895, 201 892 C 196 889, 199 883, 204 877 Z M 260 768 C 382 670, 519 539, 668 350 C 546 548, 414 682, 274 787 C 265 793, 254 781, 260 768 Z"/>
+</svg>

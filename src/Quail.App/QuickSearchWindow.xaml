@@ -1,0 +1,88 @@
+<Window
+    x:Class="Quail.App.QuickSearchWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Quail.App">
+  <Grid x:Name="RootGrid" Background="{ThemeResource QuailSearchBrush}">
+    <Grid.Resources>
+      <Style x:Key="ResultItemStyle" TargetType="ListViewItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="UseSystemFocusVisuals" Value="False" />
+      </Style>
+    </Grid.Resources>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="56" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0" Padding="14,0" ColumnSpacing="11">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="24" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Image x:Name="FeatherImage" Width="20" Height="20" VerticalAlignment="Center" />
+        <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search files…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" KeyDown="OnQueryKeyDown">
+          <TextBox.Resources>
+            <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent" />
+            <Thickness x:Key="TextControlBorderThemeThickness">0</Thickness>
+            <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
+          </TextBox.Resources>
+        </TextBox>
+        <Button x:Name="SettingsButton" Grid.Column="2" Click="OnSettingsClicked" ToolTipService.ToolTip="Settings" Background="Transparent" BorderThickness="0" Padding="6">
+          <FontIcon Glyph="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+        </Button>
+    </Grid>
+
+    <Grid x:Name="ExpandedContent" Grid.Row="1" Margin="14,0,14,14" Opacity="0" RenderTransformOrigin="0.5,0">
+      <Grid.RenderTransform>
+        <TranslateTransform x:Name="ExpandedContentTransform" Y="6" />
+      </Grid.RenderTransform>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <ListView x:Name="ResultsList" ItemContainerStyle="{StaticResource ResultItemStyle}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnResultItemClick" IsSwipeEnabled="False" IsTabStop="False" UseSystemFocusVisuals="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <ListView.ItemTemplate>
+          <DataTemplate>
+            <Grid Height="46">
+              <Border Background="{ThemeResource QuailResultSelectedBrush}" CornerRadius="6" Visibility="{Binding KeyboardSelectionVisibility}" />
+              <Grid Padding="11,5" ColumnSpacing="10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="22" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <Grid Width="22" Height="22" VerticalAlignment="Center">
+                <FontIcon Glyph="{Binding IconGlyph}" Visibility="{Binding FallbackIconVisibility}" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{ThemeResource QuailIconBrush}" VerticalAlignment="Center" />
+                <Image Source="{Binding Icon}" Width="20" Height="20" Stretch="Uniform" />
+              </Grid>
+              <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource QuailTextBrush}" />
+                <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+              </StackPanel>
+              <TextBlock Grid.Column="2" Text="{Binding Metadata}" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" VerticalAlignment="Center" />
+            </Grid>
+            </Grid>
+          </DataTemplate>
+        </ListView.ItemTemplate>
+      </ListView>
+
+      <Grid x:Name="FooterPanel" Grid.Row="1" Margin="2,8,2,0">
+        <TextBlock x:Name="StatusText" Foreground="{ThemeResource QuailSecondaryTextBrush}" FontSize="12" />
+        <TextBlock x:Name="HotkeyText" HorizontalAlignment="Right" Foreground="{ThemeResource QuailSecondaryTextBrush}" FontSize="12" />
+      </Grid>
+    </Grid>
+
+    <Grid x:Name="SettingsHost" Grid.RowSpan="2" Visibility="Collapsed" Background="{ThemeResource QuailSurfaceBrush}" />
+  </Grid>
+</Window>
