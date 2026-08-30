@@ -257,20 +257,35 @@ The BSD-3-Clause terms above apply to that attribution as well.
 ## Windows App SDK and Windows SDK projections
 
 The payload includes Windows App SDK 2.x WinUI, bootstrap, and projection files
-and Windows SDK .NET/CsWinRT projection/runtime files. The Windows App SDK
-package license expressly permits files binplaced with an application to be
-redistributed for framework-package-dependent and self-contained deployments.
-Quail redistributes these files unmodified, only for Windows, adds significant
-primary functionality, does not use Microsoft trademarks to imply endorsement,
-and preserves notices in the binaries.
+and Windows SDK .NET/CsWinRT projection/runtime files. The authoritative Windows
+App SDK terms for the binaries are the package-local `license.txt` files in the
+exact resolved NuGet graph, not the Microsoft Windows App product terms:
 
-The authoritative Microsoft Windows App SDK terms are published at
-https://learn.microsoft.com/legal/windows-app/windows-app-license-terms. The
-Windows SDK distributable-code terms are published at
-https://learn.microsoft.com/legal/windows-sdk/license-terms. The Windows App
-SDK package's broad source-component notice file is not copied verbatim because
-it covers package components outside Quail's 56-file payload. The applicable
-WinUI notice identifies Newtonsoft.Json 13.0.1 under MIT:
+- direct: [Microsoft.WindowsAppSDK.WinUI 2.3.6](https://www.nuget.org/packages/Microsoft.WindowsAppSDK.WinUI/2.3.6#license),
+  [Microsoft.WindowsAppSDK.Runtime 2.4.0](https://www.nuget.org/packages/Microsoft.WindowsAppSDK.Runtime/2.4.0#license),
+  and [Microsoft.WindowsAppSDK.InteractiveExperiences 2.1.6](https://www.nuget.org/packages/Microsoft.WindowsAppSDK.InteractiveExperiences/2.1.6#license);
+- resolved transitive: [Microsoft.WindowsAppSDK.Base 2.0.4](https://www.nuget.org/packages/Microsoft.WindowsAppSDK.Base/2.0.4#license)
+  and [Microsoft.WindowsAppSDK.Foundation 2.3.9](https://www.nuget.org/packages/Microsoft.WindowsAppSDK.Foundation/2.3.9#license).
+
+Each package-local file is titled `MICROSOFT SOFTWARE LICENSE TERMS — MICROSOFT
+WINDOWS APP SDK`; the five exact files are byte-identical (SHA-256
+`5b11e6347756e40fe0274bc08c97f89201b94f0d50181a09a00f1f4740840501`).
+They are the single authoritative copy of the applicable Windows App SDK terms
+for this payload and are available through the linked NuGet License Info pages.
+
+The package terms define files binplaced with an application by the
+WindowsAppSDK NuGet package as redistributable, for both framework-package-
+dependent and self-contained deployment. They also set the associated
+distribution requirements and restrictions, including significant primary
+functionality, the required downstream terms protecting Microsoft and the
+distributable code, the stated indemnification obligation, and the requirements
+concerning Microsoft marks and source-code distribution. Quail's MIT license
+applies to Quail source only: it does not relicense the redistributed Windows
+App SDK binaries, which remain subject to those Microsoft package terms.
+
+The broad Windows App SDK package notice files are not copied verbatim because
+they cover package components outside Quail's exact 56-file payload. The
+applicable WinUI notice identifies Newtonsoft.Json 13.0.1 under MIT:
 
 Copyright (c) 2007 James Newton-King.
 
