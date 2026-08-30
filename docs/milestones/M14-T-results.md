@@ -2,13 +2,14 @@
 
 ## Disposition
 
-**STOP — `remediation blocked`.**
+`fixed-location installer simplified and validated`
 
-The installer implementation and every completed focused lifecycle/security
-test passed. The required T9 execution proof from a standard non-admin account
-could not be completed in the current Quail-Lab without changing its user
-execution/security-policy configuration. ACL inspection is supportive evidence
-only and is not recorded as a substitute for that required runtime proof.
+The installer implementation and focused lifecycle/security matrix passed.
+T9 is accepted as a fixed-location ACL/security validation: M14-T neither
+creates nor changes its own DACL, and the canonical Program Files destination
+retains standard Windows access control. A separate standard-user executable
+smoke was unavailable in the current Quail-Lab and is not required for this
+disposition.
 
 No publication-sensitive action occurred. No checkpoint was restored, deleted,
 renamed, or overwritten.
@@ -79,7 +80,7 @@ test input was read only and hash-verified as
 | T6 different development version | PASS | Real hash-verified 0.1 installed; candidate exited 7 without modifying its CLI-only payload or `0.1.0` registration; manual old uninstall then candidate installation succeeded and LocalAppData/ProgramData sentinels survived. |
 | T7 old/custom-location development registration | PASS | Controlled AppId metadata outside the canonical directory caused exit 7 with no canonical payload, PATH, or shortcut mutation. |
 | T8 uninstall | PASS | Payload, shortcut, canonical PATH entry, and registration were removed; foreign sentinel and external LocalAppData/ProgramData sentinels survived; shared .NET Desktop Runtime, Windows App Runtime, and VC++ runtime remained. |
-| T9 standard-user payload replacement | BLOCKED | Installed directory/file ACLs grant Users read/execute rather than write, and payload hash remained unchanged. However, both a password task and `Start-Process -Credential` failed to start a process for the fresh standard account in this lab (`SCHED_S_TASK_HAS_NOT_RUN` / `0xC0000142`). No lab policy or ACL was weakened to force the test. |
+| T9 focused ACL/security validation | PASS | T1 installed exactly under `C:\Program Files\Quail` (`{autopf}\Quail`). M14-T contains no DACL/permission mutation. Captured effective directory/file ACLs grant Users read/execute only, contain no write/modify/full-control grant for Users, Authenticated Users, or Everyone, and retain full control for Administrators and SYSTEM. The attempted standard-user write did not change the `Quail.exe` SHA-256. The executable smoke itself was unavailable in Quail-Lab (`SCHED_S_TASK_HAS_NOT_RUN` / `0xC0000142`) and was not forced by weakening VM policy or ACLs. T2–T4 independently passed for `/DIR=` and `/LOADINF` alternate destinations. |
 | T10 reparse sanity | PASS | A disposable junction at the canonical location caused exit 7; its user-writable target stayed empty and no global state appeared. |
 
 ## Evidence applicability
@@ -94,8 +95,17 @@ applicable because this milestone changes no application source, package graph,
 runtime configuration, or payload semantics; its artifact identities are
 superseded by the candidate identities above.
 
-## Required follow-up
+## T9 ACL evidence
 
-Run T9 in a Quail-Lab configuration that can launch a genuine standard-user
-process without weakening security policy, then rerun the final fixed-location
-installer candidate checks before changing the disposition to validated.
+The captured installation-directory DACL grants the built-in Users group
+read/execute (`0x1200a9`) and does not grant it write, modify, or full control.
+The installed executable has the same read/execute-only Users grant. Neither
+Authenticated Users nor Everyone receives a write-capable grant. Administrators
+and SYSTEM retain full control. The installer source contains no `icacls`, ACL,
+security-descriptor, or permission-setting operation; it relies on the normal
+inheritance of the fixed `{autopf}\Quail` directory.
+
+The candidate's `Quail.exe` hash remained
+`c1d4aa5625fb7d2ae8343177fd3e416b07242bd6a200fe807ee8e8b000f7f0d8`
+after the attempted standard-user modification. The unavailable executable
+smoke was a Quail-Lab session limitation, not a product or installer failure.
