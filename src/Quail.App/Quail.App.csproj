@@ -24,4 +24,8 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.6" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
   </ItemGroup>
+
+  <Target Name="NormalizeReleaseXamlProvenance" BeforeTargets="CoreCompile" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="&quot;$(SystemRoot)\System32\WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\normalize-release-xaml-provenance.ps1&quot; -GeneratedSourceDirectory &quot;$(XamlGeneratedOutputPath).&quot; -PhysicalCheckoutRoot &quot;$(MSBuildThisFileDirectory)..\..&quot;" />
+  </Target>
 </Project>
