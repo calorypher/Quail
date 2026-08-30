@@ -1,6 +1,25 @@
 # M14-A rerun — source-built artifact privacy and provenance audit
 
-## Canonical build input
+## Finalization candidate addendum
+
+The current technical candidate supersedes the pre-stop artifact identity:
+
+- source: `37e337f6793ae68889b964b0232637cc076aec2b`;
+- installer: 9,947,284 B;
+- installer SHA-256:
+  `efd6bf4846d9d82fb4e4b432522ce73b0a47a581f213d784406c1f31aef6be49`;
+- payload: 56 files, 43,926,881 B; tree SHA-256:
+  `53e528b6291a34804c85a403d2f446509f86f35b785c0882564778927d7f7b9a`;
+- `Quail.exe`: `8b2c49da52ac611a71544aaf4ad6a060350ccd047f43617903e6d1219b173021`;
+- `Quail.Cli.exe`: `1decfb0aed48d7b3dea83d271cfe3e1e62f2176155fa9eae7b60951d2a29cb5b`.
+
+The M14-P provenance guard passed for all 56 payload files. The same guard,
+applied to the one-file installer directory, passed separately. Both scans used
+the physical checkout and both available user-profile roots as forbidden input
+classes. This candidate is still non-public and must be rebuilt after the
+approved repository rename for final SourceLink identity.
+
+## Historical pre-stop canonical build input
 
 - source: `3c37010f1980662cc05b111592e6fb213661d401`;
 - canonical entry point: `scripts/build-installer.ps1`;
@@ -63,6 +82,6 @@ length, and lowercase file SHA-256 in ordinal path order.
 
 ## Disposition
 
-**PASS — source-built artifact privacy/provenance CLEAN for the exact entry
-source.** Final technical-candidate creation is deferred until remediation and
-the post-rename M14-B build sequence.
+**PASS — source-built artifact privacy/provenance CLEAN for the M14-A
+technical candidate.** The final public candidate remains deferred only for the
+approved post-rename M14-B sequence.

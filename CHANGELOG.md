@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — release-ready
 
 ### Changed
 
@@ -13,11 +13,5 @@
 - Persistent GUI-managed local NTFS indexes, including build, rebuild, refresh, and enable/disable for Quick Search.
 - Explicit administrator approval for privileged index operations while the normal Quail GUI remains unelevated.
 
-## 0.1.0 — 2026-08-22
-
-### Added
-
-- Persistent local NTFS indexes with USN-driven incremental synchronization.
-- Indexed file-name search with metadata filters and multi-index CLI support.
-- Windows Shell open for indexed files and directories.
-- A self-contained Windows installer for the Quail CLI.
+This is the first intended public development release. Its publication date,
+tag, and release hash are finalized in M14-B.

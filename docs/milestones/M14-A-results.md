@@ -1,8 +1,65 @@
 # M14-A results — Public-release readiness audit rerun
 
-## Disposition
+## Current disposition
 
-**STOP — `remediation required`.**
+**READY — `ready for M14-B`.**
+
+This document preserves the stopped rerun below as historical evidence. M14-T
+replaced the vulnerable custom-destination policy with a fixed Program Files
+contract. M14-A finalization has completed the delta security review,
+licensing/notices, public README/changelog, release-notes draft, unsigned
+installer recommendation, SourceLink sequencing record, and the fresh
+committed-source technical candidate are complete.
+
+### Finalization candidate
+
+- exact source: `37e337f6793ae68889b964b0232637cc076aec2b`;
+- installer: 9,947,284 B, SHA-256
+  `efd6bf4846d9d82fb4e4b432522ce73b0a47a581f213d784406c1f31aef6be49`;
+- payload: 56 files, 43,926,881 B, tree SHA-256
+  `53e528b6291a34804c85a403d2f446509f86f35b785c0882564778927d7f7b9a`;
+- `Quail.exe`: `8b2c49da52ac611a71544aaf4ad6a060350ccd047f43617903e6d1219b173021`;
+- `Quail.Cli.exe`: `1decfb0aed48d7b3dea83d271cfe3e1e62f2176155fa9eae7b60951d2a29cb5b`.
+
+Required gates passed: 176/176 Release tests, warning-free App/CLI Release
+builds, Windows App Runtime detection, fixed-location installer guard, M14-P
+payload and installer privacy scans, prerequisite/version/payload guards,
+canonical installer build, current three-PDB SourceLink check, and
+`git diff --check`. See
+[candidate evidence](evidence/M14-A/candidate-37e337f.md).
+
+### Current M14-A decisions
+
+- The M14-T fixed `{autopf}\\Quail` contract resolves the former untrusted
+  custom-directory/MACHINE PATH blocker. T1-T10 remains applicable; the current
+  source has no material security-relevant difference from the validated contract.
+- `LICENSE` is canonical MIT, copyright `2026 calorypher`.
+  `THIRD-PARTY-NOTICES.md` completes the current payload, prerequisite, and
+  Inno Setup dispositions from upstream/vendor texts.
+- README, `CHANGELOG.md`, and `docs/releases/0.2.0-release-notes.md` are ready
+  for the first public development release. No future feature or auto-update is
+  represented as shipped.
+- **Unsigned installer acceptable for the 0.2 development release with a
+  documented SmartScreen warning.** The binary is unsigned, reputation warnings
+  may appear, and M14-B will publish the final artifact hash. Code signing is a
+  later decision; no signing was purchased or configured.
+- The final public artifact must be rebuilt after the approved rename from
+  `calorypher/Quail-public-staging` to `calorypher/Quail`, so SourceLink names
+  the final repository directly. No rename occurred here.
+- No trademark clearance is claimed. The final TMview/EUIPO/UPRP check remains
+  immediately before M14-B publication.
+
+### Exact remaining M14-B actions
+
+1. Complete the final manual `QUAIL`/`Q.QUAIL`/materially-similar mark check in
+   TMview, EUIPO, and UPRP.
+2. After approval, rename the repository to `calorypher/Quail`, update the
+   checkout remote, and build the final source-derived artifact from that name.
+3. Re-run the final SourceLink/provenance/privacy identity checks, publish the
+   final installer SHA-256, then apply approved public repository metadata,
+   visibility, tag, GitHub Release, and asset upload operations.
+
+## Historical stopped rerun
 
 Quail 0.2 must not proceed to M14-B from this branch. The elevated per-machine
 installer can accept an empty/nonexistent custom directory that is writable by
@@ -172,7 +229,7 @@ The tree identity hashes UTF-8 lines of normalized relative path, byte length,
 and lowercase file SHA-256 in ordinal path order. This artifact predates any
 future remediation and must not be published.
 
-## Gates intentionally not completed
+## Historical gates intentionally not completed
 
 The stop prevents a passing disposition for final license/notices files,
 project `LICENSE`, README/CHANGELOG/release notes, unsigned-installer release
@@ -180,4 +237,10 @@ recommendation, final prerequisite redistribution record, final technical
 candidate, final trademark gate, and M14-B metadata plan. No absence of a new
 finding in those unfinished areas should be read as a pass.
 
-Final disposition: **`remediation required`**.
+Historical rerun disposition: **`remediation required`**, superseded by M14-T.
+
+## Final disposition
+
+**`ready for M14-B`** — no new security, privacy, or licensing blocker was
+found in scope. Only the explicit trademark and publication/rename operations
+are deferred.

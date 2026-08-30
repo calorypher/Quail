@@ -23,9 +23,11 @@ Build-only Windows SDK packages were not misclassified as application payload.
 Quail-owned executables, libraries, PDBs, JSON configuration, and branding were
 separated from third-party files.
 
-The exact final notice file was not generated because a packaging remediation
-may change the payload. The inventory above is audit evidence, not final legal
-clearance.
+The final notice file is now `THIRD-PARTY-NOTICES.md`. It includes the required
+full Apache-2.0 and WebView2 BSD-3-Clause texts and concise, source-specific
+dispositions for the other payload families. It intentionally excludes broad
+notice dumps for Windows App SDK package components absent from the exact
+payload.
 
 ## Installer-time prerequisites
 
@@ -55,7 +57,9 @@ Official deployment/redistribution sources reviewed:
 ## Disposition
 
 The source URLs, publisher, versions, pins, non-embedded download mechanism,
-hash verification, and signatures were verified. No fundamental incompatibility
-was found before the security stop. The final public redistribution statement,
-Inno Setup disposition, and exact notice/license output remain **incomplete**
-and must be finalized against the remediated payload.
+hash verification, and signatures were verified. The final public statement
+records that the three prerequisite installers are Microsoft downloads, not
+bundled Quail payload. Inno Setup's own license permits its use and generated
+installer distribution; acknowledgement is included in the notice file.
+
+**PASS — prerequisite and installer licensing disposition complete for M14-A.**

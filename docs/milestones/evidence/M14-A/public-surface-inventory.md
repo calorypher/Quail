@@ -48,18 +48,17 @@ tag and GitHub Release.
 - do not imply cloud, AI, plugins, cross-platform support, a background updater,
   or future roadmap features.
 
-## Deferred documentation and decision gates
+## Public material and decision gates
 
-Because the security stop occurred before low-risk public-documentation fixes,
-the repository still does not have a final MIT `LICENSE`, payload-derived
-third-party notices, public-ready README/CHANGELOG/release-notes draft, or an
-unsigned-installer release recommendation.
+M14-A finalization adds the canonical MIT `LICENSE`, payload-derived
+`THIRD-PARTY-NOTICES.md`, a public-ready README, a release-ready `0.2.0`
+CHANGELOG section, and `docs/releases/0.2.0-release-notes.md`.
 
-The installer and binaries are currently unsigned. SmartScreen/reputation UX
-and the exact user warning must be assessed after the packaging remediation;
-no code-signing purchase or service configuration was attempted. The result is
-not yet `unsigned installer acceptable for 0.2` and must not be inferred as a
-publication decision.
+The installer and binaries are unsigned. The technical recommendation is:
+**unsigned installer acceptable for the 0.2 development release with a
+documented SmartScreen warning and published release SHA-256.** SmartScreen or
+reputation warnings may appear; no code-signing purchase or configuration was
+attempted. Code signing can be revisited for a later release.
 
 The final manual `QUAIL`, `Q.QUAIL`, and materially similar software-mark check
 in TMview/EUIPO and UPRP remains intentionally deferred to immediately before
@@ -67,6 +66,7 @@ publication. No legal clearance is claimed.
 
 ## Disposition
 
-Inventory complete for the pre-stop private surface. Public metadata and
-documentation changes remain deferred; no publication-sensitive action was
-performed.
+Inventory and repository-tracked public material are ready for M14-B. No
+publication-sensitive action was performed. The final trademark check,
+repository rename/metadata, post-rename source build, tag, release creation,
+and asset upload remain deferred.
