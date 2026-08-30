@@ -68,6 +68,8 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Quail
 DefaultDirName={#AppDirectory}
+DisableDirPage=yes
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=Quail-{#AppVersion}-Setup
@@ -85,9 +87,6 @@ RestartApplications=no
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-[InstallDelete]
-#include "LegacySelfContained0_1.issinc"
 
 [Icons]
 Name: "{autoprograms}\Quail"; Filename: "{app}\Quail.exe"; WorkingDir: "{app}"
@@ -209,6 +208,11 @@ begin
   Result := RemoveBackslashUnlessRoot(ExpandFileName(Value));
 end;
 
+function CanonicalInstallationDirectory: String;
+begin
+  Result := CanonicalPath(ExpandConstant('{autopf}\Quail'));
+end;
+
 function IsReparsePoint(const Path: String): Boolean;
 var
   FindData: TFindRec;
@@ -301,58 +305,41 @@ begin
   end;
 end;
 
-function ExtractExecutableFromCommandLine(const Value: String): String;
+function GetRegisteredQuailInstallation(var InstallLocation, InstalledVersion: String): Boolean;
 var
-  ClosingQuote: Integer;
-  FirstSpace: Integer;
-begin
-  Result := '';
-  if Value = '' then Exit;
-
-  if Value[1] = '"' then
-  begin
-    ClosingQuote := Pos('"', Copy(Value, 2, Length(Value) - 1));
-    if ClosingQuote > 0 then
-      Result := Copy(Value, 2, ClosingQuote - 1);
-    Exit;
-  end;
-
-  FirstSpace := Pos(' ', Value);
-  if FirstSpace = 0 then
-    Result := Value
-  else
-    Result := Copy(Value, 1, FirstSpace - 1);
-end;
-
-function IsRecognizedQuailInstallation: Boolean;
-var
-  Destination: String;
-  InstallLocation: String;
   UninstallCommand: String;
-  UninstallerPath: String;
 begin
   Result := False;
-  Destination := CanonicalPath(WizardDirValue);
-
   if not RegQueryStringValue(HKLM64, QuailUninstallRegistryKey,
     'InstallLocation', InstallLocation) then Exit;
-  if not PathSame(CanonicalPath(InstallLocation), Destination) then Exit;
-
   if not RegQueryStringValue(HKLM64, QuailUninstallRegistryKey,
     'UninstallString', UninstallCommand) then Exit;
-  UninstallerPath := ExtractExecutableFromCommandLine(UninstallCommand);
+  if not RegQueryStringValue(HKLM64, QuailUninstallRegistryKey,
+    'DisplayVersion', InstalledVersion) then Exit;
 
-  Result := SameText(ExtractFileName(UninstallerPath), 'unins000.exe') and
-    PathSame(CanonicalPath(ExtractFileDir(UninstallerPath)), Destination) and
-    FileExists(UninstallerPath);
+  Result := (InstallLocation <> '') and (InstalledVersion <> '') and
+    (UninstallCommand <> '');
 end;
 
-function ValidateDestinationOwnership: String;
+function ValidateFixedInstallationContract: String;
 var
   Destination: String;
+  EffectiveDestination: String;
+  CanonicalDestination: String;
+  RegisteredLocation: String;
+  RegisteredVersion: String;
 begin
   Result := '';
   Destination := CanonicalPath(WizardDirValue);
+  EffectiveDestination := CanonicalPath(ExpandConstant('{app}'));
+  CanonicalDestination := CanonicalInstallationDirectory;
+
+  if not PathSame(Destination, CanonicalDestination) or
+     not PathSame(EffectiveDestination, CanonicalDestination) then
+  begin
+    Result := 'Quail installs only to ' + CanonicalDestination + '.';
+    Exit;
+  end;
 
   if HasReparsePointInDestinationPath(Destination) then
   begin
@@ -360,13 +347,26 @@ begin
     Exit;
   end;
 
-  if not DirExists(Destination) then Exit;
-
-  if IsDirectoryEmpty(Destination) then Exit;
-
-  if not IsRecognizedQuailInstallation then
+  if GetRegisteredQuailInstallation(RegisteredLocation, RegisteredVersion) then
   begin
-    Result := 'Quail will not install into a non-empty directory that is not a recognized Quail installation.';
+    if not PathSame(CanonicalPath(RegisteredLocation), CanonicalDestination) then
+    begin
+      Result := 'Uninstall the previous Quail development build before installing this version.';
+      Exit;
+    end;
+
+    if not SameText(RegisteredVersion, '{#AppVersion}') then
+    begin
+      Result := 'Uninstall the previous Quail development build before installing this version.';
+      Exit;
+    end;
+  end;
+
+  if not DirExists(Destination) or IsDirectoryEmpty(Destination) then Exit;
+
+  if not GetRegisteredQuailInstallation(RegisteredLocation, RegisteredVersion) then
+  begin
+    Result := 'Quail will not overwrite a non-empty directory that is not a recognized same-version Quail installation.';
     Exit;
   end;
 
@@ -402,7 +402,7 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  Result := ValidateDestinationOwnership;
+  Result := ValidateFixedInstallationContract;
   if Result <> '' then Exit;
 
   if not HasDesktopRuntime then
@@ -430,21 +430,6 @@ begin
       Result := 'The required Windows App Runtime is unavailable. Quail was not installed.';
       Exit;
     end;
-  end;
-end;
-
-function NextButtonClick(CurPageID: Integer): Boolean;
-var
-  ValidationError: String;
-begin
-  Result := True;
-  if CurPageID <> wpSelectDir then Exit;
-
-  ValidationError := ValidateDestinationOwnership;
-  if ValidationError <> '' then
-  begin
-    MsgBox(ValidationError, mbCriticalError, MB_OK);
-    Result := False;
   end;
 end;
 
@@ -516,7 +501,7 @@ var
   UpdatedPath: String;
   TargetPath: String;
 begin
-  TargetPath := ExpandConstant('{app}');
+  TargetPath := CanonicalInstallationDirectory;
   if not RegQueryStringValue(HKLM, EnvironmentKey, EnvironmentValue, ExistingPath) then
   begin
     RaiseException('Could not read the system PATH.');
