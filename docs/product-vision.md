@@ -2,7 +2,7 @@
 
 ## North star
 
-Quail should evolve from a fast local file-search backend into a local-first universal search system for the user's digital information.
+Quail should evolve from fast local file search into a local-first universal search system for the user's digital information.
 
 Working internal description:
 
@@ -45,11 +45,13 @@ The source explains where an object comes from. The object carries identity, met
 
 ## Identity, history, and relationships
 
-The file-engine research suggests that Quail can provide more value when it models durable identity and change history instead of only the current filename and path.
+Quail can provide more value when it models durable identity and change history instead of only the current display name and location.
 
 For local NTFS items this may include stable volume/file identity, previous names and locations, rename/move history, deletion state, and temporal queries over filesystem activity.
 
 The same principle should be used for other sources when they provide durable identifiers or change feeds. For example, cloud-drive item IDs and mail message/thread IDs can become source-native identities rather than being reduced to transient display strings.
+
+Provider/source identity, content identity, and cross-source relationships are separate concepts. A shared Core model should not force unrelated sources into one physical identifier shape.
 
 Relationships may later be useful, for example an email attachment corresponding to a downloaded local file, but Quail should not begin by building a general knowledge graph. Relationships should be added only when a concrete source and user workflow justify them.
 
@@ -67,13 +69,19 @@ Each source adapter should, where practical:
 
 Provider-side search may still be used as an explicit fallback or capability where local indexing is incomplete, but it should not define the latency model of the main search experience.
 
-This local-first model is intended to preserve instant search, partial offline usefulness, one ranking model, and predictable behavior across heterogeneous sources.
+This local-first model is intended to preserve instant search, partial offline usefulness, one coordinated ranking experience, and predictable behavior across heterogeneous sources.
 
 ## Search experience
 
-A query should be able to mix results from multiple sources in one ranked result set.
+Quail should support two complementary search surfaces rather than forcing every workflow into a transient launcher.
 
-For example, a query for `invoice` could return:
+**Quick Search** is the global-hotkey path for fast type/select/open interactions. It should remain compact, keyboard-first, and optimized for perceived immediacy.
+
+**Full Search / Object Explorer** is the persistent result-browser direction. Its first implementation may be filesystem-only, with larger result sets, sorting, filtering, and richer metadata. As identity/history and heterogeneous sources arrive, the same surface can evolve into a broader object explorer rather than being replaced by a second unrelated search product.
+
+A future query should be able to mix results from multiple sources in one ranked result set.
+
+For example, a query for `invoice` could eventually return:
 
 - a PDF currently in Downloads;
 - the same local file found through an old name or previous path after a rename/move;
@@ -94,7 +102,7 @@ invoice from:last-week
 invoice moved:yesterday
 ```
 
-Exact query syntax is not frozen by this document.
+Exact query syntax is not frozen by this document. UI filters and textual query syntax should evolve from real workflows rather than from a speculative complete query language.
 
 ## Ranking
 
@@ -112,7 +120,7 @@ Potential ranking signals include:
 - current availability;
 - exact-name or exact-title matches.
 
-Ranking should be measured against real workflows rather than expanded through speculative heuristics.
+Ranking should be measured against real workflows rather than expanded through speculative heuristics. Before cross-source ranking exists, each source should first provide useful and measured source-specific relevance.
 
 ## Privacy and trust
 
@@ -131,9 +139,11 @@ Preferred principles:
 
 Quail must not silently retain data that a reasonable user would believe was deleted from the source. A future source may support both mirror-style deletion and an explicit history-retention mode, but retaining deleted source data must be a deliberate user choice with clear limits.
 
+This principle also applies to future NTFS history: the fact that rename/move/delete events can be observed does not by itself authorize indefinite historical retention.
+
 ## Source diversity
 
-Not every source will provide the same capabilities. Quail should not assume that every adapter has a REST API, a stable ID, a change feed, or content access.
+Not every source will provide the same capabilities. Quail should not assume that every adapter has a REST API, a stable ID, a change feed, content access, historical events, or a privileged background component.
 
 A source may support some subset of:
 
@@ -147,17 +157,39 @@ A source may support some subset of:
 - actions;
 - source-native search.
 
-The shared model should represent missing capabilities explicitly rather than pretending all sources have identical guarantees.
+The shared model should represent missing capabilities where real sources require that distinction rather than pretending all sources have identical guarantees.
+
+Do not design a complete capability framework from the filesystem source alone. Add broader contracts only after multiple real source implementations demonstrate common requirements.
+
+## Core and source boundaries
+
+The intended architectural direction is:
+
+```text
+Quail.App
+    -> Quail.Core
+        -> internal source/provider implementations
+            -> FileSystem
+            -> Browser
+            -> Drive
+            -> Mail
+            -> Calendar
+            -> ...
+```
+
+`Quail.Core` should own the application/search orchestration and common query/result semantics that are genuinely shared. Source-specific indexing, persistence, synchronization, identity, and actions should remain source-specific.
+
+This modularity is internal architecture. It does not imply a public plugin framework, dynamic provider loading, an extension SDK, or one universal storage schema.
 
 ## Platform direction
 
-Quail remains Windows-first. The current NTFS/MFT/USN engine and likely WinUI 3 desktop shell are intentionally optimized for Windows rather than constrained by speculative cross-platform requirements.
+Quail remains Windows-first. The current NTFS/MFT/USN engine and WinUI 3 desktop application are intentionally optimized for Windows rather than constrained by speculative cross-platform requirements.
 
-Linux is a plausible later platform because the long-term product is no longer merely another general-purpose launcher. The universal object/index model, query/ranking logic, cloud-source adapters, and other platform-neutral capabilities should therefore avoid unnecessary coupling to WinUI or NTFS where natural boundaries already exist.
+Linux remains a plausible later platform because the long-term product is broader than a Windows launcher. Platform-neutral Core logic and remote/source adapters should therefore avoid unnecessary coupling to WinUI or NTFS where natural boundaries already exist.
 
-This does not mean building a cross-platform abstraction layer in advance. Windows-specific filesystem, service, hotkey, tray, shell, and UI integration should remain explicit platform components.
+This does not mean building a cross-platform abstraction layer in advance. Windows-specific filesystem, service, hotkey, tray, shell, installer, and UI integration should remain explicit platform components.
 
-If Linux support is eventually pursued, the expected model is to reuse the portable core and source logic while providing a Linux-specific local filesystem backend and platform integration. A WinUI 3 frontend would not itself be portable and may require a separate Linux frontend; this is acceptable if the rest of the application remains cleanly separated. Cross-platform UI frameworks should not be selected solely to preserve a hypothetical future port if they materially reduce Windows UX, performance, simplicity, or maintainability.
+If Linux support is eventually pursued, the expected model is to reuse portable Core/source logic while providing a Linux-specific local filesystem backend and platform integration. A WinUI 3 frontend is not portable and may require a separate Linux frontend; this is acceptable if the rest of the application remains cleanly separated.
 
 ## Incremental development
 
@@ -165,17 +197,30 @@ The north-star vision is intentionally much broader than the scope of any single
 
 Quail should continue to be built as small validated vertical slices. Do not attempt to implement all sources at once and do not build a speculative public plugin framework around imagined future adapters.
 
-The current NTFS engine is the first source implementation and remains valuable regardless of later sources. The next major product step remains a usable file-first GUI. Stable file identity/history is a strong candidate for the first deeper object-model capability.
+Quail 0.2 established the first public file-search desktop baseline: Quick Search, real local NTFS indexes, GUI-managed index configuration, ranking, packaging, and a diagnostic CLI.
 
-After the file-first experience is usable, a second genuinely different source should be added to validate the shared model. Browser history/bookmarks are a plausible low-friction candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization and OAuth/account handling.
+The approved next release direction, Quail 0.3, is to make filesystem search good enough for ordinary daily use and to replace Everything in the developer's normal local-file-search workflow. The intended work includes:
 
-Only after multiple real source implementations exist should Quail extract a more general provider/source contract from demonstrated common requirements.
+- extracting a real Core/filesystem internal boundary without building a provider framework;
+- materially improving measured search performance;
+- improving ranking/relevance;
+- continuously maintaining the filesystem index without routine manual Refresh/Rebuild;
+- launch-on-startup;
+- Quick Search polish;
+- one coherent Settings/Indexing surface;
+- a filesystem-only Full Search v1 with useful sorting and filters.
+
+Stable NTFS file identity/history is the preferred deeper filesystem direction after that foundation. 0.3 should preserve stable identity and a reliable change stream but should not silently introduce historical/deleted-item retention.
+
+After the filesystem experience and identity/history foundation are mature enough, a genuinely different source should validate the shared model. Browser history/bookmarks remain a plausible low-friction first candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization, OAuth/account handling, credential storage, and retention semantics.
+
+Only after multiple real source implementations exist should Quail extract broader source/provider contracts from demonstrated common requirements.
 
 ## Relationship to launcher features
 
 Application launching, calculator/conversion helpers, web actions, and similar launcher capabilities may still be added when they are cheap and useful. They are supporting conveniences, not the reason Quail exists.
 
-The product should not measure success by matching Flow Launcher, Raycast, Command Palette, or another launcher feature-for-feature. The differentiating direction is one fast, local-first index of the user's own searchable digital world.
+The product should not measure success by matching Flow Launcher, Raycast, Command Palette, Everything, or another product feature-for-feature. Comparisons are useful for concrete workflows and performance, but Quail's differentiating direction is one fast, local-first index of the user's own searchable digital world.
 
 ## Conceptual relationship to WinFS
 
@@ -187,4 +232,6 @@ Quail is not intended to replace NTFS, become an operating-system storage platfo
 
 This document records the strategic north star, not a committed implementation sequence for all future versions.
 
-The existing 0.1 file-engine work remains the foundation. The file-first GUI remains the next product milestone. The roadmap after that should be revised incrementally as identity/history and additional-source experiments provide evidence.
+Quail 0.2 is the current public baseline. The approved 0.3 direction is a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. Concrete 0.3 milestones still require separate design and approval.
+
+File identity/history is directional work after the 0.3 filesystem-usability foundation. Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases. Later sequencing should continue to change when measured behavior and real usage provide better evidence.
