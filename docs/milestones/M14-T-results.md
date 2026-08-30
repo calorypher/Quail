@@ -58,7 +58,7 @@ staging source. It is a technical candidate and was not published.
 | Release CLI build | PASS — 0 warnings / 0 errors |
 | Windows App Runtime detector | PASS — 6 cases |
 | Installer fixed-location safety guard | PASS |
-| M14-P release provenance/privacy guard | PASS — 56 payload files, 2 forbidden-root classes scanned |
+| M14-P release provenance/privacy guard | PASS — 56 payload files, 3 forbidden-root classes scanned |
 | Canonical installer, payload, and prerequisite guards | PASS |
 | Privacy scan of assembled payload | PASS |
 | `git diff --check` | PASS |
