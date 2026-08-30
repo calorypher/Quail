@@ -2,10 +2,10 @@
 
 ## Status
 
-The exact production dependency graph, vulnerability/deprecation queries, and
-payload-origin mapping were completed before the security stop. Exact package
-license files were inspected, but the final public notice set and complete
-prerequisite redistribution disposition were not finalized after the stop.
+**Finalized for the current 56-file payload contract.** The prior graph,
+vulnerability/deprecation, and origin work remains valid because M14-T changed
+only the installer location/lifecycle policy, not application packages or
+payload files.
 
 ## Resolved production graph
 
@@ -64,15 +64,18 @@ trusted application database use.
 - SQLite native library: public-domain upstream classification.
 
 Package-local texts were read rather than relying only on NuGet SPDX labels.
-The expected final repository work is a canonical MIT `LICENSE`, a minimal
-payload-derived notice file, and any exact full text required by the final
-redistributed set. Those files were intentionally not added after the security
-stop because the remediated payload may change.
+`LICENSE` now contains Quail's canonical MIT text. `THIRD-PARTY-NOTICES.md`
+contains the required Apache-2.0 and BSD-3-Clause texts, MIT attributions,
+SQLite public-domain classification, the applicable Windows App SDK/Windows SDK
+vendor-term dispositions, and the installer/prerequisite disposition. It does
+not copy broad notices for package components excluded from the exact payload.
+
+The vendor texts were checked in the current NuGet packages and against
+authoritative Microsoft, SQLite, and Inno Setup sources. No license language was
+invented.
 
 ## Disposition
 
-**PASS — vulnerability/deprecation gate for the pre-stop graph.**
-
-**INCOMPLETE — final redistribution/notices disposition deferred by the
-security stop.** No incompatibility was found before the stop, but this file is
-not a release clearance.
+**PASS — the exact payload's license and redistribution disposition is complete
+for M14-A.** This technical inventory is not legal advice and does not replace
+the M14-B trademark/publication gate.

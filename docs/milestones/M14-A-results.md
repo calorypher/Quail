@@ -1,8 +1,16 @@
 # M14-A results — Public-release readiness audit rerun
 
-## Disposition
+## Current disposition
 
-**STOP — `remediation required`.**
+**M14-T blocker resolved; final committed-source candidate pending.**
+
+This document preserves the stopped rerun below as historical evidence. M14-T
+replaced the vulnerable custom-destination policy with a fixed Program Files
+contract. M14-A finalization has completed the delta security review,
+licensing/notices, public README/changelog, release-notes draft, unsigned
+installer recommendation, and SourceLink sequencing record. The sole remaining
+M14-A step is to record the fresh candidate built from the committed finalization
+source; its result replaces this provisional line.
 
 Quail 0.2 must not proceed to M14-B from this branch. The elevated per-machine
 installer can accept an empty/nonexistent custom directory that is writable by
@@ -180,4 +188,4 @@ recommendation, final prerequisite redistribution record, final technical
 candidate, final trademark gate, and M14-B metadata plan. No absence of a new
 finding in those unfinished areas should be read as a pass.
 
-Final disposition: **`remediation required`**.
+Historical rerun disposition: **`remediation required`**, superseded by M14-T.

@@ -1,8 +1,14 @@
 # M14-A rerun — public-release security audit
 
-## Disposition
+## Current disposition
 
-**BLOCKER — `remediation required`.**
+**PASS — resolved by M14-T fixed-location contract.**
+
+This historical audit records the blocker found in the former arbitrary
+destination policy. M14-T removed that policy; see
+[finalization delta review](finalization-delta-review.md) for the current-source
+comparison and T1-T10 applicability. No new installer/build security blocker
+was found in the M14-T delta.
 
 ## Finding: untrusted custom directory enters machine PATH
 
@@ -41,7 +47,7 @@ References:
 No destructive exploit was needed: installer source and the existing T2
 lifecycle evidence establish the accepted empty-directory path.
 
-## Required remediation contract
+## Historical required remediation contract
 
 Use a separately approved packaging remediation that either:
 
@@ -74,7 +80,7 @@ No second public-release blocker was identified before the mandatory stop:
 - Quail 0.2 has no updater, telemetry backend, cloud provider, remote index,
   stored application secret, or generic privileged IPC command surface.
 
-## Guard status
+## Historical guard status
 
 - M14-I installer cleanup guard: PASS, 187 exact entries;
 - Windows App Runtime detector: PASS, 6 cases;
@@ -82,4 +88,6 @@ No second public-release blocker was identified before the mandatory stop:
 - prerequisite acquisition/version/hash/payload guards: PASS;
 - installer and application executables: unsigned, as expected at this stage.
 
-The blocker prevents a final candidate and full release disposition.
+The original blocker is no longer active. M14-B retains the separate decision
+to publish a final post-rename, unsigned development-release artifact with a
+documented SmartScreen warning and published hash.
