@@ -14,11 +14,12 @@ disposition.
 No publication-sensitive action occurred. No checkpoint was restored, deleted,
 renamed, or overwritten.
 
-## Exact candidate
+## M14-T validation artifact
 
 | Field | Value |
 |---|---|
-| Source HEAD | `ea26295aa5a3666a2b5ca02a1dd0e862966de95a` |
+| Worktree basis | M14-T test worktree based on `ea26295aa5a3666a2b5ca02a1dd0e862966de95a` |
+| Implementation snapshot | Subsequently committed as `186f73930580472da79cf275cc582bce393eb066` |
 | Installer | `Quail-0.2.0-Setup.exe` |
 | Installer SHA-256 | `a7007973ce992a856b341598ecd66ae150bcacf1b12d054c6b7045c473f4247a` |
 | Installer size | `9,947,148 B` |
@@ -27,8 +28,16 @@ renamed, or overwritten.
 | `Quail.exe` SHA-256 | `c1d4aa5625fb7d2ae8343177fd3e416b07242bd6a200fe807ee8e8b000f7f0d8` |
 | `Quail.Cli.exe` SHA-256 | `377dc6d2d3c2ec5943cc70e4840bcf5e00aecaac107ff6a5c7e38a19a8553546` |
 
-The candidate was built only by `scripts/build-installer.ps1` from the exact
-staging source. It is a technical candidate and was not published.
+This installer was built by `scripts/build-installer.ps1` from the tested
+M14-T worktree while its checked-out basis was `ea26295aa5a3666a2b5ca02a1dd0e862966de95a`,
+before the production/packaging implementation snapshot was committed as
+`186f73930580472da79cf275cc582bce393eb066`. It is an M14-T validation
+artifact used exclusively as evidence for T1–T10. It is not a candidate whose
+installer SHA-256 is claimed reproducible directly from `ea26295...`, and it
+is not publishable.
+
+The next canonical source-derived technical candidate will be built after M14-T
+is merged, during M14-A finalization.
 
 ## Implemented contract
 
