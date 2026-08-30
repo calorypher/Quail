@@ -1,37 +1,72 @@
-# M14-A public-surface inventory
+# M14-A rerun — GitHub and public surface inventory
 
-## Intended repository
+## Repository state
 
-- Full name: `calorypher/Quail-public-staging`.
-- Visibility at audit entry: `PRIVATE`.
-- Default branch: `main`.
-- Description: empty.
-- Homepage: empty.
-- Topics: none.
+Observed through GitHub while the repository remained private:
 
-The fetched entry state contained only `origin/main` at
-`62bbf3851e64c02af5b6856ff2d513bf05c607af`, with tree
-`26bf068c982422e4c85d4727218fe260c5e730d1`. The history consisted of one
-parentless commit. There were no tags, GitHub Releases, release assets, or pull
-requests. The M14-A audit branch is the only ref created by this run.
-The stopped-audit handoff is open as PR #1 against `main`; it is not merged.
+- repository: `calorypher/Quail-public-staging`;
+- visibility: `PRIVATE`;
+- default branch: `main`;
+- description: empty;
+- homepage: empty;
+- topics: none;
+- Issues: enabled;
+- Discussions: disabled;
+- Actions workflows: none;
+- tags and Releases: none;
+- merged pull requests: #1 (stopped M14-A), #2 (M14-I), #3 (M14-P);
+- branches: `main` plus the retained M14-A, M14-I, and M14-P work branches;
+- branch protection: not configured on the observed branches;
+- repository rulesets: unavailable under the current private-plan capability;
+- security policy URL: absent;
+- security-and-analysis settings: no separately reported configuration.
 
-## Explicit legacy exclusions
+No metadata, setting, visibility, repository name, branch, tag, Release, or
+release asset was changed.
 
-- There is no public `v0.1.0` tag or Quail 0.1 Release/asset.
-- There are no pre-public branches or private-archive commit/tag graph.
-- There is no migrated legacy pull-request history.
+## Intended public history
 
-The private `calorypher/Quail` repository remains outside the future public
-surface. The root import is the deliberate start of public history. Subject to
-a later successful audit and explicit approvals, `v0.2.0` is intended to be
-the first public tag and Release.
+The deliberate public-history root and its 13-commit staging graph remain the
+only intended public history. There is no `v0.1.0`, old release asset, private
+archive graph, migrated legacy PR history, or pre-public product branch in the
+reachable staging surface. Subject to remediation, a later passing M14-A, and
+explicit publication approval, `v0.2.0` remains intended as the first public
+tag and GitHub Release.
 
-## Metadata plan status
+## M14-B recommendations after remediation
 
-No metadata write was made. Final values were not frozen because the security
-stop preceded the completed publication-documentation review. The eventual
-description must state only the shipped Windows 11 local NTFS file-search
-slice. Topics must not imply cloud, AI, plugins, a service, an updater, Linux,
-or Full Search. Homepage should remain empty unless a real maintained page
-exists.
+- set a concise description limited to local Windows NTFS file search;
+- add only accurate topics such as Windows, search, launcher, NTFS, and C#;
+- leave homepage empty unless a maintained public page actually exists;
+- keep Issues enabled and enable Discussions only if there is a moderation and
+  support reason;
+- add the reviewed public `README`, `LICENSE`, notices, contribution/reporting
+  route, release notes, and security reporting information;
+- configure appropriate main-branch/ruleset protection when supported;
+- create the final artifact only after the approved final repository rename,
+  then verify SourceLink and exact provenance;
+- do not imply cloud, AI, plugins, cross-platform support, a background updater,
+  or future roadmap features.
+
+## Deferred documentation and decision gates
+
+Because the security stop occurred before low-risk public-documentation fixes,
+the repository still does not have a final MIT `LICENSE`, payload-derived
+third-party notices, public-ready README/CHANGELOG/release-notes draft, or an
+unsigned-installer release recommendation.
+
+The installer and binaries are currently unsigned. SmartScreen/reputation UX
+and the exact user warning must be assessed after the packaging remediation;
+no code-signing purchase or service configuration was attempted. The result is
+not yet `unsigned installer acceptable for 0.2` and must not be inferred as a
+publication decision.
+
+The final manual `QUAIL`, `Q.QUAIL`, and materially similar software-mark check
+in TMview/EUIPO and UPRP remains intentionally deferred to immediately before
+publication. No legal clearance is claimed.
+
+## Disposition
+
+Inventory complete for the pre-stop private surface. Public metadata and
+documentation changes remain deferred; no publication-sensitive action was
+performed.

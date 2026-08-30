@@ -1,36 +1,47 @@
-# M14-A staging history and privacy audit
+# M14-A rerun — history and privacy audit
 
-## Scope
+## Scope and identity
 
-The scan covered every tracked path and blob reachable from staging `main`,
-the local M14-A branch before audit changes, commit identities, filenames,
-binary inventory, and current GitHub metadata. At entry the graph had one
-parentless commit, so the full-history content set was the exact 222-file tree.
+The rerun covered every tracked path and blob reachable from staging `main` at
+`3c37010f1980662cc05b111592e6fb213661d401`, including the stopped M14-A,
+M14-I, and M14-P commits. The graph has one parentless public-history root,
+13 reachable commits, 238 tracked files in the entry tree, and no tag.
+
+Commit identities were classified without copying any discovered private value
+into this evidence. All author identities use the approved pseudonymous
+project identity and GitHub noreply address. Merge commits use GitHub's service
+identity. No private-only commit or legacy private graph is reachable.
+
+## Checks performed
+
+- enumerated all reachable commits, parents, refs, tags, filenames, and blobs;
+- scanned every commit snapshot for private keys, token formats, credential
+  assignments, credentialed URLs, private email, user-profile/account paths,
+  host identity, private archive references, and available local legal identity;
+- inventoried tracked executable, package, archive, database, log, dump,
+  certificate, key, and build-output extensions;
+- checked the complete reachable graph for the legacy `v0.1.0` name and old
+  release/history identifiers;
+- inspected the commits introduced by stopped M14-A evidence, M14-I, and M14-P.
 
 ## Results
 
-- Approved author and committer only:
-  `calorypher <13728773+calorypher@users.noreply.github.com>`.
-- No private key/certificate, known token/key format, credentialed URL,
-  `.env`, SSH credential, secret-bearing connection string, or stored password.
-- No real personal profile identifier, legal name/private email, hostname,
-  private/internal IP address, or MAC address.
-- No tracked log, database, dump, archive, installer, virtual disk, package,
-  or build-output artifact.
-- The only tracked binary assets were four Quail branding PNG/ICO files.
-- URLs were public documentation or pinned Microsoft prerequisite sources.
-- Description/homepage/topics were empty and visibility was private.
+- no secret, token, credential, private key, or private connection value;
+- no private profile/account path, private email, hostname, or legal identity;
+- no legacy `v0.1.0`, legacy tag, private-only commit, or private archive graph;
+- no tracked installer, executable, library, PDB, package, archive, database,
+  log, dump, or other generated release/build artifact;
+- only the approved pseudonymous author identity and GitHub merge identity;
+- repository remained private throughout the audit.
 
-## False-positive triage
-
-- `<user>` and `Alice` are controlled placeholders.
-- The lab verifier creates a random temporary password only at runtime; no
-  password value is stored in source.
-- `Private.QuailLab.psm1` is an implementation-module name, not private data.
-- Branding provenance contains a developer-local project-design location but
-  no account name, host, credential, or private identifier.
+Controlled test placeholders and runtime-only generated lab credentials were
+triaged as non-findings. The recorded developer-local branding source location
+contains no account, host, credential, legal identity, or private archive
+identifier and is not consumed by the canonical release build.
 
 ## Disposition
 
-The independently repeated staging history/privacy gate passed. This does not
-waive the installer blocker or complete M14-A readiness.
+**PASS — history/privacy CLEAN.**
+
+This result is current for the exact entry source. It does not waive the
+separate installer security blocker.
