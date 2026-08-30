@@ -8,4 +8,10 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Keep Release compiler and debug provenance independent of the physical checkout and profile. -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/,$(USERPROFILE)=/_/user/</PathMap>
+  </PropertyGroup>
 </Project>

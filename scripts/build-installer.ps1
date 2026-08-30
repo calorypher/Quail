@@ -10,9 +10,9 @@ $ErrorActionPreference = 'Stop'
 
 function Get-Version([string] $Root) {
     [xml] $properties = Get-Content -Raw -LiteralPath (Join-Path $Root 'Directory.Build.props')
-    $version = @($properties.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1)
-    if ($version.Count -ne 1 -or [string]::IsNullOrWhiteSpace($version[0])) { throw 'Directory.Build.props does not define one canonical Version.' }
-    return $version[0].Trim()
+    $version = $properties.SelectSingleNode('/Project/PropertyGroup/Version')
+    if ($null -eq $version -or [string]::IsNullOrWhiteSpace($version.InnerText)) { throw 'Directory.Build.props does not define one canonical Version.' }
+    return $version.InnerText.Trim()
 }
 
 function Resolve-Iscc([string] $ExplicitPath) {
@@ -120,6 +120,9 @@ foreach ($unusedAiMlFile in @('DirectML.dll', 'onnxruntime.dll', 'Microsoft.ML.O
     if (Test-Path -LiteralPath (Join-Path $payload $unusedAiMlFile) -PathType Leaf) { throw "Framework-dependent payload unexpectedly contains unused AI/ML file: $unusedAiMlFile" }
 }
 if (Get-ChildItem -LiteralPath $payload -Filter 'Microsoft.Windows.AI.*.Projection.dll' -File) { throw 'Framework-dependent payload unexpectedly contains unused Windows AI projection files.' }
+
+& (Join-Path $PSScriptRoot 'test-release-build-provenance.ps1') -PayloadDirectory $payload -PhysicalCheckoutRoot $root
+if ($LASTEXITCODE -ne 0) { throw 'Release build provenance guard failed.' }
 
 if (-not $PrerequisiteManifestPath) {
     & (Join-Path $PSScriptRoot 'get-installer-prerequisites.ps1') -PinsPath $pinsPath
