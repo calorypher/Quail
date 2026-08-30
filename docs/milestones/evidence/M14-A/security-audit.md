@@ -1,72 +1,85 @@
-# M14-A focused security audit
+# M14-A rerun — public-release security audit
 
 ## Disposition
 
-**BLOCKER — production packaging remediation required.**
+**BLOCKER — `remediation required`.**
 
-## Finding: recursive deletion of a caller-selected install directory
+## Finding: untrusted custom directory enters machine PATH
 
 Severity: **high impact / publication blocker**.
 
 `packaging/Quail.iss` combines:
 
-- `DefaultDirName={autopf}\Quail` without an ownership-enforcing destination
-  contract;
 - `PrivilegesRequired=admin`;
-- `[InstallDelete] Type: filesandordirs; Name: "{app}\*"`.
+- interactive custom destination support and Inno Setup's `/DIR=` mechanism;
+- a destination validator that accepts nonexistent and empty directories after
+  reparse checks, without validating owner or ACL;
+- payload copy into `{app}`;
+- addition of `{app}` to the machine `PATH`.
 
-The destination page is available for a fresh install under Inno Setup's
-default `DisableDirPage=auto` behavior. The command line also accepts a fully
-qualified `/DIR=` override. Inno Setup processes `[InstallDelete]` first, and
-`filesandordirs` recursively removes matched directories and contents.
+M14-I correctly removed recursive `{app}\*` cleanup, rejects reparse paths,
+requires recognized content for non-empty destinations, and limits legacy 0.1
+cleanup to 187 exact entries. Its T2 evidence deliberately confirms that an
+empty custom destination is accepted.
 
-An interactive user, deployment wrapper, saved configuration, or mistyped
-command can therefore direct elevated setup to an existing non-Quail
-directory. Continuing can delete unrelated content before payload copy. The
-existing-directory warning does not prove ownership and silent modes can
-suppress it.
+If an accepted directory is owned or writable by an unprivileged user, that
+user can replace Quail files and place arbitrary command names in a system-wide
+executable search directory. A later administrator or service resolving a
+previously absent command through `PATH` can execute attacker-controlled code
+at higher privilege. App-local executable/DLL replacement is also possible.
 
-Primary behavior references:
+Inno Setup's enabled `RedirectionGuard` prevents traversal through an
+unprivileged-created reparse point in the setup process. Its documentation
+explicitly recommends avoiding publicly writable directories and does not make
+a legitimate user-writable directory trusted or protect child applications.
 
-- [Inno Setup `[InstallDelete]`](https://jrsoftware.org/ishelp/topic_installdeletesection.htm);
-- [installation order](https://jrsoftware.org/ishelp/topic_installorder.htm);
-- [`filesandordirs` semantics and wildcard warning](https://jrsoftware.org/ishelp/topic_uninstalldeletesection.htm);
-- [`DisableDirPage`](https://jrsoftware.org/ishelp/topic_setup_disabledirpage.htm);
-- [`/DIR=` override](https://jrsoftware.org/ishelp/topic_setupcmdline.htm).
+References:
 
-## Required remediation properties
+- [Inno Setup RedirectionGuard](https://jrsoftware.org/ishelp/topic_setup_redirectionguard.htm);
+- [Inno Setup `/DIR=` and command-line parameters](https://jrsoftware.org/ishelp/topic_setupcmdline.htm).
 
-- Do not recursively delete all children merely because a path is `{app}`.
-- Clean only proven prior Quail installer-owned paths, or enforce and validate
-  a dedicated destination plus ownership before cleanup. Hiding the wizard
-  alone does not address overrides or a pre-existing unowned default folder.
-- Preserve accepted 0.1 obsolete-runtime cleanup without deleting unrelated
-  sentinels, and fail closed when ownership cannot be proven.
-- Revalidate clean install, upgrade, reinstall, uninstall, custom/silent
-  destinations, data preservation, PATH, and shortcut behavior.
+No destructive exploit was needed: installer source and the existing T2
+lifecycle evidence establish the accepted empty-directory path.
 
-M14-A does not implement the remediation because it changes the production
-packaging contract and technical RC identity.
+## Required remediation contract
 
-## Other surfaces reviewed before stop
+Use a separately approved packaging remediation that either:
 
-No additional high-impact finding was identified in the reviewed subset:
+- confines per-machine installation to a trusted Program Files destination; or
+- securely creates and validates every accepted custom directory with trusted
+  ownership and ACLs before payload copy or machine `PATH` modification.
 
-- the elevated worker validates elevation, current NTFS volume identity, and a
-  matching current-user catalog entry;
-- the ProgramData database path is derived from stable identity; there is no
-  caller-supplied privileged destination;
-- protected directories restrict writes to Administrators/SYSTEM and use
-  reparse checks, retained non-delete-shared handles, sidecar validation, and
-  a per-volume exclusive lock;
-- elevation uses `ProcessStartInfo.ArgumentList` with `Verb=runas`, not a shell
-  command string;
-- prerequisites are restricted to committed Microsoft HTTPS URLs and SHA-256
-  pins verified before execution;
+The rule must cover wizard choice, `/DIR=`, `/LOADINF`, silent modes, saved
+previous directories, clean install, upgrade, reinstall, and uninstall. It must
+preserve M14-I's no-recursive-delete, exact legacy-cleanup, and reparse guards.
+Focused custom-directory, ACL, PATH, reparse, upgrade/reinstall/uninstall tests
+and an independent adversarial review are required.
+
+## Other reviewed boundaries
+
+No second public-release blocker was identified before the mandatory stop:
+
+- the elevated index worker revalidates elevation, current NTFS volume
+  identity, and the current-user catalog entry;
+- its protected ProgramData path is derived from stable identifiers rather
+  than caller input;
+- protected storage applies administrator/SYSTEM ACLs, reparse/sidecar checks,
+  retained non-delete-shared handles, and a per-volume exclusive lock;
+- elevation uses `ProcessStartInfo.ArgumentList` with `Verb=runas`, not shell
+  string construction;
+- prerequisite execution is restricted to committed Microsoft URLs, SHA-256
+  pins, and verified downloaded content;
+- reviewed CLI/GUI path and launch surfaces do not construct a command line
+  from search input or deserialize an unsafe polymorphic/network format;
 - Quail 0.2 has no updater, telemetry backend, cloud provider, remote index,
-  unsafe deserializer, or plaintext application secret;
-- indexed open passes an existing reconstructed path directly to Windows Shell
-  rather than constructing a command line.
+  stored application secret, or generic privileged IPC command surface.
 
-The remaining general/publication review was not claimed complete after the
-blocker.
+## Guard status
+
+- M14-I installer cleanup guard: PASS, 187 exact entries;
+- Windows App Runtime detector: PASS, 6 cases;
+- committed provenance guard: PASS, 56 payload files;
+- prerequisite acquisition/version/hash/payload guards: PASS;
+- installer and application executables: unsigned, as expected at this stage.
+
+The blocker prevents a final candidate and full release disposition.

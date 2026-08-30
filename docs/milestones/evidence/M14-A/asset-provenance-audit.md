@@ -1,4 +1,4 @@
-# M14-A asset, font, and icon provenance audit
+# M14-A rerun — asset provenance audit
 
 ## Bundled Quail-owned branding
 
@@ -10,25 +10,24 @@
 | `quail-app-icon.ico` | `2A8FC0483A6B62F94FB19D9AA63130BA8955E1B4A0AA3FE3D31213F411B05389` | Quail-owned executable resource |
 | `quail-feather-A-gradient.svg` | `4D2D5BE28DE700AA10CC744B48153022F545621D57C31AF3C64C887C73E19F1D` | Quail-owned runtime mark |
 
-M10 provenance maps source frames to runtime files and the deterministic ICO.
-The ICO helper validates each source hash and copies original PNG byte streams
-without redrawing or resampling. Current hashes match that record.
+M10 provenance maps the source frames to the runtime files and deterministic
+ICO. The checked source hashes still match that record. These files are Quail
+project branding, not third-party assets, and do not belong in third-party
+notices. The future MIT code license does not grant or define branding rights.
 
-These are Quail project branding, not third-party assets. They should not be
-attributed in third-party notices. The MIT code license does not itself settle
-rights in the Quail name or branding; that distinction remains required.
+## System-provided assets
 
-## System-referenced assets
-
-- UI text uses installed Windows `Segoe UI Variable`.
-- action/fallback glyphs use installed Windows `Segoe Fluent Icons`.
-- result icons are requested at runtime from Windows Shell with
+- UI text references installed Windows `Segoe UI Variable`.
+- action and fallback glyphs reference installed `Segoe Fluent Icons`.
+- result icons are requested at runtime from Windows Shell through
   `SHGetFileInfo` and cached for display.
 
-No Segoe/Fluent font file, Shell icon file, or third-party icon pack is stored
-or copied into the payload. These are Windows system resources.
+No Segoe/Fluent font file, Windows Shell icon file, or third-party icon pack is
+stored in the repository or copied into the canonical payload. No public
+screenshot or separately licensed font/icon asset is bundled.
 
 ## Disposition
 
-No unresolved redistributed-asset provenance finding was identified. This
-does not waive the installer blocker or complete M14-A readiness.
+**PASS — bundled asset provenance resolved.**
+
+This result does not waive the installer security blocker.
