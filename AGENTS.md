@@ -4,7 +4,7 @@ These instructions apply to the Quail repository unless a more specific file ove
 
 ## Canonical sources
 
-Once implementation begins, this repository is the canonical technical source.
+This public repository, `calorypher/Quail`, is the canonical technical source for active Quail development.
 
 Before starting a milestone, read at least:
 
@@ -14,20 +14,20 @@ Before starting a milestone, read at least:
 - the active milestone specification;
 - any architecture/methodology document explicitly referenced by that milestone.
 
-Chat history and Google Drive are not substitutes for repository state.
+Chat history and Google Drive are not substitutes for repository state. The private historical archive is reference-only; do not use it as an active development repository unless a task explicitly requires historical investigation.
 
 ## Project intent
 
-Quail is a Windows-first, local-first universal search system for the user's digital information. The current implementation is deliberately file-first: it starts with a fast, lightweight Windows launcher/search experience backed by Quail's own local NTFS index, while later heterogeneous sources should be added only through validated vertical slices.
+Quail is a Windows-first, local-first universal search system for the user's digital information. The current public implementation is deliberately file-first: Quail 0.2 provides a WinUI Quick Search desktop application backed by Quail's own local NTFS indexes, with GUI-managed index configuration and a diagnostic/administrative CLI.
 
-The first release focuses on a correct, fast Windows 11 x64 NTFS file engine and CLI. GUI and additional providers come later.
+The near-term product goal is to make filesystem search fast, relevant, continuously current, and comfortable enough for ordinary daily use before adding heterogeneous sources. Later sources should be added through validated vertical slices rather than through a speculative provider framework.
 
 ## Language and artifact conventions
 
 - User-facing planning and implementation-agent prompts may be written in Polish.
 - Repository artifacts must be written in English unless a narrower project document explicitly says otherwise. This includes source code, identifiers, file names, technical documentation, comments, commit messages, PR titles/bodies, test names, logs intended for durable repository evidence, and release notes.
-- The application UI starts in English.
-- Localization is a later product concern and should be introduced only when the UI exists and its user-facing strings are sufficiently stable. Do not introduce localization infrastructure into early milestones without an explicit milestone requirement.
+- The application UI is English-first.
+- Localization is a later product concern and should be introduced only when user-facing strings and the relevant UI are sufficiently stable. Do not introduce localization infrastructure without an explicit milestone requirement.
 
 ## Technical direction
 
@@ -35,17 +35,31 @@ Current default choices:
 
 - C#;
 - current stable .NET, with .NET 10 LTS as the current preferred baseline;
-- SQLite;
+- WinUI 3 for the Windows application UI;
+- SQLite for persistent local indexes where appropriate;
 - official Windows APIs for NTFS/MFT/USN access where feasible;
 - thin P/Invoke/interop rather than a custom NTFS parser;
-- Windows-only v1;
+- Windows-first implementation;
 - no native C++/Rust component without demonstrated need;
-- search capabilities should evolve as clean internal providers/modules behind simple shared query/result contracts where appropriate;
-- do not build a dynamic or third-party plugin framework in early milestones.
+- no dynamic or third-party plugin framework unless later evidence creates a real requirement.
 
-The exact persistent schema, search implementation, privilege model, and Windows Service boundary are not frozen before the relevant feasibility work.
+The intended high-level direction is:
 
-A Windows Service is expected to be the likely privileged boundary for NTFS/MFT/USN access so the interactive launcher can remain unelevated. Do not run the final launcher UI elevated merely to read filesystem internals. M01 must validate the actual privilege requirements and determine the smallest sensible service responsibility.
+```text
+Quail.App
+    -> Quail.Core
+        -> internal source/provider implementations
+            -> FileSystem
+            -> later Browser / Drive / Mail / Calendar / ...
+```
+
+`Quail.Core` should evolve into the application/search core rather than remain a filesystem engine with a generic name. Windows/NTFS-specific indexing, persistence, identity, change tracking, and filesystem actions should live behind a clear internal boundary when the active milestone justifies extracting them.
+
+Do not turn that boundary into a public provider SDK, dynamic plugin loader, capability framework, universal storage schema, or generalized provider lifecycle before multiple real source implementations demonstrate the common requirements.
+
+The GUI should remain thin: indexing, persistence, search, ranking, and source/provider logic should not depend on WinUI. GUI-facing query/result models should expose only the information needed by the product surfaces and should not leak filesystem implementation details such as `IndexStore` or native NTFS identifiers when an opaque source-specific identity is sufficient.
+
+Preserve source-native identity where available. Do not reduce filesystem identity to the current path merely to fit a generic model. Provider/source identity, content identity, and future cross-source relationships are separate concepts.
 
 ## Resource and quality constraints
 
@@ -53,14 +67,14 @@ Lightweight operation is a first-class requirement.
 
 Working targets for the complete application:
 
-- approximately 100 MB working set or less when idle;
+- approximately 100 MB working set or less when idle as a long-term aspiration;
 - practically 0% idle CPU when no indexing or housekeeping work is required;
-- no regular full filesystem rescans;
+- no regular full filesystem rescans during healthy normal operation;
 - no aggressive polling;
 - fast startup;
 - search that feels immediate to the user.
 
-Measure before optimizing. Do not add complexity merely to win synthetic benchmarks.
+Measure before optimizing. Optimize measured bottlenecks and representative real workflows rather than synthetic scores alone.
 
 Prefer straightforward, readable C# over clever language constructs when both approaches are adequate.
 
@@ -72,31 +86,68 @@ Keep source formatting reviewable:
 - formatting-only changes must remain semantically neutral and should not hide behavior changes in the same diff;
 - before handoff, inspect changed C# files for accidental structural minification; whitespace formatting alone is not proof that the code is readable.
 
-## Architecture constraints
+## Risk-based engineering proportionality
 
-Keep the first implementation simple.
+Apply engineering rigor according to consequence and likelihood. The goal is neither maximal hardening everywhere nor minimal verification everywhere.
 
-Prefer a small number of clear modules over speculative abstraction layers. Keep Windows/NTFS-specific code isolated where natural, but do not build a cross-platform filesystem abstraction for a hypothetical Linux port.
+High-impact boundaries warrant strong, and when appropriate adversarial, verification. Examples include:
 
-The long-term search architecture should support distinct internal providers/modules such as file search, application discovery, browser data, calculator/conversions, and web actions, with a common result/query layer where that separation provides clear value. This modularity is an internal architecture goal and does not imply a public or dynamically loaded plugin system.
+- privilege boundaries, UAC/elevated workers, and Windows Service interfaces;
+- ACLs, protected storage, reparse points, junctions, symlinks, and other paths by which an unelevated actor could influence privileged behavior;
+- installer behavior that performs privileged operations;
+- index integrity, crash consistency, and recovery semantics;
+- correctness of NTFS/USN change tracking and loss-of-continuity handling;
+- security-sensitive package/update authenticity mechanisms;
+- measured search hot paths where performance is a primary product requirement.
 
-The GUI must eventually remain thin: indexing, persistence, search, ranking, and provider logic should not depend on WinUI or WPF.
+Ordinary product workflows require solid representative testing, not exhaustive combinatorial hardening. Examples include normal settings behavior, launch-on-startup, tray/lifecycle behavior, ordinary install/uninstall flows, and routine UI interactions.
 
-For filesystem namespace state, favor representations that can handle directory rename/move without rewriting an entire subtree. Do not freeze a schema before M01 establishes what identifiers and metadata are reliably available.
+Do not add substantial complexity for unlikely low-impact legacy, deployment, or configuration scenarios unless a concrete requirement, observed defect, or credible high-impact risk justifies it. Development releases may deliberately require manual uninstall, index rebuild, or another simple recovery path when supporting every historical variant would add disproportionate complexity.
 
-For incremental persistence, preserve crash consistency between index mutations and the USN checkpoint. The exact mechanism belongs to the relevant milestone.
+A high-severity finding may justify substantial hardening even when the triggering scenario is uncommon. A low-severity inconvenience does not justify substantial complexity merely because many theoretical variants can be enumerated.
+
+Before materially escalating architecture, compatibility machinery, robustness layers, or verification scope, answer:
+
+1. What concrete requirement, defect, measured limitation, or credible risk is being addressed?
+2. Why is the simpler solution insufficient?
+3. What ongoing implementation, testing, and maintenance cost does the extra complexity create?
+
+If those answers are weak, defer the idea rather than implementing it.
+
+## Architecture and scope control
+
+Do only the active milestone.
+
+Do not add features, refactors, frameworks, abstractions, packaging, telemetry, release machinery, or optimizations outside the milestone unless they are strictly required to satisfy its acceptance criteria or to fix a concrete in-scope defect or credible high-impact risk.
+
+Do not improve robustness, generality, security, compatibility, deployment flexibility, or architecture beyond what the milestone requires merely because a more elaborate design can be imagined. Record worthwhile out-of-scope improvements in the handoff or roadmap instead.
+
+Explicitly avoid early introduction of:
+
+- dynamic or third-party plugin frameworks, plugin discovery/loading, public extension SDKs, and compatibility/versioning machinery;
+- speculative provider capability matrices or generalized provider lifecycle APIs;
+- content indexing before an approved content-search slice;
+- AI features;
+- cloud/network indexing before an approved source slice;
+- speculative cross-platform abstractions;
+- custom NTFS parsing;
+- native C++/Rust components without demonstrated need;
+- elaborate installer/update systems without a dedicated requirement;
+- Windows Service responsibilities beyond the smallest justified privileged/background boundary.
+
+Internal source/provider boundaries are not prohibited by this rule. Extract them when current code and an approved product slice demonstrate the need.
+
+Stop when the approved acceptance criteria are met. Do not add extra rounds of hardening, compatibility work, cleanup, or generalization after PASS unless verification has found a new concrete defect or risk that belongs to the milestone.
 
 ## Packaging and update direction
 
-Do not build custom packaging or update infrastructure while the service/application layout is still unstable.
+Quail 0.2 uses Inno Setup and a fixed per-machine installation under `C:\Program Files\Quail`. User settings and index data live outside the application directory. The 0.2 development-release contract does not promise compatible in-place upgrade across every historical development build or installation variant.
 
-When packaging becomes an active milestone, prefer a mature Windows installer. The current preferred direction is Inno Setup producing a single setup executable that can install, upgrade, and uninstall the complete Quail layout, including Windows Service registration when required.
+Do not recreate broad legacy cleanup or upgrade machinery without a new product requirement. A documented manual uninstall/reinstall or index rebuild is acceptable for an unusual development-release transition when it is materially simpler and does not risk user-owned data.
 
-For future updates, prefer reusing the normal installer rather than implementing a custom binary patcher or privileged file-replacement engine. A launcher-side updater may check for a newer release, download and verify the installer, then invoke it in silent/very-silent mode as appropriate.
+Automatic update installation is not currently implemented. A future no-prompt background update experience may be evaluated as its own security-sensitive milestone. Compare mature deployment/update options against the actual requirements at that time rather than assuming the current installer must remain permanent.
 
-Silent installer UI is not permission bypass. If an update modifies a per-machine installation or Windows Service, normal Windows elevation may still require UAC consent.
-
-Do not broaden the privileged NTFS service into a generic updater merely to eliminate a UAC prompt. A future no-prompt background update mechanism is allowed for evaluation only as an explicit security-sensitive milestone with a narrowly scoped privileged design, strong package authenticity verification, constrained update sources, safe component replacement, failure handling, and independent review.
+Do not broaden a privileged filesystem service into a generic updater merely to remove UAC. Any privileged updater design requires narrow responsibilities, strong package authenticity verification, constrained update sources, safe replacement/recovery behavior, and independent security review proportional to that boundary.
 
 ## Reusable Windows lab
 
@@ -106,7 +157,7 @@ General rules:
 
 - milestone-specific known-good states are represented by Hyper-V checkpoints such as `M01-clean`, `M02-clean`, and so on;
 - the VM may be accessed from the physical host over SSH using the local administrator account configured for the lab;
-- SSH login starts in `cmd.exe`; commands using PowerShell cmdlets must explicitly invoke `powershell -NoProfile` (or an equivalent PowerShell host);
+- SSH login starts in `cmd.exe`; commands using PowerShell cmdlets must explicitly invoke `powershell -NoProfile` or an equivalent PowerShell host;
 - canonical lab scripts start only an `Off` VM, otherwise continue with a `Running` VM, and use a bounded dynamic-IP/SSH wait; do not stop or reset a running lab merely to normalize it;
 - canonical SSH/SCP uses the stable `HostKeyAlias` for the VM and the ignored `.quail-tooling` trust store: an unchanged key follows a dynamic IP without a prompt, while a changed key is a hard failure requiring investigation;
 - the VM has its own repository clone and should not rely on writable shares containing important host data;
@@ -117,28 +168,6 @@ General rules:
 - milestone specifications may define stricter lab rules and always take precedence for that milestone.
 
 Do not assume a stable VM IP address. Discover the current address when needed.
-
-## Scope control
-
-Do only the active milestone.
-
-Do not add features, refactors, frameworks, abstractions, packaging, telemetry, release machinery, or optimizations outside the milestone unless they are strictly required to satisfy its acceptance criteria.
-
-When a useful improvement is outside scope, record it in the handoff or appropriate roadmap document instead of implementing it.
-
-Explicitly avoid early introduction of:
-
-- dynamic or third-party plugin frameworks, plugin discovery/loading, public extension SDKs, and compatibility/versioning machinery;
-- content indexing;
-- AI features;
-- cloud/network indexing;
-- cross-platform abstractions;
-- custom NTFS parsing;
-- native C++/Rust components;
-- elaborate installer/update systems;
-- Windows Service responsibilities beyond what privilege separation actually requires.
-
-Internal provider/module boundaries are not prohibited by this rule; introduce them when they naturally support the active product slice without speculative framework complexity.
 
 ## Milestone workflow
 
@@ -153,7 +182,7 @@ Each implementation milestone should define:
 
 At the start of an implementation-agent milestone:
 
-1. Check the current branch, exact HEAD, and worktree state.
+1. Check the current branch, exact HEAD, remotes, and worktree state.
 2. Stop if there are unrelated local changes or a conflict with the milestone/source documents.
 3. Read the canonical sources.
 4. Work autonomously within the approved scope.
@@ -169,6 +198,7 @@ During implementation:
 - make routine technical decisions autonomously when the requirements are clear;
 - add/update tests needed to verify the real behavior;
 - fix defects found within milestone scope;
+- use strong verification where the actual risk justifies it and representative verification elsewhere;
 - do not ask the user to decide normal implementation details that follow from the specification;
 - stop rather than improvising when requirements conflict, required hardware/data is unavailable, or a material scope expansion would be necessary.
 
@@ -186,8 +216,11 @@ Verify the actual result with the appropriate combination of:
 - release/debug builds as required;
 - CLI/runtime smoke tests;
 - real Windows/NTFS behavior;
+- security/adversarial review where a genuine privileged or trust boundary warrants it;
 - resource/performance measurements when required by the milestone;
 - durable evidence recorded in the repository or PR.
+
+Avoid verification matrices whose size is driven mainly by hypothetical combinations rather than risk or representative supported workflows.
 
 Handoff must include at least:
 
@@ -210,7 +243,7 @@ Separate approval is required for at least:
 - force-push;
 - destructive reset/clean operations;
 - rebasing a published branch in a history-rewriting way;
-- creating/moving release tags;
+- creating or moving release tags;
 - publishing a GitHub Release;
 - replacing published release assets;
 - destructive actions outside the repository.
@@ -219,12 +252,14 @@ Approval to merge does not imply approval to delete the branch, create tags, or 
 
 If unrelated local changes are present, stop. Do not stash, clean, reset, or otherwise hide them without explicit instruction.
 
+Released tags are immutable baselines. Documentation-only work after a release belongs on newer commits and does not move an existing release tag.
+
 ## Public release and naming
 
 Update `CHANGELOG.md` for significant user-visible changes intended for the next release. It is not a commit log; milestone evidence remains under `docs/milestones/`, and development-only defects fixed before release do not need separate entries unless they describe a change from an already released version.
 
-The repository is currently private. The approved project name for a future public release remains **Quail**, and the approved public code license is **MIT**. The code license does not define rights to the Quail name, logo, or other branding assets; treat branding separately.
+The active repository is public. Quail source code is released under the MIT License. The code license does not define rights to the Quail name, logo, or other branding assets; treat branding separately.
 
-Do not repeat a full naming/trademark research exercise for ordinary milestones. Before changing the repository from private to public, perform a final manual check for `QUAIL`, `Q.QUAIL`, and materially similar software marks in the relevant EU/Poland sources, including TMview/EUIPO and UPRP. Reopen the naming decision only if that check finds a material conflict or the product later changes substantially toward hosted/SaaS search or business/cloud-data services.
+The final 0.2 naming gate was **KEEP WITH CAUTION**. A known caution is the pending Polish word mark `Quail Digital`, application Z.601622, class 9, which includes broad computer-software wording. This is not legal clearance and was not considered a blocker for the current free hobby FOSS project.
 
-Before public release, complete a dedicated readiness audit of the actual release candidate, including dependency/license compatibility, redistributed assets and notices, publish/installer payload licensing, repository history for secrets/private material, the standard MIT `LICENSE` text, required third-party notices, and public repository metadata. Do not add public-release infrastructure early merely because the naming and license decisions are known.
+Do not repeat a full naming/trademark research exercise for ordinary milestones. Revisit professional clearance if Quail becomes paid/SaaS, the brand acquires material business value, the product moves materially toward business/cloud-data services, or a new concrete conflict appears.
