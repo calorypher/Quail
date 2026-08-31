@@ -14,6 +14,8 @@ Before starting a milestone, read at least:
 - the active milestone specification;
 - any architecture/methodology document explicitly referenced by that milestone.
 
+Before planning or running Windows/runtime/package verification, also read `docs/verification-playbook.md`. Its settled findings and change-impact verification rules are canonical unless the active milestone explicitly requires stricter verification.
+
 Chat history and Google Drive are not substitutes for repository state. The private historical archive is reference-only; do not use it as an active development repository unless a task explicitly requires historical investigation.
 
 ## Project intent
@@ -210,6 +212,8 @@ At final handoff, note newly observed repeatable, deterministic, materially usef
 
 A successful build alone is not completion.
 
+Verification is change-impact and risk based. Reuse previous PASS evidence for unchanged boundaries. Do not repeat full hotkey, lifecycle, installer, deployment, physical-host, or other historical campaigns unless the current change affects that boundary, a new regression implicates it, or the active milestone explicitly requires it. Expensive repeated verification must have a concrete unanswered requirement or risk; otherwise stop once sufficient PASS evidence exists. Follow `docs/verification-playbook.md`.
+
 Verify the actual result with the appropriate combination of:
 
 - automated tests;
@@ -220,7 +224,7 @@ Verify the actual result with the appropriate combination of:
 - resource/performance measurements when required by the milestone;
 - durable evidence recorded in the repository or PR.
 
-Avoid verification matrices whose size is driven mainly by hypothetical combinations rather than risk or representative supported workflows.
+Avoid verification matrices whose size is driven mainly by hypothetical combinations rather than risk or representative supported workflows. Do not use high iteration counts simply because an automated harness makes them cheap to invoke. Do not rebuild or reinstall an unchanged package repeatedly without a relevant input change or concrete diagnostic hypothesis.
 
 Handoff must include at least:
 
