@@ -17,11 +17,40 @@ Reuse previous PASS evidence for boundaries that have not materially changed. Re
 - the active milestone explicitly requires the broader campaign;
 - previous evidence is no longer applicable because the relevant runtime, packaging, privilege, deployment, or implementation path materially changed.
 
-A new milestone number by itself is not justification for repeating an old campaign.
+A new milestone number, branch, PR, Codex session, or context reset by itself is not justification for repeating an old campaign.
 
-## Settled findings
+## Verification ownership hierarchy
+
+Prefer verification in this order unless the active risk requires otherwise:
+
+1. an existing deterministic repository test, script, benchmark, or harness;
+2. a short user-owned manual check for directly observable behavior;
+3. new agent-driven investigation or automation only when the first two cannot provide reliable evidence.
+
+The implementation agent should spend its budget primarily on implementation, focused automated tests, measurements, and difficult diagnostics. It should not consume substantial budget replacing a quick human observation with fragile desktop automation.
+
+When a verification procedure is useful more than once, prefer making it a small canonical repository script or documented harness rather than leaving the procedure as session-specific reasoning. Future sessions should execute the known procedure, not redesign it.
+
+## Settled findings and operational knowledge
 
 Treat documented environment and product findings as settled unless new evidence gives a concrete reason to reopen them. Use an already established working verification path instead of rediscovering known limitations.
+
+A fresh Codex session must not repeat exploratory work solely because it lacks the previous session's conversational context. Repository documentation and canonical scripts are the durable memory for:
+
+- known Windows/VM/UI automation limitations;
+- established working commands and harnesses;
+- known infrastructure-only failure modes;
+- previously validated security/runtime paths;
+- benchmark procedure and measurement assumptions;
+- evidence that remains reusable for unchanged boundaries.
+
+If a session discovers a reusable environment limitation, workaround, or verification procedure that would otherwise need to be rediscovered later, record it in the appropriate repository documentation or script before milestone closure when doing so is small and within scope.
+
+Do not reopen a settled limitation to search for a different workaround unless:
+
+- the active milestone actually requires evidence the established path cannot provide;
+- the environment or affected implementation materially changed;
+- the established path has now failed in a way that blocks required evidence.
 
 Infrastructure or harness behavior is not automatically a product defect. Distinguish product regressions from fixture problems, automation limitations, network/tooling failures, and expected Windows behavior. Do not modify production code merely to satisfy an ambiguous harness observation without confirming real product behavior when that distinction matters.
 
@@ -46,7 +75,7 @@ Use when a change crosses several connected components or affects a higher-risk 
 
 Reserve full or high-iteration campaigns for milestones whose primary purpose requires them, release/stabilization gates, investigation of a concrete intermittent defect, or material changes to the boundary being stressed.
 
-Do not run high iteration counts merely because a harness makes them easy. Dozens or hundreds of hotkey, keyboard, lifecycle, install/uninstall, or similar repetitions require a concrete intermittent/cumulative failure hypothesis.
+Do not run high iteration counts merely because a harness makes them easy. Dozens or hundreds of hotkey, keyboard, lifecycle, install/uninstall, benchmark, or similar repetitions require a concrete intermittent/cumulative failure hypothesis or an explicitly justified statistical need.
 
 ## Manual UI smoke ownership
 
@@ -113,6 +142,29 @@ For a new production assembly such as `Quail.FileSystem`, one successful final p
 
 Do not repeatedly rebuild or reinstall an unchanged package. After a failure, diagnose the cause first and rerun only after a relevant correction or to answer a concrete diagnostic question.
 
+## Performance and benchmark verification
+
+Performance work must use a small, repeatable, durable benchmark procedure rather than a new exploratory campaign in every session.
+
+A performance-investigation milestone should establish and persist:
+
+- a representative query/scenario set small enough to rerun cheaply;
+- the exact measurement procedure and environment assumptions;
+- the minimum repeat count needed to distinguish meaningful change from ordinary noise;
+- baseline results and accepted targets/guardrails;
+- any larger diagnostic scenarios that are investigation-only and are **not** part of routine regression verification.
+
+During performance implementation:
+
+- iterate with the smallest focused benchmark that exercises the changed hot path;
+- do not rerun the full benchmark set after every code change;
+- run the agreed representative performance set once on the final candidate unless a concrete regression requires another measurement;
+- do not increase iteration counts merely to create more data when existing measurements already support the decision.
+
+Later milestones such as ranking/relevance work should reuse the established performance regression set as a guardrail. They must not repeat the original performance-investigation campaign. If the regression set remains within the accepted budget, stop. If it shows a material regression, diagnose only the affected scenario first.
+
+Performance evidence should be gathered by deterministic scripts/harnesses whenever practical so a new Codex session can execute the same procedure without rediscovering commands, warm-up behavior, timing points, or environment workarounds.
+
 ## Test infrastructure and retry budget
 
 Prefer existing canonical scripts and established harnesses. Do not create new one-off infrastructure if focused automated tests, static inspection, direct runtime evidence, or a user-owned manual smoke can prove the requirement with less work.
@@ -132,6 +184,8 @@ For a simple user-owned manual UI smoke, use an even stricter rule: if the direc
 ## Evidence reuse
 
 Previous milestone evidence remains valid for unchanged behavior and boundaries. Reference prior evidence rather than recreating or copying large previous campaigns into the current milestone.
+
+A new implementation session should begin by identifying which existing PASS evidence is still valid and which specific evidence was invalidated by the current change. The burden is on the new test to justify why it needs to be run, not on old evidence to be recreated automatically.
 
 ## Stop wasting verification budget
 
