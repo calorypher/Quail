@@ -69,7 +69,7 @@ production code remains compatible with the existing 0.2 index format.
 | Publish/package payload | PASS | The final canonical installer guard produced a 58-file / 43,966,350-byte payload, including `Quail.Core.dll`, `Quail.FileSystem.dll`, `Microsoft.Data.Sqlite.dll`, SQLitePCL assemblies, and `e_sqlite3.dll`; installer SHA-256: `f4c9dc1faa59c3781ca0b75dd7f055439f348eb69c45810e9de1c0971ddcc1d7`. |
 | Quail-Lab protected runtime | REUSED PASS | The preceding M15 `ProtectedIndexRuntime` evidence remains applicable: this remediation did not change filesystem administration, protected storage, ACL/reparse defenses, locking, or Build/Rebuild/Refresh implementation. |
 | Index compatibility | REUSED PASS | The format was not changed; the preceding M15 existing-index verification remains applicable. |
-| Manual UI smoke | PENDING | User-owned manual UI smoke: pending. |
+| Manual UI smoke | PASS | User-owned manual smoke completed against the M15 Release build: Quick Search started, file search and result opening worked, and Rebuild completed. |
 
 ## Security boundary
 
@@ -87,5 +87,4 @@ out-of-scope follow-up, not an M15 fix.
 
 No migration, runtime module loader, provider framework, installer redesign, or
 M16 work was introduced. The source seam is deliberately closed and static; a
-future loading decision remains a composition change. User-owned manual UI smoke:
-pending.
+future loading decision remains a composition change.
