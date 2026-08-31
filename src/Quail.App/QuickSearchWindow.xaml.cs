@@ -76,7 +76,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _searchTrace.IsEnabled ? _searchTrace.RecordCoordinator : null,
             SearchExecutionLane.ShortQuery);
         _shortQuerySearchCoordinator.Completed += OnSearchCompleted;
-        _searchRuntime.SourcesChanged += OnActivePathsChanged;
+        _searchRuntime.SourcesChanged += OnSourcesChanged;
         _shortQueryDeferrer = new ShortQueryDeferrer(QuickSearchInputPolicy.ShortQueryDefer, OnShortQueryReady);
         InitializeComponent();
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
@@ -92,7 +92,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         await _pipe.ConnectAsync();
         if (_searchTrace.IsEnabled)
         {
-            _searchTrace.RecordSessionStart(_searchRuntime.GetIndexScale());
+            _searchRuntime.RecordSessionStart(_searchTrace);
         }
         _windowHandle = WindowNative.GetWindowHandle(this);
         ConfigureAppWindow();
@@ -184,7 +184,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
         _pipe.Dispose();
         _shortQueryDeferrer.Dispose();
-        _searchRuntime.SourcesChanged -= OnActivePathsChanged;
+        _searchRuntime.SourcesChanged -= OnSourcesChanged;
         _interactiveSearchCoordinator.Dispose();
         _shortQuerySearchCoordinator.Dispose();
         _shellIcons.Dispose();
@@ -617,15 +617,15 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 completion.Generation,
                 Stopwatch.GetElapsedTime(selectionStartedTimestamp));
 
-            var freshnessStartedTimestamp = Stopwatch.GetTimestamp();
-            var freshnessNotice = GetCatalogFreshnessNotice();
+            var sourceStatusStartedTimestamp = Stopwatch.GetTimestamp();
+            var sourceStatusNotice = _searchRuntime.GetSourceStatusNotice();
             StatusText.Text = _visibleResults.Count == 0
-                ? freshnessNotice is null ? "No results." : $"No results. {freshnessNotice}"
-                : freshnessNotice ?? string.Empty;
-            _searchTrace.RecordFreshness(
+                ? sourceStatusNotice is null ? "No results." : $"No results. {sourceStatusNotice}"
+                : sourceStatusNotice ?? string.Empty;
+            _searchTrace.RecordSourceStatus(
                 completion.UiGeneration,
                 completion.Generation,
-                Stopwatch.GetElapsedTime(freshnessStartedTimestamp));
+                Stopwatch.GetElapsedTime(sourceStatusStartedTimestamp));
             _pipe.Emit(new { @event = "query-changed", query = QueryBox.Text.Trim(), resultCount = _visibleResults.Count });
             AppLog.Write($"Search completed generation={completion.Generation} durationMs={completion.Duration.TotalMilliseconds:F1} results={items.Length}.");
             QueueFirstTextRender(completion, items.Length);
@@ -660,7 +660,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         StatusText.Text = string.Empty;
     }
 
-    private void OnActivePathsChanged()
+    private void OnSourcesChanged()
     {
         if (_exiting)
         {
@@ -688,16 +688,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         _interactiveSearchCoordinator.Invalidate();
         _shortQuerySearchCoordinator.Invalidate();
-    }
-
-    private string? GetCatalogFreshnessNotice()
-    {
-        return _searchRuntime.GetFreshness() switch
-        {
-            IndexFreshness.RefreshRecommended => "Refresh recommended for one or more indexes.",
-            IndexFreshness.Unknown => "Last refresh unknown for one or more indexes.",
-            _ => null
-        };
     }
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
@@ -968,6 +958,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private async Task LoadIconAsync(ResultItem item, SearchCompletion completion, int resultIndex)
     {
+        if (string.IsNullOrWhiteSpace(item.IconKey))
+        {
+            return;
+        }
+
         try
         {
             var iconStartedTimestamp = Stopwatch.GetTimestamp();

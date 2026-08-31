@@ -13,7 +13,7 @@ public sealed class ResultItem : INotifyPropertyChanged
     public required string Context { get; init; }
     public required string Kind { get; init; }
     public required string Metadata { get; init; }
-    public required string IconKey { get; init; }
+    public string? IconKey { get; init; }
     public required string FallbackIconGlyph { get; init; }
 
     private ImageSource? _icon;

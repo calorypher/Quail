@@ -16,22 +16,22 @@ internal static class FileSystemSearchComposition
         runtime = new SearchRuntime(
             new SearchApplicationService([source]),
             () => options.IndexPaths.Count > 0 || catalog.ActivePaths.Count > 0,
-            () =>
+            () => catalog.ActivePathsChanged -= runtime!.NotifySourcesChanged,
+            () => GetFreshnessNotice(options, source),
+            trace =>
             {
                 var scale = source.GetSearchIndexScale();
-                return new SearchIndexScale(
+                trace.RecordSessionStart(new SearchIndexScale(
                     scale.ConfiguredIndexCount,
                     scale.RecordCount,
                     scale.DatabaseBytes,
-                    scale.UnavailableIndexCount);
-            },
-            () => GetFreshness(options, source),
-            () => catalog.ActivePathsChanged -= runtime!.NotifySourcesChanged);
+                    scale.UnavailableIndexCount));
+            });
         catalog.ActivePathsChanged += runtime.NotifySourcesChanged;
         return runtime;
     }
 
-    private static IndexFreshness? GetFreshness(AppLaunchOptions options, FileSystemSearchSource source)
+    private static string? GetFreshnessNotice(AppLaunchOptions options, FileSystemSearchSource source)
     {
         if (options.IndexPaths.Count > 0)
         {
@@ -42,9 +42,9 @@ internal static class FileSystemSearchComposition
             .Select(status => IndexFreshnessPolicy.Classify(status, DateTimeOffset.UtcNow))
             .ToArray();
         return freshness.Contains(IndexFreshness.RefreshRecommended)
-            ? IndexFreshness.RefreshRecommended
+            ? "Refresh recommended for one or more indexes."
             : freshness.Contains(IndexFreshness.Unknown)
-                ? IndexFreshness.Unknown
+                ? "Last refresh unknown for one or more indexes."
                 : null;
     }
 }

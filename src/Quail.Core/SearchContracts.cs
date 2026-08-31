@@ -34,5 +34,5 @@ internal sealed record SearchResult(
     string? Context,
     string Kind,
     string Metadata,
-    string IconKey,
+    string? IconKey,
     string FallbackIconGlyph);

@@ -1,4 +1,5 @@
 using System.Reflection;
+using Quail.App;
 
 namespace Quail.Core.Tests;
 
@@ -35,6 +36,7 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         Assert.Equal("X:\\boundary-report.txt", result.Context);
         Assert.Equal("File", result.Kind);
         Assert.Equal("TXT", result.Metadata);
+        Assert.Equal("TXT", result.IconKey);
         Assert.DoesNotContain(
             typeof(SearchResult).GetProperties(),
             property => property.PropertyType.Assembly == typeof(NativeFileId).Assembly);
@@ -78,6 +80,7 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         var results = core.Search(new SearchRequest("query"));
 
         Assert.Equal(["alpha", "beta"], results.Select(result => result.Title));
+        Assert.All(results, result => Assert.Null(result.IconKey));
         Assert.Equal(["alpha"], core.Search(new SearchRequest("query", Limit: 1)).Select(result => result.Title));
         core.Open(results[1].Action);
         Assert.Equal(["second:beta"], opened);
@@ -86,13 +89,36 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
             assembly => string.Equals(assembly.Name, "Quail.FileSystem", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Search_runtime_works_with_a_fake_source_without_index_or_freshness_diagnostics()
+    {
+        var opened = new List<string>();
+        var source = new FakeSearchSource("fake", opened, "alpha");
+        var disposed = false;
+        using var runtime = new SearchRuntime(
+            new SearchApplicationService([source]),
+            () => true,
+            () => disposed = true);
+        var sourcesChanged = false;
+        runtime.SourcesChanged += () => sourcesChanged = true;
+
+        Assert.True(runtime.HasSources());
+        Assert.Null(runtime.GetSourceStatusNotice());
+        Assert.Equal("alpha", Assert.Single(runtime.Search.Search(new SearchRequest("query"))).Title);
+        runtime.NotifySourcesChanged();
+
+        Assert.True(sourcesChanged);
+        runtime.Dispose();
+        Assert.True(disposed);
+    }
+
     private static bool ReferencesFileSystemAction(Type type)
     {
         return type.Assembly == typeof(FileSystemSearchSource).Assembly ||
             type.GetGenericArguments().Any(ReferencesFileSystemAction);
     }
 
-    private sealed class FakeSearchSource(string name, List<string> opened, string title) : ISearchSource
+    private sealed class FakeSearchSource(string name, List<string> opened, string title, string? iconKey = null) : ISearchSource
     {
         public IReadOnlyList<SearchResult> Search(SearchRequest request) =>
         [new SearchResult(
@@ -101,7 +127,7 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
             $"{name} context",
             "Fake result",
             "Fake metadata",
-            "fake",
+            iconKey,
             "\uE8A5")];
     }
 }
