@@ -45,23 +45,34 @@ Current default choices:
 - no native C++/Rust component without demonstrated need;
 - no dynamic or third-party plugin framework unless later evidence creates a real requirement.
 
-The intended high-level direction is:
+The intended compile-time dependency direction is source-neutral and dependency-inverted:
 
 ```text
-Quail.App
-    -> Quail.Core
-        -> internal source/provider implementations
-            -> FileSystem
-            -> later Browser / Drive / Mail / Calendar / ...
+Quail.App ---------> Quail.Core
+                         ^
+                         |
+Quail.FileSystem -------+
+
+later:
+Quail.Browser ----------+
+Quail.Mail -------------+
+Quail.Cloud ------------+
+Quail.Calendar ---------+
 ```
 
-`Quail.Core` should evolve into the application/search core rather than remain a filesystem engine with a generic name. Windows/NTFS-specific indexing, persistence, identity, change tracking, and filesystem actions should live behind a clear internal boundary when the active milestone justifies extracting them.
+`Quail.Core` owns application/search orchestration and only the minimal contracts genuinely shared by normal product surfaces. It must not reference `Quail.FileSystem` or another concrete source. Concrete sources implement Core-owned search contracts and depend on Core, not the reverse.
 
-Do not turn that boundary into a public provider SDK, dynamic plugin loader, capability framework, universal storage schema, or generalized provider lifecycle before multiple real source implementations demonstrate the common requirements.
+A small internal source contract such as `ISearchSource`, or an equally narrow mechanism, is acceptable when required for dependency inversion, search/result/action routing, and aggregation. Do not turn that seam into a public provider SDK, dynamic plugin loader, discovery/versioning system, capability framework, universal storage schema, or generalized provider lifecycle before multiple real source implementations demonstrate the common requirements.
 
-The GUI should remain thin: indexing, persistence, search, ranking, and source/provider logic should not depend on WinUI. GUI-facing query/result models should expose only the information needed by the product surfaces and should not leak filesystem implementation details such as `IndexStore` or native NTFS identifiers when an opaque source-specific identity is sufficient.
+At runtime, Core may orchestrate registered source instances. Runtime orchestration from App through Core to sources does not authorize a compile-time `Quail.Core -> Quail.FileSystem` dependency.
+
+`Quail.App -> Quail.FileSystem` may exist where required for static composition or explicitly filesystem-specific administration/UAC UI, but those references must remain isolated from the normal Quick Search/search-coordinator/presentation path. Indexing, persistence, search implementation, ranking implementation, identity, synchronization/change tracking, and source-specific actions should not depend on WinUI.
+
+Normal App/Core search-flow types and names should be source-neutral unless a component genuinely handles only one source. GUI-facing result models should expose only product information needed by the current surface and must not make filesystem concepts such as path, directory/file shape, NTFS attributes, or database identity mandatory for every future result.
 
 Preserve source-native identity where available. Do not reduce filesystem identity to the current path merely to fit a generic model. Provider/source identity, content identity, and future cross-source relationships are separate concepts.
+
+First-party source modules are intended to become physically optional over time. Omitting a source assembly should eventually remove that source's results, actions, indexing/synchronization behavior, and source-specific settings without breaking source-neutral search surfaces or Core. Do not implement runtime module loading before a concrete milestone requires it, but do not introduce dependencies that would make future physical optionality require another broad search-stack refactor.
 
 ## Resource and quality constraints
 
@@ -137,7 +148,7 @@ Explicitly avoid early introduction of:
 - elaborate installer/update systems without a dedicated requirement;
 - Windows Service responsibilities beyond the smallest justified privileged/background boundary.
 
-Internal source/provider boundaries are not prohibited by this rule. Extract them when current code and an approved product slice demonstrate the need.
+Internal source/provider boundaries are not prohibited by this rule. Extract them when current code and an approved product slice demonstrate the need. A minimal Core-owned source-search contract needed to keep Core independent of concrete sources is an internal boundary, not a speculative provider framework.
 
 Stop when the approved acceptance criteria are met. Do not add extra rounds of hardening, compatibility work, cleanup, or generalization after PASS unless verification has found a new concrete defect or risk that belongs to the milestone.
 
