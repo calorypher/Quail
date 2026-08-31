@@ -94,23 +94,47 @@ The approved release plan is M15 through M24. The sequence is intentionally most
 
 ### M15 — Core / FileSystem Boundary Extraction
 
-**Goal:** turn `Quail.Core` into the real application/search core and move the existing NTFS/filesystem implementation behind a clear internal boundary without changing product behavior.
+**Goal:** turn `Quail.Core` into the source-neutral application/search core and move the existing NTFS/filesystem implementation into a concrete source module without changing product behavior.
+
+The approved compile-time dependency direction is:
+
+```text
+Quail.App ---------> Quail.Core
+                         ^
+                         |
+Quail.FileSystem -------+
+
+later concrete sources also depend on Quail.Core
+```
+
+`Quail.Core` must not reference `Quail.FileSystem` or another concrete source. A minimal internal Core-owned source/search contract such as `ISearchSource`, or an equivalent dependency-inversion seam, is allowed when required for search, Core-level result/action projection, and aggregation. This does not authorize a provider framework.
 
 Scope:
 
-- create a filesystem-specific internal module/project, expected to be named `Quail.FileSystem` unless the concrete dependency graph provides a better simple name;
-- move NTFS/MFT/USN access, filesystem-specific SQLite persistence, build/sync/status behavior, filesystem identity, filesystem search internals, and filesystem actions out of generic Core;
-- introduce only the minimal Core-level query/result/action model required by current Quick Search and the already-approved Full Search direction;
-- remove direct filesystem implementation details such as `IndexStore`, native NTFS identifiers, and filesystem-specific result wrappers from the normal GUI search path;
-- preserve CLI and filesystem-administration behavior, allowing those explicitly filesystem-specific surfaces to depend on the filesystem module where appropriate;
-- preserve existing index data and 0.2 behavior unless a narrowly justified compatibility change is unavoidable.
+- create a filesystem-specific production module/project, expected to be named `Quail.FileSystem` unless the concrete dependency graph provides a better simple name;
+- move NTFS/MFT/USN access, filesystem-specific SQLite persistence, build/sync/status behavior, filesystem identity, filesystem search/ranking internals, and filesystem actions out of generic Core;
+- introduce only the minimal source-neutral Core query/result/action/source contracts required by current Quick Search and the already-approved future Full Search direction;
+- remove direct filesystem implementation details such as `IndexStore`, native NTFS identifiers, filesystem result wrappers, and mandatory file-shaped result assumptions from the normal App/Core search path;
+- use source-neutral names for normal search orchestration/coordinator/presentation types unless a type genuinely handles only filesystem behavior;
+- preserve CLI and filesystem-administration behavior; direct `Quail.App -> Quail.FileSystem` references may remain only for static composition and explicitly filesystem-specific administration/UAC paths;
+- isolate such App-to-FileSystem references so future optional source loading is primarily a composition change rather than a redesign of Quick Search/Core/presentation;
+- preserve existing index behavior and 0.2 user-visible behavior unless a narrowly justified compatibility change is unavoidable.
+
+Long-term invariant established by M15:
+
+- first-party source modules are intended to become physically optional;
+- omitting a source such as `Quail.FileSystem.dll` should eventually remove only that source's results, actions, indexing/synchronization behavior, and source-specific settings;
+- source-neutral Core, Quick Search, Full Search, presentation, and other installed sources should continue to work;
+- M15 does not implement runtime module loading or require a deleted-DLL runtime test.
 
 Out of scope:
 
-- provider/plugin SDK or dynamic provider loading;
-- provider discovery/versioning or a generalized capability framework;
+- public provider/plugin SDK or dynamic provider loading;
+- runtime source discovery/loading as an M15 deliverable;
+- provider discovery/versioning, lifecycle, or generalized capability framework;
 - browser/cloud sources;
-- universal object database;
+- universal object/storage model;
+- final heterogeneous/cross-source ranking;
 - performance or ranking redesign;
 - service/background maintenance;
 - storage migration merely to make the refactor look cleaner.
@@ -119,12 +143,16 @@ Acceptance boundary:
 
 - existing 0.2 user-visible behavior remains functional;
 - NTFS/index implementation no longer lives in generic Core;
-- the normal App -> Core search path no longer leaks NTFS/SQLite implementation details;
+- `Quail.Core` has no dependency on `Quail.FileSystem` or another concrete source;
+- `Quail.FileSystem` implements Core-owned minimal source/search contracts;
+- Core search can be exercised with a non-filesystem fake source without constructing filesystem objects;
+- the normal App/Core search/coordinator/presentation path uses source-neutral contracts and naming and does not leak NTFS/SQLite/file-only implementation assumptions;
+- direct App-to-FileSystem dependencies, if retained, are isolated to static composition and explicitly filesystem-specific administration;
 - Quick Search, CLI, and Build/Rebuild/Refresh remain usable;
 - existing tests and Release builds pass;
-- no speculative provider framework is introduced.
+- no speculative provider/plugin/capability/runtime-loading framework is introduced.
 
-Stop if completing the split would require changing the privilege/security model, performing a material index-schema migration, or inventing a broad generic provider API.
+Stop if completing the split would require changing the privilege/security model, performing a material index-schema migration, introducing a broad provider/runtime-loading architecture, or materially redesigning search/ranking. The detailed executable contract is in `docs/milestones/M15.md`.
 
 ### M16 — Search Performance Investigation & Target
 
@@ -238,7 +266,7 @@ Scope:
 - validate journal identity/range/continuity;
 - recover automatically only where correctness is clear;
 - enter explicit `Rebuild required` or equivalent state where correctness can no longer be guaranteed;
-- expose a simple index-health/status model for the UI;
+- expose a simple filesystem index-health/status model for the UI;
 - keep querying and maintenance compatible;
 - add only the installer/service work required by the selected boundary;
 - perform security/integrity verification proportional to the privileged boundary.
@@ -266,9 +294,10 @@ Scope:
 - General includes launch with Windows, global hotkey, and theme;
 - Indexing includes indexed volumes, health/status, rebuild/recovery actions, and useful diagnostics;
 - use a straightforward supported Windows startup mechanism appropriate to the deployment model;
-- preserve existing user configuration where practical.
+- preserve existing user configuration where practical;
+- keep filesystem-specific settings sufficiently isolated that future omission of the FileSystem module can remove its settings without breaking ordinary Settings.
 
-Do not add empty Browser/Cloud/Provider/Plugin pages or a generalized deployment subsystem.
+Do not add empty Browser/Cloud/Provider/Plugin pages or a generalized settings-extension/deployment subsystem.
 
 Acceptance boundary:
 
@@ -287,9 +316,9 @@ Scope:
 
 - normal persistent resizable window;
 - transition from Quick Search to Full Search while preserving the query;
-- one internal GUI-to-Core search-request model shared by Quick Search and Full Search;
+- one source-neutral internal GUI-to-Core search-request/orchestration path shared by Quick Search and Full Search;
 - larger scrollable/list-table result set;
-- name, path/context, file/folder kind, size, modified date/time, and created date/time when the indexed model can provide it correctly;
+- filesystem fields needed by this 0.3 surface: name, path/context, file/folder kind, size, modified date/time, and created date/time when the indexed model can provide it correctly;
 - keyboard navigation;
 - open;
 - open containing folder/reveal;
@@ -299,7 +328,7 @@ Scope:
 - hidden/system/read-only as advanced filesystem filters where useful;
 - sensible empty/error/index-unavailable states.
 
-Prefer compact filter controls/chips/dropdowns over a full visual query builder.
+Prefer compact filter controls/chips/dropdowns over a full visual query builder. Do not re-establish filesystem fields as mandatory semantics for every future Core result merely because Full Search v1 is filesystem-only.
 
 Out of scope:
 
@@ -389,7 +418,9 @@ Unless an approved milestone finds a narrow prerequisite, 0.3 does not implement
 - deleted-item retention/history UX;
 - application-provider/launcher expansion as a release goal;
 - public/dynamic plugin framework;
-- generalized provider SDK;
+- runtime source/module discovery/loading as an M15 deliverable;
+- generalized provider SDK/lifecycle/capability/version-negotiation machinery;
+- universal source/object storage model;
 - full visual query builder or saved searches;
 - preview/file-manager operations;
 - automatic update installation;
@@ -426,13 +457,13 @@ Browser history/bookmarks remain the preferred low-friction candidate for the fi
 
 Working goal:
 
-> Prove that the Core/filesystem boundary scales to a second source with fundamentally different identity, persistence, synchronization, ranking signals, and actions.
+> Prove and refine the source-neutral Core contract with a second source that has fundamentally different identity, persistence, synchronization, ranking signals, and actions.
 
 Expected areas include browser-source feasibility, Firefox/Chromium data access as supported by evidence, bookmark/history identity and retention, local import/indexing, incremental refresh, unified result presentation/ranking, source/type filtering, URL actions, and Full Search/Object Explorer multi-source behavior.
 
-Only after FileSystem and at least one real heterogeneous source exist should Quail generalize broader shared provider/source contracts from demonstrated common requirements.
+Only after FileSystem and at least one real heterogeneous source exist should Quail generalize broader shared provider/source contracts from demonstrated common requirements. The dependency-inverted M15 seam is intentionally narrower than that future framework-level question.
 
-The exact 0.5 scope, browser families, and milestone numbering remain intentionally unfrozen until 0.4 and real 0.3/0.4 usage provide better evidence.
+The exact 0.5 scope, browser families, runtime source-loading needs, and milestone numbering remain intentionally unfrozen until 0.4 and real 0.3/0.4 usage provide better evidence.
 
 ## Later directional candidates
 
@@ -470,12 +501,17 @@ Linux remains a plausible later platform. Preserve natural portable boundaries i
 
 Quail should remain internally modular. A public/dynamically loaded plugin system is not committed. Evaluate extension loading, isolation, permissions, API versioning, compatibility, and update behavior only if real third-party-extension use cases appear.
 
+Physical optionality of first-party source modules is a separate concern from public third-party extensibility. The former may later require a small internal composition/loading mechanism without implying the latter.
+
 ## Product constraints across releases
 
 - Keep architecture simple and dependencies limited.
 - Build small validated vertical slices.
-- Keep the GUI independent from source-specific storage and platform internals.
-- Extract internal boundaries when current code demonstrates the need; avoid speculative frameworks.
+- Keep `Quail.Core` independent of concrete source modules.
+- Keep normal GUI search orchestration/presentation independent from source-specific storage and platform internals.
+- Concrete source modules implement Core-owned minimal contracts and retain source-specific identity, indexing, persistence, synchronization, ranking details, and actions.
+- Preserve future physical optionality of first-party sources without introducing runtime loading before it is needed.
+- Extract broader shared provider contracts only when multiple real sources demonstrate the need; avoid speculative frameworks.
 - Preserve source-native identity where useful rather than forcing one universal identifier model.
 - Avoid regular full rescans and aggressive polling during healthy operation.
 - Do not elevate the interactive launcher UI merely to access NTFS internals.

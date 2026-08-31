@@ -163,23 +163,36 @@ Do not design a complete capability framework from the filesystem source alone. 
 
 ## Core and source boundaries
 
-The intended architectural direction is:
+The intended compile-time architecture is source-neutral and dependency-inverted:
 
 ```text
-Quail.App
-    -> Quail.Core
-        -> internal source/provider implementations
-            -> FileSystem
-            -> Browser
-            -> Drive
-            -> Mail
-            -> Calendar
-            -> ...
+Quail.App ---------> Quail.Core
+                         ^
+                         |
+Quail.FileSystem -------+
+Quail.Browser ----------+
+Quail.Drive ------------+
+Quail.Mail -------------+
+Quail.Calendar ---------+
 ```
 
-`Quail.Core` should own the application/search orchestration and common query/result semantics that are genuinely shared. Source-specific indexing, persistence, synchronization, identity, and actions should remain source-specific.
+`Quail.Core` owns application/search orchestration and the minimal query/result/action semantics genuinely shared by normal search surfaces. It must not depend on a concrete source. Concrete source modules implement Core-owned contracts and keep source-specific indexing, persistence, synchronization, identity, ranking details, and actions in the source module.
 
-This modularity is internal architecture. It does not imply a public plugin framework, dynamic provider loading, an extension SDK, or one universal storage schema.
+At runtime, the application may register source implementations with Core and Core may aggregate their results. That runtime flow does not imply a compile-time `Core -> source` dependency.
+
+A small internal contract such as `ISearchSource`, or an equivalent dependency-inversion seam, is acceptable when it exists only to support demonstrated search, result projection/action routing, and aggregation needs. This modularity does not imply a public plugin framework, dynamic provider loading, an extension SDK, capability matrix, provider lifecycle framework, version negotiation, or one universal storage schema.
+
+Normal App/Core search-flow types should not be named or shaped around filesystem merely because FileSystem is the first source. The common result model should not require every result to expose a filesystem path, file/directory shape, NTFS attributes, or filesystem timestamps. Source-specific metadata remains source-specific until multiple real sources demonstrate a useful common abstraction.
+
+### Physical source optionality
+
+First-party source modules are intended to become physically optional.
+
+A future deployment should be able to omit a source module such as `Quail.FileSystem.dll`. Doing so should remove only that source's results, source-specific actions, indexing/synchronization behavior, and source-specific settings. Quail's source-neutral Core, Quick Search, Full Search, normal result presentation, and other installed sources should continue to work.
+
+This does not require a runtime loader today. During early development, `Quail.App` may statically compose first-party source implementations and may directly reference a source for explicitly source-specific administration. Those references should remain isolated so later optional module loading primarily changes the composition root rather than forcing another broad search-stack refactor.
+
+Dynamic loading should be introduced only when a concrete product/deployment need exists. Physical optionality of first-party modules does not by itself commit Quail to third-party plugins or a public SDK.
 
 ## Platform direction
 
@@ -189,7 +202,7 @@ Linux remains a plausible later platform because the long-term product is broade
 
 This does not mean building a cross-platform abstraction layer in advance. Windows-specific filesystem, service, hotkey, tray, shell, installer, and UI integration should remain explicit platform components.
 
-If Linux support is eventually pursued, the expected model is to reuse portable Core/source logic while providing a Linux-specific local filesystem backend and platform integration. A WinUI 3 frontend is not portable and may require a separate Linux frontend; this is acceptable if the rest of the application remains cleanly separated.
+If Linux support is eventually pursued, the expected model is to reuse portable Core/source contracts and source logic where appropriate while providing Linux-specific local filesystem/platform integration. A WinUI 3 frontend is not portable and may require a separate Linux frontend; this is acceptable if the rest of the application remains cleanly separated.
 
 ## Incremental development
 
@@ -199,22 +212,13 @@ Quail should continue to be built as small validated vertical slices. Do not att
 
 Quail 0.2 established the first public file-search desktop baseline: Quick Search, real local NTFS indexes, GUI-managed index configuration, ranking, packaging, and a diagnostic CLI.
 
-The approved next release direction, Quail 0.3, is to make filesystem search good enough for ordinary daily use and to replace Everything in the developer's normal local-file-search workflow. The intended work includes:
-
-- extracting a real Core/filesystem internal boundary without building a provider framework;
-- materially improving measured search performance;
-- improving ranking/relevance;
-- continuously maintaining the filesystem index without routine manual Refresh/Rebuild;
-- launch-on-startup;
-- Quick Search polish;
-- one coherent Settings/Indexing surface;
-- a filesystem-only Full Search v1 with useful sorting and filters.
+The approved Quail 0.3 release plan makes filesystem search good enough for ordinary daily use and aims to replace Everything in the developer's normal local-file-search workflow. Its M15 architecture milestone establishes a source-neutral Core/FileSystem dependency boundary; later 0.3 milestones cover measured performance, ranking/relevance, automatic filesystem maintenance, launch-on-startup, UI/settings integration, Full Search v1, polish, and stabilization.
 
 Stable NTFS file identity/history is the preferred deeper filesystem direction after that foundation. 0.3 should preserve stable identity and a reliable change stream but should not silently introduce historical/deleted-item retention.
 
-After the filesystem experience and identity/history foundation are mature enough, a genuinely different source should validate the shared model. Browser history/bookmarks remain a plausible low-friction first candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization, OAuth/account handling, credential storage, and retention semantics.
+After the filesystem experience and identity/history foundation are mature enough, a genuinely different source should validate and refine the shared model. Browser history/bookmarks remain a plausible low-friction first candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization, OAuth/account handling, credential storage, and retention semantics.
 
-Only after multiple real source implementations exist should Quail extract broader source/provider contracts from demonstrated common requirements.
+Only after multiple real source implementations exist should Quail generalize broader source/provider contracts from demonstrated common requirements. The M15 dependency-inversion seam is intentionally much narrower than that future work.
 
 ## Relationship to launcher features
 
@@ -232,6 +236,6 @@ Quail is not intended to replace NTFS, become an operating-system storage platfo
 
 This document records the strategic north star, not a committed implementation sequence for all future versions.
 
-Quail 0.2 is the current public baseline. The approved 0.3 direction is a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. Concrete 0.3 milestones still require separate design and approval.
+Quail 0.2 is the current public baseline. Quail 0.3 has an approved M15-M24 release plan focused on a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. M15 additionally establishes the source-neutral dependency direction needed for future heterogeneous and physically optional first-party sources without implementing a runtime plugin/loading framework.
 
 File identity/history is directional work after the 0.3 filesystem-usability foundation. Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases. Later sequencing should continue to change when measured behavior and real usage provide better evidence.
