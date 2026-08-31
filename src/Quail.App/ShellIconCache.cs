@@ -19,10 +19,9 @@ internal sealed class ShellIconCache : IDisposable
     private readonly BoundedLruCache<string, byte[]> _cache = new(128);
     private bool _disposed;
 
-    public async Task<ImageSource?> LoadAsync(string path, bool isDirectory)
+    public async Task<ImageSource?> LoadAsync(string iconKey)
     {
-        var key = isDirectory ? "folder" : Path.GetExtension(path).ToUpperInvariant();
-        if (string.IsNullOrEmpty(key)) key = "file";
+        var key = string.IsNullOrWhiteSpace(iconKey) ? "file" : iconKey;
         byte[]? bytes;
         lock (_gate)
         {
@@ -32,7 +31,7 @@ internal sealed class ShellIconCache : IDisposable
 
         if (bytes is null)
         {
-            bytes = await Task.Run(() => LoadShellIconBytes(path, isDirectory));
+            bytes = await Task.Run(() => LoadShellIconBytes(key));
             if (bytes is null) return null;
             lock (_gate)
             {
@@ -49,8 +48,10 @@ internal sealed class ShellIconCache : IDisposable
         lock (_gate) _disposed = true;
     }
 
-    private static byte[]? LoadShellIconBytes(string path, bool isDirectory)
+    private static byte[]? LoadShellIconBytes(string iconKey)
     {
+        var isDirectory = string.Equals(iconKey, "folder", StringComparison.Ordinal);
+        var path = isDirectory ? "folder" : $"result{(iconKey.StartsWith('.') ? iconKey : string.Empty)}";
         var info = new ShFileInfo();
         var result = SHGetFileInfo(
             path,

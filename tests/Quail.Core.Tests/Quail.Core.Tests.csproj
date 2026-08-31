@@ -17,12 +17,11 @@
     <Compile Include="..\..\src\Quail.App\IndexOperationCoordinator.cs" Link="App\IndexOperationCoordinator.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsHotkeyRestoreGuard.cs" Link="App\SettingsHotkeyRestoreGuard.cs" />
     <Compile Include="..\..\src\Quail.App\BoundedLruCache.cs" Link="App\BoundedLruCache.cs" />
-    <Compile Include="..\..\src\Quail.App\FileSearchMetadata.cs" Link="App\FileSearchMetadata.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyCapture.cs" Link="App\HotkeyCapture.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyCaptureSession.cs" Link="App\HotkeyCaptureSession.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyDefinition.cs" Link="App\HotkeyDefinition.cs" />
     <Compile Include="..\..\src\Quail.App\NativeMethods.cs" Link="App\NativeMethods.cs" />
-    <Compile Include="..\..\src\Quail.App\LatestFileSearchCoordinator.cs" Link="App\LatestFileSearchCoordinator.cs" />
+    <Compile Include="..\..\src\Quail.App\LatestSearchCoordinator.cs" Link="App\LatestSearchCoordinator.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceTrace.cs" Link="App\SearchPerformanceTrace.cs" />
     <Compile Include="..\..\src\Quail.App\AppLaunchOptions.cs" Link="App\AppLaunchOptions.cs" />
     <Compile Include="..\..\src\Quail.App\ResultSelection.cs" Link="App\ResultSelection.cs" />

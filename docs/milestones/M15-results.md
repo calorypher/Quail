@@ -9,26 +9,35 @@ storage redesign, or search/ranking change.
 The resulting production dependency graph is:
 
 ```text
-Quail.App -> Quail.Core -> Quail.FileSystem -> Microsoft.Data.Sqlite
-Quail.App -> Quail.FileSystem (filesystem administration only)
+Quail.App -> Quail.Core
+Quail.FileSystem -> Quail.Core
+Quail.App -> Quail.FileSystem
+    static composition / filesystem administration only
 Quail.Cli -> Quail.FileSystem
 ```
 
-`Quail.Core` now exposes only the current search boundary: request, product result
-data, index summary/status, and an opaque `SearchResultAction`. `SearchResult`
-does not expose raw filesystem attributes or Windows file times. Native file
-identity and database paths remain inside `Quail.FileSystem`.
+`Quail.Core` owns the closed, minimal `ISearchSource` seam and
+`SearchApplicationService` aggregation. The contract is internal to the current
+first-party assemblies; it is not a public provider SDK. `Quail.FileSystem`
+implements the seam, retains NTFS identity, SQLite, ranking, and shell actions,
+and maps its own result data into the Core presentation contract.
 
-`SearchResultAction` now owns an internal, per-returned-result open delegate.
-`FileSearchApplicationService` has no historical action dictionary, so completed
+`SearchResult` is source-neutral presentation data: title, optional context, kind,
+concise metadata, and icon presentation. It does not require a path, file/folder
+flag, extension, file size, attributes, timestamps, native identity, or database
+path. The FileSystem source preserves the current Quick Search file/folder,
+path/context, metadata, icon, and open behavior when it maps its own result.
+
+`SearchResultAction` owns an internal, per-returned-result open delegate.
+`SearchApplicationService` has no historical action dictionary, so completed
 searches do not retain actions globally while a selected returned result can still
-be opened.
+be opened by its owning source.
 
-The App remains the WinUI/UAC host and orchestration layer. Filesystem catalog
-persistence and path validation, protected index storage, volume discovery,
-filesystem status validation, and Build/Rebuild/Refresh mechanics now belong to
-`Quail.FileSystem`. The App's direct FileSystem reference remains limited to the
-approved filesystem-administration paths.
+The normal App search runtime, coordinator, result presentation, and action flow
+use Core types with source-neutral names. `FileSystemSearchComposition` is the
+isolated static composition point. Filesystem catalog persistence and path
+validation, protected index storage, volume discovery, filesystem status
+validation, and Build/Rebuild/Refresh mechanics remain in `Quail.FileSystem`.
 
 The historical Search-Ranking specification and results were restored verbatim
 from `main`; this result records the M15 ownership move of the ranking
@@ -45,21 +54,22 @@ production code remains compatible with the existing 0.2 index format.
 
 | Area | Result | Evidence |
 | --- | --- | --- |
-| Focused boundary tests | PASS | Focused Core/FileSystem and M12 boundary tests: 25 passed. The new regression verifies repeated searches preserve a returned opaque action without a service-level registry, while `SearchResult` exposes no raw filesystem representation. |
-| Automated suite | PASS | `dotnet test tests\\Quail.Core.Tests\\Quail.Core.Tests.csproj -c Release --no-restore`: 177 passed. |
+| Focused boundary tests | PASS | 23 focused source/Core/coordinator tests passed during implementation. The fake-source test creates Core without filesystem objects, aggregates two sources, applies the global limit, routes an opaque action to its owner, and verifies that Core has no `Quail.FileSystem` assembly reference. The filesystem action-retention regression remains covered. |
+| Automated suite | PASS | Final `dotnet test tests\\Quail.Core.Tests\\Quail.Core.Tests.csproj -c Release --no-restore`: 178 passed. |
 | Release builds | PASS | Release builds of `Quail.App` and `Quail.Cli` completed with zero warnings and zero errors. |
-| Static boundary review | PASS | `Quail.Core` has no SQLite, `IndexStore`, NTFS/USN, or `NativeFileId` reference. `Quail.App` has no direct `IndexStore`, `NtfsVolume`, protected-storage, catalog-store, or managed-index-path implementation reference. |
-| Publish/package payload | PASS | The final self-contained publish contained 470 files / 182,462,762 bytes. The canonical installer guard produced a 58-file / 43,965,553-byte payload, including `Quail.FileSystem.dll`, `Microsoft.Data.Sqlite.dll`, SQLitePCL assemblies, and `e_sqlite3.dll`; installer SHA-256: `ae137837807869a930ed86d51f0ff75e281c25f3788c8652f153908417729f36`. |
-| Quail-Lab protected runtime | PASS | A hash-verified final archive passed `ProtectedIndexRuntime`: Build, Refresh, zero-change Refresh, controlled-change search, unelevated protected-index reads, reparse/junction defenses, protected result transport, and the per-volume concurrency invariant. |
-| Ordinary Quick Search smoke | NOT RUN | WinApp was unavailable. The already-established VMConnect input limitation prevented the short interactive fallback from delivering input even to File Explorer, so no additional console-input campaign was attempted. Independent QA must perform one normal startup → controlled-result search → Enter/open smoke in an interactive desktop session. |
+| Static boundary review | PASS | `Quail.Core` has no FileSystem project reference or concrete-source/SQLite/NTFS reference. `Quail.FileSystem` references Core. The normal Quick Search coordinator/presentation flow has no FileSystem type reference; App references remain in static composition and filesystem administration/UAC code. No generic `FileSearch*` or file-shaped Core abstraction remains. |
+| Publish/package payload | PASS | The final canonical installer guard produced a 58-file / 43,966,350-byte payload, including `Quail.Core.dll`, `Quail.FileSystem.dll`, `Microsoft.Data.Sqlite.dll`, SQLitePCL assemblies, and `e_sqlite3.dll`; installer SHA-256: `f4c9dc1faa59c3781ca0b75dd7f055439f348eb69c45810e9de1c0971ddcc1d7`. |
+| Quail-Lab protected runtime | REUSED PASS | The preceding M15 `ProtectedIndexRuntime` evidence remains applicable: this remediation did not change filesystem administration, protected storage, ACL/reparse defenses, locking, or Build/Rebuild/Refresh implementation. |
+| Index compatibility | REUSED PASS | The format was not changed; the preceding M15 existing-index verification remains applicable. |
+| Manual UI smoke | PENDING | User-owned manual UI smoke: pending. |
 
 ## Security boundary
 
 M15 preserved same-account elevation and the narrow worker command surface. The
-final lab run confirmed protected ProgramData storage, unelevated post-worker
-reads, reparse-point protection, result transport protection, SQLite quiescence,
-and the one-success/one-fail concurrent-worker invariant. No service, IPC,
-updater, ACL, or trust-model change was introduced.
+reused final lab evidence confirms protected ProgramData storage, unelevated
+post-worker reads, reparse-point protection, result transport protection, SQLite
+quiescence, and the one-success/one-fail concurrent-worker invariant. No service,
+IPC, updater, ACL, or trust-model change was introduced.
 
 ## Scope and limitations
 
@@ -67,6 +77,7 @@ updater, ACL, or trust-model change was introduced.
 behavior. The ShellExecute return-value issue found by the harness is an
 out-of-scope follow-up, not an M15 fix.
 
-No migration, compatibility machinery, provider framework, installer redesign,
-or M16 work was introduced. The ordinary interactive Quick Search open smoke
-remains the only final verification item not evidenced in this session.
+No migration, runtime module loader, provider framework, installer redesign, or
+M16 work was introduced. The source seam is deliberately closed and static; a
+future loading decision remains a composition change. User-owned manual UI smoke:
+pending.

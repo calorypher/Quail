@@ -13,7 +13,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
 using Windows.Graphics;
 using Windows.System;
-using Quail.FileSystem;
+using Quail.Core;
 
 namespace Quail.App;
 
@@ -23,15 +23,15 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private const int ExpandedContentTransitionMilliseconds = 140;
     private readonly AppLaunchOptions _options;
     private readonly SettingsStore _settingsStore;
-    private readonly IndexCatalogController _indexCatalog;
+    private readonly SearchRuntime _searchRuntime;
     private readonly Action _exitApplication;
     private readonly Action _showIndexManager;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
     private readonly ObservableCollection<ResultItem> _visibleResults = [];
-    private readonly IFileSearchService _searchService;
-    private readonly LatestFileSearchCoordinator _interactiveSearchCoordinator;
-    private readonly LatestFileSearchCoordinator _shortQuerySearchCoordinator;
+    private readonly SearchApplicationService _searchService;
+    private readonly LatestSearchCoordinator _interactiveSearchCoordinator;
+    private readonly LatestSearchCoordinator _shortQuerySearchCoordinator;
     private readonly ShortQueryDeferrer _shortQueryDeferrer;
     private readonly ShellIconCache _shellIcons = new();
     private ShellSettings _settings;
@@ -55,28 +55,28 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     internal string CurrentTheme => _settings.Theme;
 
-    internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, IndexCatalogController indexCatalog, ShellSettings settings, Action exitApplication, Action showIndexManager)
+    internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showIndexManager)
     {
         _options = options;
         _settingsStore = settingsStore;
-        _indexCatalog = indexCatalog;
+        _searchRuntime = searchRuntime;
         _settings = settings;
         _exitApplication = exitApplication;
         _showIndexManager = showIndexManager;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
-        _searchService = new FileSearchService(() => options.IndexPaths.Count > 0 ? options.IndexPaths : _indexCatalog.ActivePaths);
-        _interactiveSearchCoordinator = new LatestFileSearchCoordinator(
-            _searchService.Search,
+        _searchService = searchRuntime.Search;
+        _interactiveSearchCoordinator = new LatestSearchCoordinator(
+            query => _searchService.Search(new SearchRequest(query)),
             _searchTrace.IsEnabled ? _searchTrace.RecordCoordinator : null,
             SearchExecutionLane.Interactive);
         _interactiveSearchCoordinator.Completed += OnSearchCompleted;
-        _shortQuerySearchCoordinator = new LatestFileSearchCoordinator(
-            _searchService.Search,
+        _shortQuerySearchCoordinator = new LatestSearchCoordinator(
+            query => _searchService.Search(new SearchRequest(query)),
             _searchTrace.IsEnabled ? _searchTrace.RecordCoordinator : null,
             SearchExecutionLane.ShortQuery);
         _shortQuerySearchCoordinator.Completed += OnSearchCompleted;
-        _indexCatalog.ActivePathsChanged += OnActivePathsChanged;
+        _searchRuntime.SourcesChanged += OnActivePathsChanged;
         _shortQueryDeferrer = new ShortQueryDeferrer(QuickSearchInputPolicy.ShortQueryDefer, OnShortQueryReady);
         InitializeComponent();
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
@@ -92,7 +92,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         await _pipe.ConnectAsync();
         if (_searchTrace.IsEnabled)
         {
-            _searchTrace.RecordSessionStart(_searchService.GetSearchIndexScale());
+            _searchTrace.RecordSessionStart(_searchRuntime.GetIndexScale());
         }
         _windowHandle = WindowNative.GetWindowHandle(this);
         ConfigureAppWindow();
@@ -184,7 +184,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
         _pipe.Dispose();
         _shortQueryDeferrer.Dispose();
-        _indexCatalog.ActivePathsChanged -= OnActivePathsChanged;
+        _searchRuntime.SourcesChanged -= OnActivePathsChanged;
         _interactiveSearchCoordinator.Dispose();
         _shortQuerySearchCoordinator.Dispose();
         _shellIcons.Dispose();
@@ -520,11 +520,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             return;
         }
 
-        if (_options.IndexPaths.Count == 0 && _indexCatalog.ActivePaths.Count == 0)
+        if (!_searchRuntime.HasSources())
         {
             InvalidateSearches();
             ClearResults();
-            StatusText.Text = "No file indexes configured.";
+            StatusText.Text = "No search sources configured.";
             _pipe.Emit(new { @event = "query-changed", query, resultCount = 0 });
             return;
         }
@@ -588,13 +588,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             if (completion.Error is not null)
             {
                 ClearResults();
-                StatusText.Text = "File index is unavailable or not search-ready.";
+                StatusText.Text = "A search source is unavailable or not search-ready.";
                 AppLog.Write($"Search failed generation={completion.Generation}.", completion.Error);
                 return;
             }
 
             var mappingStartedTimestamp = Stopwatch.GetTimestamp();
-            var items = completion.Results!.Select(FileSearchPresentation.Map).ToArray();
+            var items = completion.Results!.Select(SearchResultPresentation.Map).ToArray();
             _searchTrace.RecordResultMapping(
                 completion.UiGeneration,
                 completion.Generation,
@@ -662,7 +662,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnActivePathsChanged()
     {
-        if (_options.IndexPaths.Count > 0 || _exiting)
+        if (_exiting)
         {
             return;
         }
@@ -692,19 +692,12 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private string? GetCatalogFreshnessNotice()
     {
-        if (_options.IndexPaths.Count > 0)
+        return _searchRuntime.GetFreshness() switch
         {
-            return null;
-        }
-
-        var freshness = _searchService.GetIndexStatuses()
-            .Select(status => IndexFreshnessPolicy.Classify(status, DateTimeOffset.UtcNow))
-            .ToArray();
-        return freshness.Contains(IndexFreshness.RefreshRecommended)
-            ? "Refresh recommended for one or more indexes."
-            : freshness.Contains(IndexFreshness.Unknown)
-                ? "Last refresh unknown for one or more indexes."
-                : null;
+            IndexFreshness.RefreshRecommended => "Refresh recommended for one or more indexes.",
+            IndexFreshness.Unknown => "Last refresh unknown for one or more indexes.",
+            _ => null
+        };
     }
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
@@ -771,7 +764,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         selected.IsKeyboardSelected = true;
         _selectedResultIndex = index;
         ResultsList.ScrollIntoView(selected);
-        _pipe.Emit(new { @event = "selection-changed", index, name = selected.Name });
+        _pipe.Emit(new { @event = "selection-changed", index, name = selected.Title });
     }
 
     private ResultItem? GetSelectedResult()
@@ -789,7 +782,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
 
         QueryBox.Focus(FocusState.Programmatic);
-        AppLog.Write($"Result click: {result.Name}.");
+        AppLog.Write($"Result click: {result.Title}.");
         OpenSelectedResult(result);
     }
 
@@ -846,7 +839,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         try
         {
             await Task.Run(() => _searchService.Open(result.Action));
-            _pipe.Emit(new { @event = "confirmed", name = result.Name });
+            _pipe.Emit(new { @event = "confirmed", name = result.Title });
             AppLog.Write("Open succeeded.");
             HideOverlay("open-success");
         }
@@ -979,7 +972,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         {
             var iconStartedTimestamp = Stopwatch.GetTimestamp();
             _searchTrace.RecordIconStarted(completion.UiGeneration, completion.Generation, resultIndex);
-            var icon = await _shellIcons.LoadAsync(item.Path, item.Kind == "Folder");
+            var icon = await _shellIcons.LoadAsync(item.IconKey);
             var applied = !_exiting && _overlayVisible && _visibleResults.Contains(item);
             if (applied)
             {

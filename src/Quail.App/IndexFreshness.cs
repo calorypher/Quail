@@ -1,4 +1,3 @@
-using Quail.Core;
 using Quail.FileSystem;
 
 namespace Quail.App;
@@ -17,18 +16,6 @@ internal static class IndexFreshnessPolicy
     public static IndexFreshness Classify(IndexStatus status, DateTimeOffset now)
     {
         if (status.State != IndexState.Complete || status.LastRefreshedUtc is null)
-        {
-            return IndexFreshness.Unknown;
-        }
-
-        return now - status.LastRefreshedUtc.Value >= RefreshRecommendedAfter
-            ? IndexFreshness.RefreshRecommended
-            : IndexFreshness.Fresh;
-    }
-
-    public static IndexFreshness Classify(SearchIndexStatus status, DateTimeOffset now)
-    {
-        if (status.State != SearchIndexState.Complete || status.LastRefreshedUtc is null)
         {
             return IndexFreshness.Unknown;
         }

@@ -1,6 +1,11 @@
 namespace Quail.Core;
 
-public sealed record SearchRequest(string Query);
+internal sealed record SearchRequest(string Query, int Limit = 50);
+
+internal interface ISearchSource
+{
+    IReadOnlyList<SearchResult> Search(SearchRequest request);
+}
 
 public sealed class SearchResultAction
 {
@@ -10,7 +15,7 @@ public sealed class SearchResultAction
     {
     }
 
-    internal SearchResultAction(Action open) => _open = open ?? throw new ArgumentNullException(nameof(open));
+    public SearchResultAction(Action open) => _open = open ?? throw new ArgumentNullException(nameof(open));
 
     internal void Open()
     {
@@ -23,28 +28,11 @@ public sealed class SearchResultAction
     }
 }
 
-public sealed record SearchResult(
+internal sealed record SearchResult(
     SearchResultAction Action,
-    string Name,
-    string? FullPath,
-    bool IsDirectory,
-    string? Extension,
-    long? LogicalSize);
-
-public sealed record SearchIndexScale(
-    int ConfiguredIndexCount,
-    long RecordCount,
-    long DatabaseBytes,
-    int UnavailableIndexCount);
-
-public enum SearchIndexState
-{
-    Absent,
-    Incomplete,
-    Complete,
-    RebuildRequired
-}
-
-public sealed record SearchIndexStatus(
-    SearchIndexState State,
-    DateTimeOffset? LastRefreshedUtc);
+    string Title,
+    string? Context,
+    string Kind,
+    string Metadata,
+    string IconKey,
+    string FallbackIconGlyph);

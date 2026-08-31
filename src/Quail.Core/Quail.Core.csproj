@@ -1,5 +1,2 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="..\Quail.FileSystem\Quail.FileSystem.csproj" />
-  </ItemGroup>
 </Project>

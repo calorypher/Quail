@@ -48,13 +48,13 @@ public sealed class M13BSearchSchedulingTests
     public async Task Rapid_short_to_interactive_typing_starts_no_short_core_search()
     {
         var shortCalls = 0;
-        using var shortCoordinator = new LatestFileSearchCoordinator(_ =>
+        using var shortCoordinator = new LatestSearchCoordinator(_ =>
         {
             Interlocked.Increment(ref shortCalls);
             return [];
         }, lane: SearchExecutionLane.ShortQuery);
         using var interactiveCompleted = new SemaphoreSlim(0);
-        using var interactiveCoordinator = new LatestFileSearchCoordinator(_ => [Result("four")]);
+        using var interactiveCoordinator = new LatestSearchCoordinator(_ => [Result("four")]);
         interactiveCoordinator.Completed += _ => interactiveCompleted.Release();
         using var deferrer = new ShortQueryDeferrer(TimeSpan.FromMilliseconds(100), (_, query) => shortCoordinator.Request(query));
 
@@ -75,13 +75,13 @@ public sealed class M13BSearchSchedulingTests
         using var shortStarted = new ManualResetEventSlim();
         using var releaseShort = new ManualResetEventSlim();
         using var interactiveStarted = new ManualResetEventSlim();
-        using var shortCoordinator = new LatestFileSearchCoordinator(_ =>
+        using var shortCoordinator = new LatestSearchCoordinator(_ =>
         {
             shortStarted.Set();
             releaseShort.Wait(TimeSpan.FromSeconds(5));
             return [Result("short")];
         }, lane: SearchExecutionLane.ShortQuery);
-        using var interactiveCoordinator = new LatestFileSearchCoordinator(_ =>
+        using var interactiveCoordinator = new LatestSearchCoordinator(_ =>
         {
             interactiveStarted.Set();
             return [Result("interactive")];
@@ -104,18 +104,18 @@ public sealed class M13BSearchSchedulingTests
         long currentUiGeneration = 1;
         using var shortCompleted = new SemaphoreSlim(0);
         using var interactiveCompleted = new SemaphoreSlim(0);
-        using var shortCoordinator = new LatestFileSearchCoordinator(_ =>
+        using var shortCoordinator = new LatestSearchCoordinator(_ =>
         {
             shortStarted.Set();
             releaseShort.Wait(TimeSpan.FromSeconds(5));
             return [Result("short")];
         }, lane: SearchExecutionLane.ShortQuery);
-        using var interactiveCoordinator = new LatestFileSearchCoordinator(_ => [Result("interactive")]);
+        using var interactiveCoordinator = new LatestSearchCoordinator(_ => [Result("interactive")]);
         Action<SearchCompletion> applyIfCurrent = completion =>
         {
             if (completion.IsCurrent && completion.UiGeneration == Volatile.Read(ref currentUiGeneration))
             {
-                applied.Enqueue(completion.Results!.Single().Name);
+                applied.Enqueue(completion.Results!.Single().Title);
             }
         };
         shortCoordinator.Completed += completion =>
@@ -147,7 +147,7 @@ public sealed class M13BSearchSchedulingTests
         using var releaseFirst = new ManualResetEventSlim();
         var calls = new ConcurrentQueue<string>();
         using var completions = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(query =>
+        using var coordinator = new LatestSearchCoordinator(query =>
         {
             calls.Enqueue(query);
             if (query == "one")
@@ -180,7 +180,7 @@ public sealed class M13BSearchSchedulingTests
         var calls = new ConcurrentQueue<string>();
         var completions = new ConcurrentQueue<SearchCompletion>();
         using var completionSignal = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(query =>
+        using var coordinator = new LatestSearchCoordinator(query =>
         {
             calls.Enqueue(query);
             if (query == "one")
@@ -206,7 +206,7 @@ public sealed class M13BSearchSchedulingTests
         await Task.Delay(100);
 
         Assert.Equal(["one"], calls);
-        Assert.DoesNotContain(completions, completion => completion.Results!.Single().Name == "two");
+        Assert.DoesNotContain(completions, completion => completion.Results!.Single().Title == "two");
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public sealed class M13BSearchSchedulingTests
         using var releaseFirst = new ManualResetEventSlim();
         var calls = new ConcurrentQueue<string>();
         using var completions = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(query =>
+        using var coordinator = new LatestSearchCoordinator(query =>
         {
             calls.Enqueue(query);
             if (query == "one")
@@ -247,7 +247,7 @@ public sealed class M13BSearchSchedulingTests
         using var started = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var callbacks = 0;
-        var coordinator = new LatestFileSearchCoordinator(_ =>
+        var coordinator = new LatestSearchCoordinator(_ =>
         {
             started.Set();
             release.Wait(TimeSpan.FromSeconds(5));
@@ -266,5 +266,5 @@ public sealed class M13BSearchSchedulingTests
     }
 
     private static SearchResult Result(string name) => new(
-        new SearchResultAction(), name, $"C:\\{name}", false, "txt", 1);
+        new SearchResultAction(), name, $"C:\\{name}", "File", "TXT · 1 B", ".TXT", "\uE8A5");
 }

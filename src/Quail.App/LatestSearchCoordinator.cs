@@ -39,7 +39,7 @@ internal readonly record struct SearchCoordinatorTraceEvent(
     TimeSpan? QueueWait = null,
     SearchExecutionLane Lane = SearchExecutionLane.Interactive);
 
-internal sealed class LatestFileSearchCoordinator : IDisposable
+internal sealed class LatestSearchCoordinator : IDisposable
 {
     private readonly Func<string, IReadOnlyList<SearchResult>> _search;
     private readonly object _gate = new();
@@ -52,7 +52,7 @@ internal sealed class LatestFileSearchCoordinator : IDisposable
     private long _latestGeneration;
     private bool _disposed;
 
-    public LatestFileSearchCoordinator(
+    public LatestSearchCoordinator(
         Func<string, IReadOnlyList<SearchResult>> search,
         Action<SearchCoordinatorTraceEvent>? trace = null,
         SearchExecutionLane lane = SearchExecutionLane.Interactive)
@@ -209,7 +209,7 @@ internal sealed class LatestFileSearchCoordinator : IDisposable
     {
         if (_disposed)
         {
-            throw new ObjectDisposedException(nameof(LatestFileSearchCoordinator));
+            throw new ObjectDisposedException(nameof(LatestSearchCoordinator));
         }
     }
 }

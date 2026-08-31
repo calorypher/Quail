@@ -47,7 +47,7 @@ public sealed class SearchPerformanceTraceTests : IDisposable
     {
         var events = new List<SearchCoordinatorTraceEvent>();
         using var completed = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(
+        using var coordinator = new LatestSearchCoordinator(
             _ => [],
             traceEvent => events.Add(traceEvent));
         coordinator.Completed += _ => completed.Release();

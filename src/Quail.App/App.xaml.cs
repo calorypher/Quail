@@ -9,6 +9,7 @@ public sealed partial class App : Application
     private readonly SettingsStore _settingsStore = new();
     private readonly IndexCatalogController _indexCatalog = new();
     private IndexOperationCoordinator? _indexOperations;
+    private SearchRuntime? _searchRuntime;
     private SingleInstanceCoordinator? _singleInstance;
     private QuickSearchWindow? _window;
     private IndexManagerWindow? _indexManager;
@@ -35,7 +36,8 @@ public sealed partial class App : Application
             var settings = await _settingsStore.LoadAsync();
             await _indexCatalog.LoadAsync();
             _indexOperations = new IndexOperationCoordinator(_indexCatalog);
-            _window = new QuickSearchWindow(_options, _settingsStore, _indexCatalog, settings, ExitApplication, ShowIndexManager);
+            _searchRuntime = FileSystemSearchComposition.Create(_options, _indexCatalog);
+            _window = new QuickSearchWindow(_options, _settingsStore, _searchRuntime, settings, ExitApplication, ShowIndexManager);
             _singleInstance.ActivationRequested += () => _window.DispatcherQueue.TryEnqueue(_window.ShowOverlay);
             await _window.InitializeAsync();
             AppLog.Write("Primary instance initialized.");
@@ -60,6 +62,8 @@ public sealed partial class App : Application
         _indexManager = null;
         _window?.Dispose();
         _window = null;
+        _searchRuntime?.Dispose();
+        _searchRuntime = null;
         _singleInstance?.Dispose();
         _singleInstance = null;
         Exit();

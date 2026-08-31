@@ -26,17 +26,19 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         var opener = new IndexedEntryOpener(
             new RecordingShell(path => openedPath = path),
             _ => true);
-        var fileSystem = new FileSystemSearchService(() => [databasePath], opener);
-        var core = new FileSearchApplicationService(fileSystem);
+        var fileSystem = new FileSystemSearchSource(() => [databasePath], opener);
+        var core = new SearchApplicationService([fileSystem]);
 
         var result = Assert.Single(core.Search(new SearchRequest("report")));
 
-        Assert.Equal("boundary-report.txt", result.Name);
-        Assert.Equal("X:\\boundary-report.txt", result.FullPath);
+        Assert.Equal("boundary-report.txt", result.Title);
+        Assert.Equal("X:\\boundary-report.txt", result.Context);
+        Assert.Equal("File", result.Kind);
+        Assert.Equal("TXT", result.Metadata);
         Assert.DoesNotContain(
             typeof(SearchResult).GetProperties(),
             property => property.PropertyType.Assembly == typeof(NativeFileId).Assembly);
-        Assert.DoesNotContain(typeof(SearchResult).GetProperties(), property => property.Name is "Attributes" or "LastWriteTimeUtcFileTime");
+        Assert.DoesNotContain(typeof(SearchResult).GetProperties(), property => property.Name is "FullPath" or "IsDirectory" or "Extension" or "LogicalSize" or "Attributes" or "LastWriteTimeUtcFileTime");
         Assert.Empty(typeof(SearchResultAction).GetProperties());
 
         for (var index = 0; index < 64; index++)
@@ -45,7 +47,7 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         }
 
         Assert.DoesNotContain(
-            typeof(FileSearchApplicationService).GetFields(BindingFlags.Instance | BindingFlags.NonPublic),
+            typeof(SearchApplicationService).GetFields(BindingFlags.Instance | BindingFlags.NonPublic),
             field => ReferencesFileSystemAction(field.FieldType));
         core.Open(result.Action);
 
@@ -65,9 +67,41 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         public void Open(string path) => open(path);
     }
 
+    [Fact]
+    public void Core_aggregates_fake_sources_and_routes_their_opaque_actions_without_filesystem_references()
+    {
+        var opened = new List<string>();
+        var first = new FakeSearchSource("first", opened, "alpha");
+        var second = new FakeSearchSource("second", opened, "beta");
+        var core = new SearchApplicationService([first, second]);
+
+        var results = core.Search(new SearchRequest("query"));
+
+        Assert.Equal(["alpha", "beta"], results.Select(result => result.Title));
+        Assert.Equal(["alpha"], core.Search(new SearchRequest("query", Limit: 1)).Select(result => result.Title));
+        core.Open(results[1].Action);
+        Assert.Equal(["second:beta"], opened);
+        Assert.DoesNotContain(
+            typeof(SearchApplicationService).Assembly.GetReferencedAssemblies(),
+            assembly => string.Equals(assembly.Name, "Quail.FileSystem", StringComparison.Ordinal));
+    }
+
     private static bool ReferencesFileSystemAction(Type type)
     {
-        return type == typeof(FileSystemSearchAction) ||
+        return type.Assembly == typeof(FileSystemSearchSource).Assembly ||
             type.GetGenericArguments().Any(ReferencesFileSystemAction);
+    }
+
+    private sealed class FakeSearchSource(string name, List<string> opened, string title) : ISearchSource
+    {
+        public IReadOnlyList<SearchResult> Search(SearchRequest request) =>
+        [new SearchResult(
+            new SearchResultAction(() => opened.Add($"{name}:{title}")),
+            title,
+            $"{name} context",
+            "Fake result",
+            "Fake metadata",
+            "fake",
+            "\uE8A5")];
     }
 }
