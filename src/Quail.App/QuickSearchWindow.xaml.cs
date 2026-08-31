@@ -13,6 +13,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
 using Windows.Graphics;
 using Windows.System;
+using Quail.FileSystem;
 
 namespace Quail.App;
 

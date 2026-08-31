@@ -6,8 +6,8 @@ COMPLETE for 0.2 with a bounded candidate-recall limitation; ready for independe
 
 ## Delivered
 
-- `IndexStore.Search` now retrieves a bounded text-tiered candidate window before applying filesystem ranking and the requested result limit.
-- `FileSearchRanking` is a standalone filesystem component with deterministic text, location, depth, length, name, path, file-ID, and source-ID ordering.
+- `IndexStore.Search` now retrieves a bounded text-tiered candidate window before applying Core ranking and the requested result limit.
+- `FileSearchRanking` is a standalone Core component with deterministic text, location, depth, length, name, path, file-ID, and source-ID ordering.
 - Current-user visible paths, other-user visible paths, other normal visible locations, current/other internal profile data, hidden/system-attributed non-profile data, and system-heavy roots are classified from indexed paths and attributes only.
 - Multi-index search preserves source identity, global limits, and input-order-independent output.
 

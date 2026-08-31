@@ -213,8 +213,6 @@ public sealed class M11ShortQueryPerformanceTests
             result.Result.FullPath,
             result.Result.IsDirectory,
             result.Result.Extension,
-            result.Result.LogicalSize,
-            result.Result.LastWriteTimeUtcFileTime,
-            result.Result.Attributes)).ToArray();
+            result.Result.LogicalSize)).ToArray();
     }
 }

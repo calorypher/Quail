@@ -98,9 +98,11 @@ public sealed class WindowsShellLauncher : IWindowsShellLauncher
 {
     public void Open(string path)
     {
-        // ShellExecute can successfully route a directory to an existing Explorer
-        // process. In that case Process.Start has no new process to return.
-        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        var process = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        if (process is null)
+        {
+            throw new InvalidOperationException("Windows Shell could not open the selected result.");
+        }
     }
 }
 

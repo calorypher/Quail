@@ -5,8 +5,6 @@ namespace Quail.Core;
 public sealed class FileSearchApplicationService
 {
     private readonly FileSystemSearchService _fileSystem;
-    private readonly object _gate = new();
-    private readonly Dictionary<Guid, FileSystemSearchAction> _actions = [];
 
     public FileSearchApplicationService(Func<IReadOnlyList<string>> paths)
     {
@@ -24,30 +22,17 @@ public sealed class FileSearchApplicationService
 
         var results = _fileSystem.Search(request.Query);
         var projected = new SearchResult[results.Count];
-        var actions = new Dictionary<Guid, FileSystemSearchAction>(results.Count);
 
         for (var index = 0; index < results.Count; index++)
         {
             var result = results[index];
-            var action = new SearchResultAction(Guid.NewGuid());
-            actions.Add(action.Value, result.Action);
             projected[index] = new SearchResult(
-                action,
+                new SearchResultAction(() => _fileSystem.Open(result.Action)),
                 result.Result.Name,
                 result.Result.FullPath,
                 result.Result.IsDirectory,
                 result.Result.Extension,
-                result.Result.LogicalSize,
-                result.Result.LastWriteTimeUtcFileTime,
-                result.Result.Attributes);
-        }
-
-        lock (_gate)
-        {
-            foreach (var action in actions)
-            {
-                _actions.Add(action.Key, action.Value);
-            }
+                result.Result.LogicalSize);
         }
 
         return projected;
@@ -82,16 +67,6 @@ public sealed class FileSearchApplicationService
     public void Open(SearchResultAction action)
     {
         ArgumentNullException.ThrowIfNull(action);
-
-        FileSystemSearchAction fileSystemAction;
-        lock (_gate)
-        {
-            if (!_actions.TryGetValue(action.Value, out fileSystemAction!))
-            {
-                throw new InvalidOperationException("The selected result is no longer available.");
-            }
-        }
-
-        _fileSystem.Open(fileSystemAction);
+        action.Open();
     }
 }

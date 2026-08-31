@@ -60,51 +60,27 @@ internal static class AdminIndexWorker
     {
         if (!IsElevated()) return ElevationRejectedExitCode;
 
-        VolumeDescriptor volume;
-        try
-        {
-            volume = NtfsVolume.Validate(request.MountPoint);
-            if (!string.Equals(volume.StableIdentity, request.VolumeIdentity, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("The configured mount point now refers to a different volume.");
-        }
-        catch { return VolumeRejectedExitCode; }
-
-        string path;
-        try
-        {
-            var catalog = new IndexCatalogStore().LoadAsync().GetAwaiter().GetResult();
-            path = ManagedIndexPath.ForVolumeIdentity(volume.StableIdentity);
-            if (!catalog.IsValid || !catalog.Catalog.Entries.Any(entry =>
-                    string.Equals(entry.VolumeIdentity, request.VolumeIdentity, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(entry.MountPoint, volume.MountPoint, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(entry.DatabasePath, path, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("The requested volume is not configured for Quail.");
-        }
-        catch { return CatalogRejectedExitCode; }
-
-        PrivilegedIndexStorageLease storage;
-        try
-        {
-            storage = PrivilegedIndexStorage.Acquire(volume.StableIdentity);
-            if (!string.Equals(storage.DatabasePath, path, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Protected index storage resolved an unexpected database path.");
-        }
-        catch { return StorageRejectedExitCode; }
-
-        using (storage)
-        try
-        {
-            var store = new IndexStore(path, IndexStoreJournalLifecycle.DeleteWhenQuiescent);
-            if (request.Operation is AdminIndexOperation.Build or AdminIndexOperation.Rebuild)
+        var outcome = FileSystemIndexAdministration.Run(new FileSystemIndexOperationRequest(
+            request.Operation switch
             {
-                store.Build(volume.MountPoint);
-                return SuccessExitCode;
-            }
+                AdminIndexOperation.Build => FileSystemIndexOperation.Build,
+                AdminIndexOperation.Rebuild => FileSystemIndexOperation.Rebuild,
+                AdminIndexOperation.Refresh => FileSystemIndexOperation.Refresh,
+                _ => throw new ArgumentOutOfRangeException(nameof(request))
+            },
+            request.MountPoint,
+            request.VolumeIdentity));
 
-            var sync = store.Sync(volume.MountPoint);
-            return sync.RebuildRequired ? RebuildRequiredExitCode : SuccessExitCode;
-        }
-        catch { return IndexOperationFailedExitCode; }
+        return outcome switch
+        {
+            FileSystemIndexOperationOutcome.Succeeded => SuccessExitCode,
+            FileSystemIndexOperationOutcome.RebuildRequired => RebuildRequiredExitCode,
+            FileSystemIndexOperationOutcome.VolumeRejected => VolumeRejectedExitCode,
+            FileSystemIndexOperationOutcome.CatalogRejected => CatalogRejectedExitCode,
+            FileSystemIndexOperationOutcome.StorageRejected => StorageRejectedExitCode,
+            FileSystemIndexOperationOutcome.IndexOperationFailed => IndexOperationFailedExitCode,
+            _ => FailureExitCode
+        };
     }
 
     private static bool IsElevated()
@@ -159,7 +135,7 @@ internal sealed class ElevatedIndexOperationRunner
             return new(id, operation.ToString(), false, false, null, null, stopwatch.Elapsed.TotalMilliseconds, "The administrator operation failed or another operation is already running for this volume.", "Error");
         }
 
-        var status = new IndexStore(entry.DatabasePath).GetStatus();
+        var status = FileSystemIndexAdministration.GetStatus(entry.DatabasePath);
         return new(id, operation.ToString(), true, false, status.RecordCount, null, stopwatch.Elapsed.TotalMilliseconds, null, status.State.ToString());
     }
 }

@@ -10,14 +10,11 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Quail.App\AppLog.cs" Link="App\AppLog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexCatalog.cs" Link="App\IndexCatalog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexCatalogController.cs" Link="App\IndexCatalogController.cs" />
     <Compile Include="..\..\src\Quail.App\IndexFreshness.cs" Link="App\IndexFreshness.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerWindowLayout.cs" Link="App\IndexManagerWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerActionAvailability.cs" Link="App\IndexManagerActionAvailability.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
     <Compile Include="..\..\src\Quail.App\IndexOperationCoordinator.cs" Link="App\IndexOperationCoordinator.cs" />
-    <Compile Include="..\..\src\Quail.App\PrivilegedIndexStorage.cs" Link="App\PrivilegedIndexStorage.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsHotkeyRestoreGuard.cs" Link="App\SettingsHotkeyRestoreGuard.cs" />
     <Compile Include="..\..\src\Quail.App\BoundedLruCache.cs" Link="App\BoundedLruCache.cs" />
     <Compile Include="..\..\src\Quail.App\FileSearchMetadata.cs" Link="App\FileSearchMetadata.cs" />

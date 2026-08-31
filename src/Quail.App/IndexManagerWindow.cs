@@ -112,7 +112,7 @@ internal sealed class IndexManagerWindow : Window
         }
 
         _content.Children.Add(new TextBlock { Text = "Add local volume", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 0) });
-        var volumes = VolumeDiscovery.Discover().Where(volume => !_catalog.IsConfigured(volume.VolumeIdentity)).ToArray();
+        var volumes = VolumeDiscovery.Discover().Where(volume => !_catalog.IsConfigured(volume.StableIdentity)).ToArray();
         if (volumes.Length == 0)
         {
             _content.Children.Add(Description("No additional supported fixed NTFS volumes were found."));
@@ -133,16 +133,16 @@ internal sealed class IndexManagerWindow : Window
 
     private UIElement CreateEntry(IndexCatalogEntry entry)
     {
-        var status = new IndexStore(entry.DatabasePath).GetStatus();
+        var presentation = FileSystemIndexAdministration.GetPresentation(entry);
+        var status = presentation.Status;
         var availability = IndexManagerActionAvailability.For(status.State);
         var panel = new StackPanel
         {
             Spacing = 10
         };
         panel.Children.Add(new TextBlock { Text = entry.MountPoint, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var volumePresentation = GetVolumePresentation(entry);
-        panel.Children.Add(new TextBlock { Text = volumePresentation.Headline ?? StateLabel(status.State), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        panel.Children.Add(Description(volumePresentation.Detail ?? StatusDetails(status)));
+        panel.Children.Add(new TextBlock { Text = presentation.VolumeHeadline ?? StateLabel(status.State), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(Description(presentation.VolumeDetail ?? StatusDetails(status)));
         panel.Children.Add(Description(entry.EnabledForSearch ? "Available to Quick Search" : "Not available to Quick Search"));
 
         var actions = new StackPanel
@@ -186,7 +186,7 @@ internal sealed class IndexManagerWindow : Window
         return Card(panel);
     }
 
-    private UIElement CreateAddVolumeCard(DiscoveredVolume volume)
+    private UIElement CreateAddVolumeCard(VolumeDescriptor volume)
     {
         var panel = new StackPanel
         {
@@ -204,11 +204,7 @@ internal sealed class IndexManagerWindow : Window
         add.Click += async (_, _) =>
         {
             await RunUiActionAsync(
-                () => _catalog.AddAsync(new VolumeDescriptor(
-                    volume.VolumeIdentity,
-                    volume.MountPoint,
-                    "NTFS",
-                    volume.Label)),
+                () => _catalog.AddAsync(volume),
                 "Volume added. Build it before it can be searched.");
         };
         panel.Children.Add(add);
@@ -303,21 +299,6 @@ internal sealed class IndexManagerWindow : Window
     {
         var color = new UISettings().GetColorValue(UIColorType.Background);
         return color.R + color.G + color.B < 384;
-    }
-
-    private static (string? Headline, string? Detail) GetVolumePresentation(IndexCatalogEntry entry)
-    {
-        try
-        {
-            var current = NtfsVolume.Validate(entry.MountPoint);
-            return string.Equals(current.StableIdentity, entry.VolumeIdentity, StringComparison.OrdinalIgnoreCase)
-                ? (null, null)
-                : ("Volume mismatch", "The mounted volume no longer matches this configuration. Reconfigure this entry.");
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
-        {
-            return ("Volume unavailable", "The configured volume is unavailable or could not be validated.");
-        }
     }
 
     private static string StatusDetails(IndexStatus status)

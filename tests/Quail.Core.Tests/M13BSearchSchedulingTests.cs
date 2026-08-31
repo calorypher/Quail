@@ -266,5 +266,5 @@ public sealed class M13BSearchSchedulingTests
     }
 
     private static SearchResult Result(string name) => new(
-        new SearchResultAction(), name, $"C:\\{name}", false, "txt", 1, null, 0);
+        new SearchResultAction(), name, $"C:\\{name}", false, "txt", 1);
 }

@@ -1,3 +1,5 @@
+using Quail.FileSystem;
+
 namespace Quail.App;
 
 internal sealed record RunningIndexOperation(string VolumeIdentity, AdminIndexOperation Operation);

@@ -4,13 +4,23 @@ public sealed record SearchRequest(string Query);
 
 public sealed class SearchResultAction
 {
-    public SearchResultAction() : this(Guid.NewGuid())
+    private readonly Action? _open;
+
+    public SearchResultAction()
     {
     }
 
-    internal SearchResultAction(Guid value) => Value = value;
+    internal SearchResultAction(Action open) => _open = open ?? throw new ArgumentNullException(nameof(open));
 
-    internal Guid Value { get; }
+    internal void Open()
+    {
+        if (_open is null)
+        {
+            throw new InvalidOperationException("The selected result is no longer available.");
+        }
+
+        _open();
+    }
 }
 
 public sealed record SearchResult(
@@ -19,9 +29,7 @@ public sealed record SearchResult(
     string? FullPath,
     bool IsDirectory,
     string? Extension,
-    long? LogicalSize,
-    long? LastWriteTimeUtcFileTime,
-    uint Attributes);
+    long? LogicalSize);
 
 public sealed record SearchIndexScale(
     int ConfiguredIndexCount,

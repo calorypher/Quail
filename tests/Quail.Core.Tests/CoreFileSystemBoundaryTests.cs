@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Quail.Core.Tests;
 
 public sealed class CoreFileSystemBoundaryTests : IDisposable
@@ -5,7 +7,7 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "QuailTests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void Core_projects_filesystem_results_and_opens_by_opaque_action()
+    public void Repeated_searches_preserve_returned_action_without_a_global_registry()
     {
         Directory.CreateDirectory(_directory);
         var databasePath = Path.Combine(_directory, "boundary.db");
@@ -34,9 +36,17 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
         Assert.DoesNotContain(
             typeof(SearchResult).GetProperties(),
             property => property.PropertyType.Assembly == typeof(NativeFileId).Assembly);
+        Assert.DoesNotContain(typeof(SearchResult).GetProperties(), property => property.Name is "Attributes" or "LastWriteTimeUtcFileTime");
         Assert.Empty(typeof(SearchResultAction).GetProperties());
 
-        _ = core.Search(new SearchRequest("boundary"));
+        for (var index = 0; index < 64; index++)
+        {
+            _ = core.Search(new SearchRequest("boundary"));
+        }
+
+        Assert.DoesNotContain(
+            typeof(FileSearchApplicationService).GetFields(BindingFlags.Instance | BindingFlags.NonPublic),
+            field => ReferencesFileSystemAction(field.FieldType));
         core.Open(result.Action);
 
         Assert.Equal("X:\\boundary-report.txt", openedPath);
@@ -53,5 +63,11 @@ public sealed class CoreFileSystemBoundaryTests : IDisposable
     private sealed class RecordingShell(Action<string> open) : IWindowsShellLauncher
     {
         public void Open(string path) => open(path);
+    }
+
+    private static bool ReferencesFileSystemAction(Type type)
+    {
+        return type == typeof(FileSystemSearchAction) ||
+            type.GetGenericArguments().Any(ReferencesFileSystemAction);
     }
 }
