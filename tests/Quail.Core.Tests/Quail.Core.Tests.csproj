@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Quail.Cli\Quail.Cli.csproj" />
     <ProjectReference Include="..\..\src\Quail.Core\Quail.Core.csproj" />
+    <ProjectReference Include="..\..\src\Quail.FileSystem\Quail.FileSystem.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4"><PrivateAssets>all</PrivateAssets></PackageReference>
@@ -9,22 +10,19 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Quail.App\AppLog.cs" Link="App\AppLog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexCatalog.cs" Link="App\IndexCatalog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexCatalogController.cs" Link="App\IndexCatalogController.cs" />
     <Compile Include="..\..\src\Quail.App\IndexFreshness.cs" Link="App\IndexFreshness.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerWindowLayout.cs" Link="App\IndexManagerWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerActionAvailability.cs" Link="App\IndexManagerActionAvailability.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
     <Compile Include="..\..\src\Quail.App\IndexOperationCoordinator.cs" Link="App\IndexOperationCoordinator.cs" />
-    <Compile Include="..\..\src\Quail.App\PrivilegedIndexStorage.cs" Link="App\PrivilegedIndexStorage.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsHotkeyRestoreGuard.cs" Link="App\SettingsHotkeyRestoreGuard.cs" />
     <Compile Include="..\..\src\Quail.App\BoundedLruCache.cs" Link="App\BoundedLruCache.cs" />
-    <Compile Include="..\..\src\Quail.App\FileSearchMetadata.cs" Link="App\FileSearchMetadata.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyCapture.cs" Link="App\HotkeyCapture.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyCaptureSession.cs" Link="App\HotkeyCaptureSession.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyDefinition.cs" Link="App\HotkeyDefinition.cs" />
     <Compile Include="..\..\src\Quail.App\NativeMethods.cs" Link="App\NativeMethods.cs" />
-    <Compile Include="..\..\src\Quail.App\LatestFileSearchCoordinator.cs" Link="App\LatestFileSearchCoordinator.cs" />
+    <Compile Include="..\..\src\Quail.App\LatestSearchCoordinator.cs" Link="App\LatestSearchCoordinator.cs" />
+    <Compile Include="..\..\src\Quail.App\SearchRuntime.cs" Link="App\SearchRuntime.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceTrace.cs" Link="App\SearchPerformanceTrace.cs" />
     <Compile Include="..\..\src\Quail.App\AppLaunchOptions.cs" Link="App\AppLaunchOptions.cs" />
     <Compile Include="..\..\src\Quail.App\ResultSelection.cs" Link="App\ResultSelection.cs" />

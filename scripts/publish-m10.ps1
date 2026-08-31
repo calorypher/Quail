@@ -50,6 +50,7 @@ foreach ($artifact in @(
 
 $requiredArtifacts = @(
     'Quail.exe',
+    'Quail.FileSystem.dll',
     'App.xbf',
     'QuickSearchWindow.xbf',
     'Quail.pri',

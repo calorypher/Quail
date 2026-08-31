@@ -2,35 +2,35 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Quail.App;
+namespace Quail.FileSystem;
 
-internal sealed record IndexCatalogDocument(int Version, IReadOnlyList<IndexCatalogEntry> Entries)
+public sealed record IndexCatalogDocument(int Version, IReadOnlyList<IndexCatalogEntry> Entries)
 {
     public const int CurrentVersion = 1;
     public static readonly IndexCatalogDocument Empty = new(CurrentVersion, []);
 }
 
-internal sealed record IndexCatalogEntry(string VolumeIdentity, string MountPoint, string DatabasePath, bool EnabledForSearch);
+public sealed record IndexCatalogEntry(string VolumeIdentity, string MountPoint, string DatabasePath, bool EnabledForSearch);
 
-internal sealed record IndexCatalogLoadResult(IndexCatalogDocument Catalog, string? Error)
+public sealed record IndexCatalogLoadResult(IndexCatalogDocument Catalog, string? Error)
 {
     public bool IsValid => Error is null;
 }
 
-internal interface IIndexCatalogStore
+public interface IIndexCatalogStore
 {
     Task<IndexCatalogLoadResult> LoadAsync();
     Task SaveAsync(IndexCatalogDocument catalog);
 }
 
-internal sealed class IndexCatalogStore : IIndexCatalogStore
+public sealed class IndexCatalogStore : IIndexCatalogStore
 {
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
     private readonly string _path;
 
     public IndexCatalogStore() : this(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Quail", "indexes.json")) { }
-    internal IndexCatalogStore(string path) => _path = path;
-    internal string Path => _path;
+    public IndexCatalogStore(string path) => _path = path;
+    public string Path => _path;
 
     public async Task<IndexCatalogLoadResult> LoadAsync()
     {
@@ -48,7 +48,6 @@ internal sealed class IndexCatalogStore : IIndexCatalogStore
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException)
         {
-            AppLog.Write("Index catalog ignored after configuration error.", exception);
             return new(IndexCatalogDocument.Empty, "Index configuration could not be read.");
         }
     }
@@ -69,7 +68,6 @@ internal sealed class IndexCatalogStore : IIndexCatalogStore
                 await stream.FlushAsync();
             }
             File.Move(temporaryPath, _path, overwrite: true);
-            AppLog.Write("Index catalog saved.");
         }
         finally { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
     }
@@ -108,15 +106,15 @@ internal sealed class IndexCatalogStore : IIndexCatalogStore
     }
 }
 
-internal static class ManagedIndexPath
+public static class ManagedIndexPath
 {
     public static string ForVolumeIdentity(string volumeIdentity)
-        => Path.Combine(PrivilegedIndexStorage.IndexesPath, $"{SafeVolumeName(volumeIdentity)}.db");
+        => System.IO.Path.Combine(PrivilegedIndexStorage.IndexesPath, $"{SafeVolumeName(volumeIdentity)}.db");
 
-    internal static string LegacyForVolumeIdentity(string volumeIdentity)
-        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Quail", "Indexes", $"{SafeVolumeName(volumeIdentity)}.db");
+    public static string LegacyForVolumeIdentity(string volumeIdentity)
+        => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Quail", "Indexes", $"{SafeVolumeName(volumeIdentity)}.db");
 
-    internal static string SafeVolumeName(string volumeIdentity)
+    public static string SafeVolumeName(string volumeIdentity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(volumeIdentity);
         var normalizedIdentity = volumeIdentity.TrimEnd('\\').ToUpperInvariant();

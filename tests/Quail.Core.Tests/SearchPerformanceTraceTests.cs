@@ -14,7 +14,7 @@ public sealed class SearchPerformanceTraceTests : IDisposable
         var path = Path.Combine(_directory, "trace.jsonl");
         using (var trace = new SearchPerformanceTrace(path, SearchPerformanceSessionKind.Parse("warm-same-session")))
         {
-            trace.RecordSessionStart(new SearchIndexScale(1, 888_708, 123_456_789, 0));
+            trace.RecordSessionStart(new Quail.App.SearchIndexScale(1, 888_708, 123_456_789, 0));
             trace.RecordInput(7, 4);
             trace.RecordCoordinator(new SearchCoordinatorTraceEvent(SearchCoordinatorStage.RequestEnqueued, 3, 7, 4, System.Diagnostics.Stopwatch.GetTimestamp()));
             trace.RecordResultMapping(7, 3, 50, TimeSpan.FromMilliseconds(1));
@@ -47,7 +47,7 @@ public sealed class SearchPerformanceTraceTests : IDisposable
     {
         var events = new List<SearchCoordinatorTraceEvent>();
         using var completed = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(
+        using var coordinator = new LatestSearchCoordinator(
             _ => [],
             traceEvent => events.Add(traceEvent));
         coordinator.Completed += _ => completed.Release();

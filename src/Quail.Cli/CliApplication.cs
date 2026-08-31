@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Reflection;
-using Quail.Core;
+using Quail.FileSystem;
 
 public sealed class CliApplication
 {

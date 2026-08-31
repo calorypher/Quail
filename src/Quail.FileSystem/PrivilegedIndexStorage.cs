@@ -4,9 +4,9 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Microsoft.Win32.SafeHandles;
 
-namespace Quail.App;
+namespace Quail.FileSystem;
 
-internal sealed class PrivilegedIndexStorageLease : IDisposable
+public sealed class PrivilegedIndexStorageLease : IDisposable
 {
     private readonly IReadOnlyList<IDisposable> _resources;
 
@@ -27,7 +27,7 @@ internal sealed class PrivilegedIndexStorageLease : IDisposable
     }
 }
 
-internal static class PrivilegedIndexStorage
+public static class PrivilegedIndexStorage
 {
     private const string SecureDirectorySddl = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)";
     private const uint FileListDirectory = 0x0001;
@@ -263,7 +263,7 @@ internal static class PrivilegedIndexStorage
         }
     }
 
-    internal static bool GrantsDangerousRights(FileSystemRights rights) => (rights & DangerousRights) != 0;
+    public static bool GrantsDangerousRights(FileSystemRights rights) => (rights & DangerousRights) != 0;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SecurityAttributes

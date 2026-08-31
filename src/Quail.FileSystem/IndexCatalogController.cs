@@ -1,8 +1,6 @@
-using Quail.Core;
+namespace Quail.FileSystem;
 
-namespace Quail.App;
-
-internal sealed class IndexCatalogController
+public sealed class IndexCatalogController
 {
     private readonly IIndexCatalogStore _store;
     private readonly Func<string, VolumeDescriptor> _validateVolume;
@@ -18,8 +16,9 @@ internal sealed class IndexCatalogController
     {
         _store = store ?? new IndexCatalogStore();
         _validateVolume = validateVolume ?? NtfsVolume.Validate;
-        _readStatus = readStatus ?? (path => new IndexStore(path).GetStatus());
+        _readStatus = readStatus ?? FileSystemIndexAdministration.GetStatus;
     }
+
     public string? LoadError { get { lock (_gate) return _loadError; } }
     public IReadOnlyList<IndexCatalogEntry> Entries { get { lock (_gate) return _catalog.Entries.ToArray(); } }
     public IReadOnlyList<string> ActivePaths => Volatile.Read(ref _activePaths);
@@ -61,10 +60,9 @@ internal sealed class IndexCatalogController
         }, volumeIdentity);
     }
 
-    public async Task RemoveAsync(string volumeIdentity)
-    {
-        await MutateAsync(catalog => catalog with { Entries = catalog.Entries.Where(entry => !Same(entry, volumeIdentity)).ToArray() }, volumeIdentity);
-    }
+    public Task RemoveAsync(string volumeIdentity) => MutateAsync(
+        catalog => catalog with { Entries = catalog.Entries.Where(entry => !Same(entry, volumeIdentity)).ToArray() },
+        volumeIdentity);
 
     public bool IsConfigured(string volumeIdentity) => Entries.Any(entry => string.Equals(entry.VolumeIdentity, volumeIdentity, StringComparison.OrdinalIgnoreCase));
 
@@ -165,7 +163,6 @@ internal sealed class IndexCatalogController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            AppLog.Write($"Catalog search source excluded: {entry.MountPoint}", exception);
             return false;
         }
     }

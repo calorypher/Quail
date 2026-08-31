@@ -48,6 +48,8 @@ internal sealed class SearchPerformanceTrace : IDisposable
 
     public bool IsEnabled => _writer is not null;
 
+    public void RecordSessionStart() => Record("session-start", includeProcessMetrics: true);
+
     public void RecordSessionStart(SearchIndexScale scale)
     {
         Record("session-start", indexCount: scale.IndexCount, recordCount: scale.RecordCount, databaseBytes: scale.DatabaseBytes, unavailableIndexCount: scale.UnavailableIndexCount, includeProcessMetrics: true);
@@ -99,8 +101,8 @@ internal sealed class SearchPerformanceTrace : IDisposable
     public void RecordSelectionAndScroll(long uiGeneration, long searchGeneration, TimeSpan duration) =>
         Record("selection-scroll-completed", uiGeneration, searchGeneration, durationMilliseconds: duration.TotalMilliseconds);
 
-    public void RecordFreshness(long uiGeneration, long searchGeneration, TimeSpan duration) =>
-        Record("freshness-status-completed", uiGeneration, searchGeneration, durationMilliseconds: duration.TotalMilliseconds);
+    public void RecordSourceStatus(long uiGeneration, long searchGeneration, TimeSpan duration) =>
+        Record("source-status-completed", uiGeneration, searchGeneration, durationMilliseconds: duration.TotalMilliseconds);
 
     public void RecordFirstTextRender(long uiGeneration, long searchGeneration, int resultCount) =>
         Record("first-text-results-rendered", uiGeneration, searchGeneration, resultCount: resultCount, includeProcessMetrics: true);

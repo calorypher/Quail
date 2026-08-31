@@ -8,13 +8,13 @@ namespace Quail.App;
 
 public sealed class ResultItem : INotifyPropertyChanged
 {
-    public required string SourceIdentity { get; init; }
-    public required NativeFileId FileId { get; init; }
-    public required string Name { get; init; }
-    public required string Path { get; init; }
+    public required SearchResultAction Action { get; init; }
+    public required string Title { get; init; }
+    public required string Context { get; init; }
     public required string Kind { get; init; }
     public required string Metadata { get; init; }
-    public string IconGlyph => Kind == "Folder" ? "\uE8B7" : "\uE8A5";
+    public string? IconKey { get; init; }
+    public required string FallbackIconGlyph { get; init; }
 
     private ImageSource? _icon;
     public ImageSource? Icon

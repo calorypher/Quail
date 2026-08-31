@@ -14,7 +14,7 @@ public sealed class M11SearchCoordinatorTests
         var calls = new ConcurrentQueue<string>();
         var completions = new ConcurrentQueue<SearchCompletion>();
         using var completed = new SemaphoreSlim(0);
-        using var coordinator = new LatestFileSearchCoordinator(query =>
+        using var coordinator = new LatestSearchCoordinator(query =>
         {
             calls.Enqueue(query);
             if (query == "one")
@@ -43,7 +43,7 @@ public sealed class M11SearchCoordinatorTests
 
         Assert.Equal(["one", "request-200"], calls);
         Assert.Contains(completions, completion => completion.Generation == 1 && !completion.IsCurrent);
-        Assert.Contains(completions, completion => completion.IsCurrent && completion.Results!.Single().Result.Name == "request-200");
+        Assert.Contains(completions, completion => completion.IsCurrent && completion.Results!.Single().Title == "request-200");
     }
 
     [Fact]
@@ -64,13 +64,14 @@ public sealed class M11SearchCoordinatorTests
     }
 
     [Fact]
-    public void Metadata_formatting_uses_concise_file_and_folder_labels()
+    public void Result_presentation_keeps_concise_metadata()
     {
-        var file = Result("report") with { Result = Result("report").Result with { Extension = "pdf", LogicalSize = 2_621_440 } };
-        var folder = Result("documents") with { Result = Result("documents").Result with { IsDirectory = true } };
+        var file = Result("report") with { Metadata = "PDF · 2.5 MB" };
+        var folder = Result("documents") with { Kind = "Folder", Metadata = "Folder" };
 
-        Assert.Equal("PDF · 2.5 MB", FileSearchMetadata.Format(file.Result));
-        Assert.Equal("Folder", FileSearchMetadata.Format(folder.Result));
+        Assert.Equal("PDF · 2.5 MB", file.Metadata);
+        Assert.Equal("Folder", folder.Kind);
+        Assert.Equal("Folder", folder.Metadata);
     }
 
     [Theory]
@@ -92,7 +93,6 @@ public sealed class M11SearchCoordinatorTests
         Assert.False(ResultSelection.TryGetBoundaryTarget(0, last: true, out _));
     }
 
-    private static IndexedFileSearchResult Result(string name) => new(
-        "source.db",
-        new FileSearchResult(new NativeFileId(new byte[8]), name, $"C:\\{name}", false, "txt", 1, null));
+    private static SearchResult Result(string name) => new(
+        new SearchResultAction(), name, $"C:\\{name}", "File", "TXT · 1 B", ".TXT", "\uE8A5");
 }

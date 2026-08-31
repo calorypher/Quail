@@ -26,7 +26,7 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="FeatherImage" Width="20" Height="20" VerticalAlignment="Center" />
-        <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search files…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" KeyDown="OnQueryKeyDown">
+        <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" KeyDown="OnQueryKeyDown">
           <TextBox.Resources>
             <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
             <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
@@ -63,12 +63,12 @@
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <Grid Width="22" Height="22" VerticalAlignment="Center">
-                <FontIcon Glyph="{Binding IconGlyph}" Visibility="{Binding FallbackIconVisibility}" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{ThemeResource QuailIconBrush}" VerticalAlignment="Center" />
+                <FontIcon Glyph="{Binding FallbackIconGlyph}" Visibility="{Binding FallbackIconVisibility}" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{ThemeResource QuailIconBrush}" VerticalAlignment="Center" />
                 <Image Source="{Binding Icon}" Width="20" Height="20" Stretch="Uniform" />
               </Grid>
               <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource QuailTextBrush}" />
-                <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource QuailTextBrush}" />
+                <TextBlock Text="{Binding Context}" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
               </StackPanel>
               <TextBlock Grid.Column="2" Text="{Binding Metadata}" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" VerticalAlignment="Center" />
             </Grid>

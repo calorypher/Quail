@@ -334,7 +334,7 @@ public sealed class M12DynamicSourceGenerationTests
         var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
         var store = new FaultInjectingCatalogStore(new(1, [entry]));
         var controller = await M12TransactionalCatalogTests.LoadAsync(store, _ => M12TransactionalCatalogTests.Complete("volume-a"));
-        using var coordinator = new LatestFileSearchCoordinator(_ =>
+        using var coordinator = new LatestSearchCoordinator(_ =>
         {
             started.Set();
             release.Wait(TimeSpan.FromSeconds(5));

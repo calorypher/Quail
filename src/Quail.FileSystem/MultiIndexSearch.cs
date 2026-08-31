@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace Quail.Core;
+namespace Quail.FileSystem;
 
 public sealed record IndexedFileSearchResult(string SourceIdentity, FileSearchResult Result);
 
@@ -99,7 +99,10 @@ public sealed class WindowsShellLauncher : IWindowsShellLauncher
     public void Open(string path)
     {
         var process = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-        if (process is null) throw new InvalidOperationException("Windows shell did not start the requested path.");
+        if (process is null)
+        {
+            throw new InvalidOperationException("Windows Shell could not open the selected result.");
+        }
     }
 }
 
