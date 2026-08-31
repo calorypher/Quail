@@ -1,180 +1,146 @@
 # Verification Playbook
 
-This document records reusable verification policy and settled testing facts for Quail. Its purpose is to keep verification proportionate, avoid repeatedly rediscovering known environment behavior, and minimize expensive test work that does not add new confidence.
+This document records reusable verification policy and settled testing facts for Quail. Its purpose is to keep verification proportionate, reuse valid evidence, and avoid spending implementation time or model budget on tests that do not materially change confidence.
 
-Milestone-specific verification requirements still take precedence. When they do not explicitly require a broader campaign, use the smallest verification set that proves the changed behavior and protects the affected boundary.
+Milestone-specific verification requirements still take precedence. Use the smallest verification set that proves the changed behavior and protects the affected boundary.
+
+An acceptance criterion that includes an ordinary manual UI smoke defines evidence needed before final milestone closure; it does not by itself assign that smoke to the implementation agent. Unless a milestone explicitly says otherwise, ordinary manual UI/UX smoke may be user-owned and may remain pending at the implementation-agent handoff.
 
 ## Core principle: test the change, not the entire history
 
-Before running an expensive, repetitive, environment-sensitive, or long-running verification step, identify what changed since the last applicable PASS.
+Before an expensive, repetitive, environment-sensitive, or long-running verification step, identify what changed since the last applicable PASS.
 
-Reuse previous evidence for boundaries that have not materially changed. Do not repeat a full historical validation campaign merely because a new milestone started.
-
-Re-run broader validation only when at least one of the following is true:
+Reuse previous PASS evidence for boundaries that have not materially changed. Re-run broader validation only when:
 
 - the current change directly affects that boundary;
-- a new observed regression implicates that boundary;
-- a milestone explicitly requires the broader campaign;
-- previous evidence is no longer applicable because the runtime, packaging, privilege, deployment, or relevant implementation path materially changed.
+- a new observed regression implicates it;
+- the active milestone explicitly requires the broader campaign;
+- previous evidence is no longer applicable because the relevant runtime, packaging, privilege, deployment, or implementation path materially changed.
 
-A new milestone number by itself is not sufficient justification.
+A new milestone number by itself is not justification for repeating an old campaign.
 
 ## Settled findings
 
-Treat documented, previously verified environment and product findings as settled unless new evidence gives a concrete reason to reopen them.
+Treat documented environment and product findings as settled unless new evidence gives a concrete reason to reopen them. Use an already established working verification path instead of rediscovering known limitations.
 
-Do not spend time diagnosing a settled limitation again just to reconfirm it. Use the already established working path.
-
-If a settled finding must be reopened, state the new evidence or changed boundary that invalidates the previous conclusion before starting a new investigation.
-
-Infrastructure or harness behavior is not automatically a product defect. First distinguish among:
-
-- product regression;
-- test-fixture problem;
-- automation limitation;
-- environment/network/tooling failure;
-- expected Windows behavior already documented by prior evidence.
-
-Do not modify production code merely to satisfy an ambiguous harness observation without confirming the real user-visible behavior when that distinction matters.
+Infrastructure or harness behavior is not automatically a product defect. Distinguish product regressions from fixture problems, automation limitations, network/tooling failures, and expected Windows behavior. Do not modify production code merely to satisfy an ambiguous harness observation without confirming real product behavior when that distinction matters.
 
 ## Verification depth
 
-Use three practical levels of verification.
-
 ### Focused verification
 
-Default after an ordinary implementation change.
-
-Use targeted unit/integration tests, static inspection, one representative runtime path, or another narrow test that directly exercises the changed boundary.
+This is the default after ordinary implementation work. Use targeted unit/integration tests, static inspection, focused build checks, measurements when relevant, or another narrow test that directly exercises the changed boundary.
 
 Examples:
 
-- a search projection change: focused search/result tests plus one representative Quick Search smoke;
-- a UI binding change: focused UI/runtime smoke rather than a complete lifecycle campaign;
-- a project-reference change: build plus payload/dependency inspection rather than repeated install/uninstall cycles.
+- search projection change: focused search/result tests;
+- UI binding change: focused inspection plus user-owned manual UI smoke when a quick visual check is sufficient;
+- project-reference change: build/publish plus payload/dependency inspection;
+- protected-storage change: focused automated tests plus one controlled Quail-Lab security/runtime path.
 
 ### Representative regression verification
 
-Use when a change crosses several connected components or affects a higher-risk boundary.
-
-Test the directly affected functionality plus a small number of representative adjacent paths. Do not mechanically expand this into every historical test combination.
+Use when a change crosses several connected components or affects a higher-risk boundary. Test the directly affected functionality plus a small number of adjacent paths. Do not mechanically expand this into every historical combination.
 
 ### Full campaign
 
 Reserve full or high-iteration campaigns for milestones whose primary purpose requires them, release/stabilization gates, investigation of a concrete intermittent defect, or material changes to the boundary being stressed.
 
-Examples include dedicated lifecycle/stress/performance milestones or a release candidate milestone that explicitly requires broad validation.
+Do not run high iteration counts merely because a harness makes them easy. Dozens or hundreds of hotkey, keyboard, lifecycle, install/uninstall, or similar repetitions require a concrete intermittent/cumulative failure hypothesis.
 
-## Repetition and iteration counts
+## Manual UI smoke ownership
 
-Do not use high iteration counts when a single or small-number smoke test is enough to establish correctness.
+Ordinary manual UI/UX smoke that the user can perform quickly and directly is user-owned by default. Typical examples include:
 
-In particular:
+- start Quail and confirm the expected window appears;
+- type a known query and confirm the expected result is visible;
+- press Enter or click a result and confirm it opens;
+- open Settings and confirm a changed control or label appears and behaves normally;
+- perform another short visual interaction whose outcome is immediately observable without instrumentation.
 
-- do not repeat dozens or hundreds of global-hotkey activations after an unrelated change;
-- do not repeat large keyboard/lifecycle loops unless the current change affects hotkey registration, window lifecycle, focus/activation, input handling, process lifetime, or an observed intermittent defect requires repetition;
-- do not increase iteration counts merely because an automated harness makes doing so easy.
+The implementation agent should not spend material model/time budget creating, repairing, or repeatedly retrying WinApp, VMConnect, SendInput, desktop-session automation, or a custom harness solely to replace such a simple manual smoke.
 
-When a high-iteration test is justified, explain what intermittent or cumulative failure it is intended to detect.
+User-owned manual smoke does **not** block the implementation agent from committing, pushing, creating/updating the PR, or handing the branch to independent QA. Record it explicitly in the handoff, for example:
 
-## Windows UI verification
+`User-owned manual UI smoke: pending.`
 
-For ordinary Windows UI and user-flow verification, prefer the shortest direct path that produces real behavioral evidence.
+If the active milestone requires that smoke before final acceptance, the user or independent QA completes it before the milestone is finally closed or merged.
 
-Use WinApp when available and suitable for direct interaction with the running Quail application. It is preferred for ordinary UI smoke such as:
+The implementation agent should own UI/runtime verification when there is a concrete reason not to delegate it, including:
 
-- application startup and visible state;
-- Quick Search interaction;
-- keyboard navigation where supported;
-- opening a selected result;
-- Settings interaction;
-- Index Manager interaction;
-- representative Build/Rebuild/Refresh UI flow when the privilege-sensitive portion can still be verified appropriately.
+- precise timing, resource measurements, repetition, instrumentation, logs, or deterministic evidence are required;
+- a concrete regression must be reproduced or debugged;
+- the flow crosses a security, privilege, data-integrity, or destructive boundary requiring controlled verification;
+- UI/runtime behavior is itself the primary technical subject of the milestone and automated evidence is materially more useful than a quick manual check;
+- the user explicitly asks the agent to perform it.
 
-Do not rediscover known limitations of indirect desktop automation before trying an already established working method.
+Do not automate a simple manual smoke merely because automation is technically possible.
 
-The Hyper-V console is not the preferred automation input channel for Quail-Lab GUI testing when reliable interactive input is required. Use an established interactive-session method or WinApp instead when appropriate.
+## Windows UI tooling
 
-Existing SendInput/interactivity harnesses remain useful fallbacks and for focused cases that specifically require them. Do not automatically start every milestone with the historical M10 high-iteration harness.
+When agent-owned Windows UI automation is justified, prefer the shortest established direct path. Use WinApp when available and suitable. The Hyper-V console is not the preferred automation input channel for Quail-Lab GUI testing when reliable interactive input is required.
+
+Existing SendInput/interactivity harnesses are focused fallbacks, not a default milestone gate. Do not start an old high-iteration lifecycle harness unless the current change or a concrete regression requires it.
 
 ## Quail-Lab
 
-Use Quail-Lab when the test genuinely benefits from isolation or requires Windows boundaries that should not be exercised freely on the physical host.
-
-Typical Quail-Lab responsibilities include:
+Use Quail-Lab when isolation or Windows boundaries materially improve verification, especially for:
 
 - same-account UAC/elevated-worker behavior;
-- protected `%PROGRAMDATA%` index storage;
+- protected `%PROGRAMDATA%` storage;
 - ACL/reparse/trust-boundary checks;
-- Build/Rebuild/Refresh against a controlled disposable data volume;
-- installation or deployment behavior when installation itself is affected;
-- restart-sensitive or potentially destructive integration testing.
+- controlled Build/Rebuild/Refresh against disposable data;
+- restart-sensitive or potentially destructive integration;
+- installer/deployment behavior when installation itself changed.
 
-Do not use the VM as justification for repeating unrelated full-product campaigns.
-
-Prefer one representative successful runtime path after focused automated verification unless the active milestone requires more.
+Do not use the VM as justification for repeating unrelated full-product campaigns. Prefer one representative successful controlled path after focused automated verification.
 
 ## Physical host
 
-Use the physical host only when the relevant requirement cannot be established adequately in Quail-Lab/WinApp, when the change affects host-specific integration, or when an environment-specific regression is observed.
-
-Do not repeat a previous physical-host release-validation campaign for changes that do not affect the previously validated boundary.
+Use the physical host only when the requirement cannot be established adequately in automated tests/Quail-Lab, the change affects host-specific integration, or an environment-specific regression appears. Do not repeat a previous physical-host release campaign for unchanged boundaries.
 
 ## Build, publish, and installer verification
 
-Treat build, publish, packaging, and installation as separate evidence levels.
-
-A code or architecture change does not automatically require rebuilding and exercising the complete installer repeatedly.
-
-Use the smallest applicable proof:
+Treat build, publish, packaging, installation, and release validation as separate evidence levels. Use the smallest applicable proof:
 
 - normal source change: required project/solution build;
-- production dependency or project-graph change: build/publish plus focused payload/dependency verification;
-- packaging-script or installer-input change: build the affected package once and inspect/verify the affected payload;
+- production dependency/project-graph change: build/publish plus focused payload/dependency verification;
+- packaging-script or installer-input change: build the affected package once and inspect the payload;
 - installer behavior change: representative installer runtime verification;
-- release/stabilization milestone: broader installer/deployment campaign only when explicitly required.
+- release/stabilization milestone: broader deployment campaign only when explicitly required.
 
-For a new production assembly such as `Quail.FileSystem`, one successful final publish/package proof that the assembly and required runtime dependencies are present is sufficient unless the packaging logic itself is changing or a concrete failure requires another run.
+For a new production assembly such as `Quail.FileSystem`, one successful final publish/package proof that the assembly and required runtime dependencies are present is sufficient unless packaging logic changes later.
 
-Do not repeatedly rebuild the installer after no relevant input changed.
+Do not repeatedly rebuild or reinstall an unchanged package. After a failure, diagnose the cause first and rerun only after a relevant correction or to answer a concrete diagnostic question.
 
-Do not run identical expensive packaging commands in a loop. After a failure, diagnose the cause first. Re-run only after a relevant correction or when needed to distinguish an infrastructure failure from a product/package failure.
+## Test infrastructure and retry budget
 
-Network/NuGet failures, restore outages, or other tooling failures should not trigger repeated full installer builds without a concrete hypothesis.
+Prefer existing canonical scripts and established harnesses. Do not create new one-off infrastructure if focused automated tests, static inspection, direct runtime evidence, or a user-owned manual smoke can prove the requirement with less work.
 
-## Test infrastructure and harnesses
+Do not spend open-ended implementation-agent budget repairing verification infrastructure when the product has not produced evidence of a defect.
 
-Prefer existing canonical scripts and established harnesses over creating new one-off infrastructure.
+For an infrastructure-only failure, one obvious preparation correction and one rerun are normally sufficient. If verification still cannot produce a product PASS/FAIL because of orchestration, desktop automation, PowerShell/runtime mismatch, NuGet/network availability, artifact transfer, VM path state, timeout, or similar infrastructure failure:
 
-Do not create a new harness if WinApp, a focused existing test, a canonical script, or direct runtime inspection can prove the requirement with less work.
+- stop retrying that verification path;
+- do not create another alternative harness solely to obtain the same evidence;
+- record what evidence was obtained and what remains unverified;
+- reuse earlier applicable PASS evidence for unchanged boundaries;
+- hand off the limitation instead of continuing infrastructure diagnosis.
 
-Do not turn temporary test infrastructure into production code.
-
-When a harness produces a surprising result:
-
-1. determine whether the fixture itself is valid;
-2. compare with prior settled evidence;
-3. verify real product behavior through the most direct available path when needed;
-4. only then treat the observation as a product defect.
+For a simple user-owned manual UI smoke, use an even stricter rule: if the direct automated path is unavailable or non-trivial to establish, delegate immediately rather than entering an infrastructure-debugging loop.
 
 ## Evidence reuse
 
-Previous milestone evidence remains valid for unchanged behavior and boundaries.
-
-Reference prior evidence rather than recreating it. New milestone evidence should record what was newly verified and why the selected verification was sufficient.
-
-Do not copy large previous evidence sets into the current milestone.
+Previous milestone evidence remains valid for unchanged behavior and boundaries. Reference prior evidence rather than recreating or copying large previous campaigns into the current milestone.
 
 ## Stop wasting verification budget
 
-Verification has a real time and model-budget cost. Once the active milestone's acceptance criteria are proven with appropriate evidence, stop testing.
+Verification has a real time and model-budget cost. Once the active milestone has sufficient evidence for the implementation-agent boundary, stop testing and hand off.
 
-Do not perform extra rounds of testing, hardening, or environment exploration simply to increase confidence abstractly.
-
-Before starting another expensive verification step after the milestone already has substantial PASS evidence, ask:
+Before another expensive verification step, ask:
 
 1. What unverified requirement or concrete risk does this test address?
 2. Did a relevant implementation input change since the last applicable PASS?
-3. Would failure of this test materially change the milestone decision?
+3. Would failure materially change the milestone decision?
 
-If the answers do not provide a concrete reason, do not run the test.
+If there is no concrete answer, do not run the test.
