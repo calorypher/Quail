@@ -696,8 +696,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             return null;
         }
 
-        var freshness = _indexCatalog.ActivePaths
-            .Select(path => new Quail.Core.IndexStore(path).GetStatus())
+        var freshness = _searchService.GetIndexStatuses()
             .Select(status => IndexFreshnessPolicy.Classify(status, DateTimeOffset.UtcNow))
             .ToArray();
         return freshness.Contains(IndexFreshness.RefreshRecommended)
@@ -845,7 +844,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         try
         {
-            await Task.Run(() => _searchService.Open(result.SourceIdentity, result.FileId));
+            await Task.Run(() => _searchService.Open(result.Action));
             _pipe.Emit(new { @event = "confirmed", name = result.Name });
             AppLog.Write("Open succeeded.");
             HideOverlay("open-success");

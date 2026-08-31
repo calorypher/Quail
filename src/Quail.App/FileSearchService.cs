@@ -4,57 +4,39 @@ namespace Quail.App;
 
 internal interface IFileSearchService
 {
-    IReadOnlyList<IndexedFileSearchResult> Search(string query);
+    IReadOnlyList<SearchResult> Search(string query);
     SearchIndexScale GetSearchIndexScale();
-    void Open(string sourceIdentity, NativeFileId fileId);
+    IReadOnlyList<SearchIndexStatus> GetIndexStatuses();
+    void Open(SearchResultAction action);
 }
 
 internal sealed class FileSearchService : IFileSearchService
 {
-    private readonly Func<IReadOnlyList<string>> _paths;
-    private readonly IndexedEntryOpener _opener;
+    private readonly FileSearchApplicationService _core;
 
-    public FileSearchService(IEnumerable<string> indexPaths, IndexedEntryOpener? opener = null)
-        : this(() => indexPaths.ToArray(), opener)
+    public FileSearchService(IEnumerable<string> indexPaths)
+        : this(() => indexPaths.ToArray())
     {
     }
 
-    public FileSearchService(Func<IReadOnlyList<string>> paths, IndexedEntryOpener? opener = null)
+    public FileSearchService(Func<IReadOnlyList<string>> paths)
     {
-        _paths = paths;
-        _opener = opener ?? new IndexedEntryOpener();
+        _core = new FileSearchApplicationService(paths);
     }
 
-    public IReadOnlyList<IndexedFileSearchResult> Search(string query) =>
-        MultiIndexSearch.Search(_paths().Select(path => new IndexStore(path)), new FileSearchQuery(query, Limit: IndexStore.DefaultSearchResultLimit));
+    public IReadOnlyList<SearchResult> Search(string query) => _core.Search(new SearchRequest(query));
 
     public SearchIndexScale GetSearchIndexScale()
     {
-        var paths = _paths();
-        long recordCount = 0;
-        long databaseBytes = 0;
-        var unavailableIndexCount = 0;
-        foreach (var path in paths)
-        {
-            try
-            {
-                recordCount += new IndexStore(path).GetStatus().RecordCount;
-                databaseBytes += new FileInfo(path).Length;
-            }
-            catch (Exception)
-            {
-                unavailableIndexCount++;
-            }
-        }
-
-        return new SearchIndexScale(paths.Count, recordCount, databaseBytes, unavailableIndexCount);
+        var scale = _core.GetSearchIndexScale();
+        return new SearchIndexScale(
+            scale.ConfiguredIndexCount,
+            scale.RecordCount,
+            scale.DatabaseBytes,
+            scale.UnavailableIndexCount);
     }
 
-    public void Open(string sourceIdentity, NativeFileId fileId)
-    {
-        var store = _paths().Select(path => new IndexStore(path)).FirstOrDefault(candidate => string.Equals(candidate.DatabasePath, sourceIdentity, StringComparison.OrdinalIgnoreCase));
-        if (store is null)
-            throw new InvalidOperationException("The result source is no longer configured.");
-        _opener.Open(store, fileId);
-    }
+    public IReadOnlyList<SearchIndexStatus> GetIndexStatuses() => _core.GetIndexStatuses();
+
+    public void Open(SearchResultAction action) => _core.Open(action);
 }

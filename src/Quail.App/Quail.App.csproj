@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Quail.Core\Quail.Core.csproj" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <ProjectReference Include="..\Quail.FileSystem\Quail.FileSystem.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.4.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.6" />

@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace Quail.Core;
+namespace Quail.FileSystem;
 
 internal sealed class NtfsMetadataAcquirer : IDisposable
 {

@@ -12,7 +12,7 @@ internal enum SearchExecutionLane
 internal sealed record SearchCompletion(
     long Generation,
     long UiGeneration,
-    IReadOnlyList<IndexedFileSearchResult>? Results,
+    IReadOnlyList<SearchResult>? Results,
     Exception? Error,
     TimeSpan Duration,
     bool IsCurrent,
@@ -41,7 +41,7 @@ internal readonly record struct SearchCoordinatorTraceEvent(
 
 internal sealed class LatestFileSearchCoordinator : IDisposable
 {
-    private readonly Func<string, IReadOnlyList<IndexedFileSearchResult>> _search;
+    private readonly Func<string, IReadOnlyList<SearchResult>> _search;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _requestSignal = new(0, 1);
     private readonly Task _worker;
@@ -53,7 +53,7 @@ internal sealed class LatestFileSearchCoordinator : IDisposable
     private bool _disposed;
 
     public LatestFileSearchCoordinator(
-        Func<string, IReadOnlyList<IndexedFileSearchResult>> search,
+        Func<string, IReadOnlyList<SearchResult>> search,
         Action<SearchCoordinatorTraceEvent>? trace = null,
         SearchExecutionLane lane = SearchExecutionLane.Interactive)
     {
@@ -148,7 +148,7 @@ internal sealed class LatestFileSearchCoordinator : IDisposable
                 searchStartedTimestamp,
                 QueueWait: Stopwatch.GetElapsedTime(request.EnqueuedTimestamp, searchStartedTimestamp),
                 Lane: _lane));
-            IReadOnlyList<IndexedFileSearchResult>? results = null;
+            IReadOnlyList<SearchResult>? results = null;
             Exception? error = null;
             try
             {

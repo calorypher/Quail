@@ -278,6 +278,8 @@ if (Test-Path -LiteralPath '$safePublish') { throw 'ProtectedIndex publish desti
 Expand-Archive -LiteralPath '$safeArchive' -DestinationPath '$safePublish'
 `$executable = Join-Path '$safePublish' 'Quail.exe'
 if (-not (Test-Path -LiteralPath `$executable -PathType Leaf)) { throw 'ProtectedIndex final Quail.exe is missing after archive extraction.' }
+`$cli = Join-Path '$safePublish' 'Quail.Cli.exe'
+if (-not (Test-Path -LiteralPath `$cli -PathType Leaf)) { throw 'ProtectedIndex final Quail.Cli.exe is missing after archive extraction.' }
 (Get-FileHash -Algorithm SHA256 -LiteralPath `$executable).Hash.ToLowerInvariant()
 "@
             $remoteExecutableHash = ($publishOutput | Select-Object -Last 1).Trim()
@@ -332,14 +334,7 @@ New-Item -ItemType Directory -Path (Split-Path -Parent `$catalogPath) -Force | O
             $buildOutput = Invoke-ObservedIndexWorker $connection $VmUser $logPath $runtime.Executable "$($environment.DriveLetter):\" $runtime.Identity $runtime.Database 'Build'
             $build = $buildOutput | Select-Object -Last 1 | ConvertFrom-Json
 
-            Invoke-QuailRemotePowerShell $connection $VmUser $logPath @"
-Set-Location 'C:\Projects\Quail'
-& dotnet restore src\Quail.Cli\Quail.Cli.csproj --ignore-failed-sources -p:NuGetAudit=false
-if (`$LASTEXITCODE -ne 0) { throw 'ProtectedIndex CLI restore failed.' }
-& dotnet build src\Quail.Cli\Quail.Cli.csproj -c Release --no-restore
-if (`$LASTEXITCODE -ne 0) { throw 'ProtectedIndex CLI build failed.' }
-"@ | Out-Null
-            $remoteCli = 'C:\Projects\Quail\src\Quail.Cli\bin\Release\net10.0-windows\Quail.Cli.exe'
+            $remoteCli = Join-Path $safePublish 'Quail.Cli.exe'
             $buildReadOutput = Invoke-UnelevatedProtectedIndexRead $connection $VmUser $logPath $remoteCli $runtime.Database 'protected-index-initial' 'protected-index-initial.txt' $RemoteRoot
             $buildRead = $buildReadOutput | Select-Object -Last 1 | ConvertFrom-Json
 
@@ -587,8 +582,7 @@ if (@(Get-Process -Name Quail -ErrorAction SilentlyContinue).Count -ne 0) { thro
             $concurrency = $concurrencyOutput | Select-Object -Last 1 | ConvertFrom-Json
 
             $postSecurityStatus = Invoke-QuailRemotePowerShell $connection $VmUser $logPath @"
-Set-Location 'C:\Projects\Quail'
-`$output = @(& dotnet run --project src\Quail.Cli\Quail.Cli.csproj -c Release --no-restore -- status --index '$($runtime.Database.Replace("'", "''"))')
+`$output = @(& '$remoteCli' status --index '$($runtime.Database.Replace("'", "''"))')
 if (`$LASTEXITCODE -ne 0 -or -not (`$output -match 'state=complete')) { throw 'ProtectedIndex status is not complete after security/concurrency scenarios.' }
 `$output | Select-Object -Last 1
 "@

@@ -5,7 +5,7 @@ namespace Quail.App;
 
 internal static class FileSearchMetadata
 {
-    public static string Format(FileSearchResult result)
+    public static string Format(SearchResult result)
     {
         if (result.IsDirectory) return "Folder";
 

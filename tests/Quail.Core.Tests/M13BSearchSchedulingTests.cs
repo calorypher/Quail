@@ -115,7 +115,7 @@ public sealed class M13BSearchSchedulingTests
         {
             if (completion.IsCurrent && completion.UiGeneration == Volatile.Read(ref currentUiGeneration))
             {
-                applied.Enqueue(completion.Results!.Single().Result.Name);
+                applied.Enqueue(completion.Results!.Single().Name);
             }
         };
         shortCoordinator.Completed += completion =>
@@ -206,7 +206,7 @@ public sealed class M13BSearchSchedulingTests
         await Task.Delay(100);
 
         Assert.Equal(["one"], calls);
-        Assert.DoesNotContain(completions, completion => completion.Results!.Single().Result.Name == "two");
+        Assert.DoesNotContain(completions, completion => completion.Results!.Single().Name == "two");
     }
 
     [Fact]
@@ -265,7 +265,6 @@ public sealed class M13BSearchSchedulingTests
         Assert.Equal(0, Volatile.Read(ref callbacks));
     }
 
-    private static IndexedFileSearchResult Result(string name) => new(
-        "source.db",
-        new FileSearchResult(new NativeFileId(new byte[8]), name, $"C:\\{name}", false, "txt", 1, null));
+    private static SearchResult Result(string name) => new(
+        new SearchResultAction(), name, $"C:\\{name}", false, "txt", 1, null, 0);
 }

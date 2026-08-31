@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Microsoft.Win32.SafeHandles;
 
-namespace Quail.Core;
+namespace Quail.FileSystem;
 
 public enum IndexStoreJournalLifecycle
 {

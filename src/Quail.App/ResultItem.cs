@@ -8,8 +8,7 @@ namespace Quail.App;
 
 public sealed class ResultItem : INotifyPropertyChanged
 {
-    public required string SourceIdentity { get; init; }
-    public required NativeFileId FileId { get; init; }
+    public required SearchResultAction Action { get; init; }
     public required string Name { get; init; }
     public required string Path { get; init; }
     public required string Kind { get; init; }

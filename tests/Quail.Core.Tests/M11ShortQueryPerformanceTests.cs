@@ -135,11 +135,11 @@ public sealed class M11ShortQueryPerformanceTests
                 releaseFirst.Wait(TimeSpan.FromSeconds(5));
             }
 
-            return MultiIndexSearch.Search([store], new FileSearchQuery(query));
+            return Project(MultiIndexSearch.Search([store], new FileSearchQuery(query)));
         });
         coordinator.Completed += completion =>
         {
-            if (completion.IsCurrent && completion.Results is not null && completion.Results.Count > 0 && completion.Results[0].Result.Name.StartsWith("abc-", StringComparison.Ordinal))
+            if (completion.IsCurrent && completion.Results is not null && completion.Results.Count > 0 && completion.Results[0].Name.StartsWith("abc-", StringComparison.Ordinal))
             {
                 finalCompletion.TrySetResult(completion);
             }
@@ -166,11 +166,11 @@ public sealed class M11ShortQueryPerformanceTests
         using var deferrer = new ShortQueryDeferrer(
             TimeSpan.FromMilliseconds(150),
             (_, _) => Interlocked.Increment(ref shortQueriesExecuted));
-        using var coordinator = new LatestFileSearchCoordinator(query => MultiIndexSearch.Search([store], new FileSearchQuery(query)));
+        using var coordinator = new LatestFileSearchCoordinator(query => Project(MultiIndexSearch.Search([store], new FileSearchQuery(query))));
         var finalCompletion = new TaskCompletionSource<SearchCompletion>(TaskCreationOptions.RunContinuationsAsynchronously);
         coordinator.Completed += completion =>
         {
-            if (completion.IsCurrent && completion.Results is not null && completion.Results.Count > 0 && completion.Results[0].Result.Name.StartsWith("abc-", StringComparison.Ordinal))
+            if (completion.IsCurrent && completion.Results is not null && completion.Results.Count > 0 && completion.Results[0].Name.StartsWith("abc-", StringComparison.Ordinal))
             {
                 finalCompletion.TrySetResult(completion);
             }
@@ -203,5 +203,18 @@ public sealed class M11ShortQueryPerformanceTests
     private static NativeFileId Id(int value)
     {
         return new NativeFileId(BitConverter.GetBytes((long)value));
+    }
+
+    private static IReadOnlyList<SearchResult> Project(IReadOnlyList<IndexedFileSearchResult> results)
+    {
+        return results.Select(result => new SearchResult(
+            new SearchResultAction(),
+            result.Result.Name,
+            result.Result.FullPath,
+            result.Result.IsDirectory,
+            result.Result.Extension,
+            result.Result.LogicalSize,
+            result.Result.LastWriteTimeUtcFileTime,
+            result.Result.Attributes)).ToArray();
     }
 }

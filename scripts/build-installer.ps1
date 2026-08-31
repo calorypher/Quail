@@ -113,7 +113,7 @@ New-Item -ItemType Directory -Path $payload -Force | Out-Null
 Copy-Payload $appPublish $payload
 Copy-Payload $cliPublish $payload
 
-$required = @('Quail.exe', 'Quail.Cli.exe', 'App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll')
+$required = @('Quail.exe', 'Quail.Cli.exe', 'Quail.FileSystem.dll', 'App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll')
 foreach ($artifact in $required) { if (-not (Test-Path -LiteralPath (Join-Path $payload $artifact) -PathType Leaf)) { throw "Final installer payload is missing required artifact: $artifact" } }
 foreach ($runtimeFile in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll')) { if (Test-Path -LiteralPath (Join-Path $payload $runtimeFile) -PathType Leaf) { throw "Framework-dependent payload unexpectedly contains private .NET runtime file: $runtimeFile" } }
 foreach ($unusedAiMlFile in @('DirectML.dll', 'onnxruntime.dll', 'Microsoft.ML.OnnxRuntime.dll', 'Microsoft.Windows.AI.MachineLearning.dll', 'Microsoft.Windows.AI.MachineLearning.Projection.dll', 'System.Numerics.Tensors.dll')) {

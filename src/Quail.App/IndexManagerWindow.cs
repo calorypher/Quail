@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Quail.Core;
+using Quail.FileSystem;
 using Windows.Graphics;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;

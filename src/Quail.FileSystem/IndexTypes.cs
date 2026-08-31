@@ -1,4 +1,4 @@
-namespace Quail.Core;
+namespace Quail.FileSystem;
 
 public readonly struct NativeFileId : IEquatable<NativeFileId>
 {
