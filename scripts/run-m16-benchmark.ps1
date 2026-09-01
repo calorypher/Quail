@@ -23,16 +23,16 @@ function Quote-ProcessArgument([string] $Value) {
 }
 
 function Get-TraceStage($Events, [string] $Stage, [long] $UiGeneration) {
-    return @($Events | Where-Object { $_.stage -eq $Stage -and $_.uiGeneration -eq $UiGeneration } | Select-Object -First 1)
+    return $Events | Where-Object { $_.stage -eq $Stage -and $_.uiGeneration -eq $UiGeneration } | Select-Object -First 1
 }
 
 function Get-StageDurationMilliseconds($Events, [string] $Stage, [long] $UiGeneration) {
     $event = Get-TraceStage $Events $Stage $UiGeneration
-    if ($event.Count -eq 0) {
+    if ($null -eq $event) {
         return $null
     }
 
-    return [double] $event[0].durationMilliseconds
+    return [double] $event.durationMilliseconds
 }
 
 function Get-Median([double[]] $Values) {
@@ -163,7 +163,7 @@ try {
             $finalInput = $inputs[-1]
             $typingBurstInput = if (@($scenario.queries).Count -gt 1) { $inputs[0] } else { $null }
             $firstRender = Get-TraceStage $events 'first-text-results-rendered' ([long]$finalInput.uiGeneration)
-            if ($firstRender.Count -eq 0) {
+            if ($null -eq $firstRender) {
                 throw "Scenario '$($scenario.id)' did not produce first-text render evidence for its final query."
             }
             $coreStarted = Get-TraceStage $events 'core-search-started' ([long]$finalInput.uiGeneration)
@@ -174,10 +174,10 @@ try {
                 iteration = $iteration
                 sessionKind = [string]$scenario.sessionKind
                 finalQueryLength = [int]$finalInput.queryLength
-                resultCount = [int]$firstRender[0].resultCount
-                inputToFirstTextMilliseconds = [Math]::Round([double]$firstRender[0].monotonicMilliseconds - [double]$finalInput.monotonicMilliseconds, 3)
-                typingBurstToFirstTextMilliseconds = if ($null -eq $typingBurstInput) { $null } else { [Math]::Round([double]$firstRender[0].monotonicMilliseconds - [double]$typingBurstInput.monotonicMilliseconds, 3) }
-                queueWaitMilliseconds = if ($coreStarted.Count -eq 0) { $null } else { [Math]::Round([double]$coreStarted[0].queueWaitMilliseconds, 3) }
+                resultCount = [int]$firstRender.resultCount
+                inputToFirstTextMilliseconds = [Math]::Round([double]$firstRender.monotonicMilliseconds - [double]$finalInput.monotonicMilliseconds, 3)
+                typingBurstToFirstTextMilliseconds = if ($null -eq $typingBurstInput) { $null } else { [Math]::Round([double]$firstRender.monotonicMilliseconds - [double]$typingBurstInput.monotonicMilliseconds, 3) }
+                queueWaitMilliseconds = if ($null -eq $coreStarted) { $null } else { [Math]::Round([double]$coreStarted.queueWaitMilliseconds, 3) }
                 coreSearchMilliseconds = Get-StageDurationMilliseconds $events 'core-search-completed' ([long]$finalInput.uiGeneration)
                 resultMappingMilliseconds = Get-StageDurationMilliseconds $events 'result-mapping-completed' ([long]$finalInput.uiGeneration)
                 resultApplyMilliseconds = Get-StageDurationMilliseconds $events 'result-apply-completed' ([long]$finalInput.uiGeneration)

@@ -28,6 +28,8 @@ The committed file contains only replaceable example query strings. M16-B must u
 
 The live sample used only the small validation subset and did not produce a measurement result. In this Codex desktop execution environment, the newly launched `Quail.exe` remained alive for the 45-second scenario timeout but did not create its requested diagnostics log or trace; therefore it did not reach `Program startup` and this is not evidence about Quail search latency or ranking. The harness left the child process for inspection as designed; the implementation session then stopped only that exact child process. A second attempt with the harness's per-run diagnostics path had the same infrastructure-only outcome. No alternative desktop automation path was added.
 
+The Windows PowerShell `PropertyNotFoundStrict` compatibility blocker reported by independent QA was fixed in `scripts/run-m16-benchmark.ps1`: `Get-TraceStage` is now explicitly single-or-null, and its consumers use null checks and scalar properties. The same scan found no additional unwrapped scalar `.Count` checks in the affected trace path; explicitly array-wrapped collections remain unchanged.
+
 Independent M16-A QA must perform one small local-interactive validation run from the physical desktop session, for example:
 
 ```powershell
@@ -50,4 +52,5 @@ After QA approval, M16-B should use the local scenario copy, run the eight scena
 - The fresh-process scenario measures first-search behavior after the new process becomes visible; app startup remains a separate metric.
 - First text-result availability is primary; shell-icon completion is supporting trace data rather than the completion condition.
 - The warmup-boundary remediation requires fresh focused automated verification before independent QA; it does not authorize another Codex desktop validation attempt.
+- Focused helper check: PASS under `Set-StrictMode -Version Latest`; parser/parameter check: PASS via `scripts/run-m16-benchmark.ps1 -?`. No Release build was run because this remediation changes only PowerShell.
 - The Codex desktop execution environment could not complete the live validation run described above. This must be resolved by the one user/QA-owned local-interactive validation, not by further automation work in M16-A.
