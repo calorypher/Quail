@@ -5,6 +5,7 @@ internal sealed record AppLaunchOptions(
     string? DiagnosticsPath,
     string? SearchPerformanceTracePath,
     SearchPerformanceSessionKind? SearchPerformanceSessionKind,
+    string? SearchPerformanceScenarioPath,
     bool ShowOnStart,
     int? ExitAfterVisibleReadyCount,
     IReadOnlyList<string> IndexPaths)
@@ -15,6 +16,7 @@ internal sealed record AppLaunchOptions(
         string? diagnosticsPath = null;
         string? searchPerformanceTracePath = null;
         SearchPerformanceSessionKind? searchPerformanceSessionKind = null;
+        string? searchPerformanceScenarioPath = null;
         var showOnStart = false;
         int? exitAfterVisibleReadyCount = null;
         var indexPaths = new List<string>();
@@ -35,6 +37,9 @@ internal sealed record AppLaunchOptions(
                     break;
                 case "--search-performance-session-kind" when index + 1 < values.Length:
                     searchPerformanceSessionKind = SearchPerformanceSessionKind.Parse(values[++index]);
+                    break;
+                case "--search-performance-scenario" when index + 1 < values.Length:
+                    searchPerformanceScenarioPath = Path.GetFullPath(values[++index]);
                     break;
                 case "--show-on-start":
                     showOnStart = true;
@@ -60,11 +65,17 @@ internal sealed record AppLaunchOptions(
             throw new ArgumentException("--search-performance-session-kind requires --search-performance-trace.");
         }
 
+        if (searchPerformanceScenarioPath is not null && (searchPerformanceTracePath is null || searchPerformanceSessionKind is null))
+        {
+            throw new ArgumentException("--search-performance-scenario requires --search-performance-trace and --search-performance-session-kind.");
+        }
+
         return new AppLaunchOptions(
             pipeName,
             diagnosticsPath,
             searchPerformanceTracePath,
             searchPerformanceSessionKind,
+            searchPerformanceScenarioPath,
             showOnStart,
             exitAfterVisibleReadyCount,
             indexPaths);

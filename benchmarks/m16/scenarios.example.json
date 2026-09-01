@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "description": "Replace only query strings with stable, non-sensitive queries known to match the local index. Keep ids and scenario shapes unchanged unless a later approved milestone changes the regression set.",
+  "scenarios": [
+    {
+      "id": "ordinary-name",
+      "sessionKind": "warm-same-session",
+      "queries": ["notes"]
+    },
+    {
+      "id": "strong-prefix",
+      "sessionKind": "warm-same-session",
+      "queries": ["quail"]
+    },
+    {
+      "id": "broad-result",
+      "sessionKind": "warm-same-session",
+      "queries": ["file"]
+    },
+    {
+      "id": "one-character",
+      "sessionKind": "warm-same-session",
+      "queries": ["a"]
+    },
+    {
+      "id": "two-character",
+      "sessionKind": "warm-same-session",
+      "queries": ["ab"]
+    },
+    {
+      "id": "warm-repeated",
+      "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
+      "queries": ["readme"]
+    },
+    {
+      "id": "fresh-process-first-search",
+      "sessionKind": "fresh-process-first-search",
+      "queries": ["project"]
+    },
+    {
+      "id": "rapid-typing",
+      "sessionKind": "warm-same-session",
+      "queries": ["q", "qu", "qua", "quai", "quail"],
+      "interQueryDelayMilliseconds": 120
+    }
+  ]
+}

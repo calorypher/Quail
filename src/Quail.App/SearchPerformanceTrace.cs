@@ -31,6 +31,7 @@ internal sealed class SearchPerformanceTrace : IDisposable
     private readonly string _runId = string.Empty;
     private readonly string _sessionKind = string.Empty;
     private readonly StreamWriter? _writer;
+    private string? _scenarioId;
     private bool _disposed;
 
     public SearchPerformanceTrace(string? path, SearchPerformanceSessionKind? sessionKind)
@@ -53,6 +54,25 @@ internal sealed class SearchPerformanceTrace : IDisposable
     public void RecordSessionStart(SearchIndexScale scale)
     {
         Record("session-start", indexCount: scale.IndexCount, recordCount: scale.RecordCount, databaseBytes: scale.DatabaseBytes, unavailableIndexCount: scale.UnavailableIndexCount, includeProcessMetrics: true);
+    }
+
+    public void RecordScenarioStarted(string scenarioId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
+        _scenarioId = scenarioId;
+        Record("scenario-start");
+    }
+
+    public void RecordScenarioCompleted()
+    {
+        Record("scenario-completed");
+        _scenarioId = null;
+    }
+
+    public void RecordScenarioFailed()
+    {
+        Record("scenario-failed");
+        _scenarioId = null;
     }
 
     public void RecordInput(long uiGeneration, int queryLength) =>
@@ -162,6 +182,7 @@ internal sealed class SearchPerformanceTrace : IDisposable
         var payload = new SearchPerformanceTraceEvent(
             _runId,
             _sessionKind,
+            _scenarioId,
             stage,
             Stopwatch.GetElapsedTime(_originTimestamp, eventTimestamp).TotalMilliseconds,
             uiGeneration,
@@ -196,6 +217,7 @@ internal sealed class SearchPerformanceTrace : IDisposable
 internal sealed record SearchPerformanceTraceEvent(
     string RunId,
     string SessionKind,
+    string? ScenarioId,
     string Stage,
     double MonotonicMilliseconds,
     long UiGeneration,

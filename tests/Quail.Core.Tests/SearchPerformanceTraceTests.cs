@@ -15,11 +15,13 @@ public sealed class SearchPerformanceTraceTests : IDisposable
         using (var trace = new SearchPerformanceTrace(path, SearchPerformanceSessionKind.Parse("warm-same-session")))
         {
             trace.RecordSessionStart(new Quail.App.SearchIndexScale(1, 888_708, 123_456_789, 0));
+            trace.RecordScenarioStarted("ordinary-name");
             trace.RecordInput(7, 4);
             trace.RecordCoordinator(new SearchCoordinatorTraceEvent(SearchCoordinatorStage.RequestEnqueued, 3, 7, 4, System.Diagnostics.Stopwatch.GetTimestamp()));
             trace.RecordResultMapping(7, 3, 50, TimeSpan.FromMilliseconds(1));
             trace.RecordFirstTextRender(7, 3, 50);
             trace.RecordIconCompleted(7, 3, 0, TimeSpan.FromMilliseconds(2), applied: true);
+            trace.RecordScenarioCompleted();
         }
 
         var text = File.ReadAllText(path);
@@ -40,6 +42,7 @@ public sealed class SearchPerformanceTraceTests : IDisposable
         });
         Assert.Contains(events, traceEvent => traceEvent.Stage == "first-text-results-rendered" && traceEvent.ResultCount == 50);
         Assert.Contains(events, traceEvent => traceEvent.Stage == "request-enqueued" && traceEvent.Lane == "Interactive");
+        Assert.Contains(events, traceEvent => traceEvent.Stage == "scenario-start" && traceEvent.ScenarioId == "ordinary-name");
     }
 
     [Fact]
