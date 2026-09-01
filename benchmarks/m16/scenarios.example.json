@@ -5,26 +5,31 @@
     {
       "id": "ordinary-name",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["notes"]
     },
     {
       "id": "strong-prefix",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["quail"]
     },
     {
       "id": "broad-result",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["file"]
     },
     {
       "id": "one-character",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["a"]
     },
     {
       "id": "two-character",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["ab"]
     },
     {
@@ -41,6 +46,7 @@
     {
       "id": "rapid-typing",
       "sessionKind": "warm-same-session",
+      "warmupQueries": ["readme"],
       "queries": ["q", "qu", "qua", "quai", "quail"],
       "interQueryDelayMilliseconds": 120
     }

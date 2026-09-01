@@ -76,6 +76,27 @@ public sealed class SearchPerformanceTraceTests : IDisposable
         Assert.True(events.Zip(events.Skip(1)).All(pair => pair.First.Timestamp <= pair.Second.Timestamp));
     }
 
+    [Fact]
+    public void Trace_leaves_warmup_input_unlabelled_before_the_measured_scenario()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "trace.jsonl");
+        using (var trace = new SearchPerformanceTrace(path, SearchPerformanceSessionKind.Parse("warm-same-session")))
+        {
+            trace.RecordInput(1, 6);
+            trace.RecordScenarioStarted("ordinary-name");
+            trace.RecordInput(2, 5);
+            trace.RecordScenarioCompleted();
+        }
+
+        var events = File.ReadLines(path)
+            .Select(line => JsonSerializer.Deserialize<SearchPerformanceTraceEvent>(line, new JsonSerializerOptions(JsonSerializerDefaults.Web))!)
+            .ToArray();
+
+        Assert.Contains(events, traceEvent => traceEvent.Stage == "input-observed" && traceEvent.UiGeneration == 1 && traceEvent.ScenarioId is null);
+        Assert.Contains(events, traceEvent => traceEvent.Stage == "input-observed" && traceEvent.UiGeneration == 2 && traceEvent.ScenarioId == "ordinary-name");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))

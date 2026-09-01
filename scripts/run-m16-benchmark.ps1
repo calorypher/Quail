@@ -74,6 +74,13 @@ try {
         if ($scenario.sessionKind -notin @('fresh-process-first-search', 'warm-same-session')) {
             throw "Scenario '$($scenario.id)' has an unsupported sessionKind."
         }
+        $warmupQueries = if ($null -eq $scenario.PSObject.Properties['warmupQueries']) { @() } else { @($scenario.warmupQueries) }
+        if ($scenario.sessionKind -eq 'warm-same-session' -and $warmupQueries.Count -eq 0) {
+            throw "Scenario '$($scenario.id)' is warm-same-session and requires at least one warmup query."
+        }
+        if ($scenario.sessionKind -eq 'fresh-process-first-search' -and $warmupQueries.Count -ne 0) {
+            throw "Scenario '$($scenario.id)' is fresh-process-first-search and must not define warmup queries."
+        }
     }
 
     if (-not $NoBuild) {
@@ -149,12 +156,12 @@ try {
                 throw "Scenario '$($scenario.id)' did not complete successfully."
             }
 
-            $inputs = @($events | Where-Object { $_.stage -eq 'input-observed' -and $_.queryLength -gt 0 })
+            $inputs = @($events | Where-Object { $_.stage -eq 'input-observed' -and $_.scenarioId -eq $scenario.id -and $_.queryLength -gt 0 })
             if ($inputs.Count -eq 0) {
                 throw "Scenario '$($scenario.id)' produced no non-empty input event."
             }
             $finalInput = $inputs[-1]
-            $firstInput = $inputs[0]
+            $typingBurstInput = if (@($scenario.queries).Count -gt 1) { $inputs[0] } else { $null }
             $firstRender = Get-TraceStage $events 'first-text-results-rendered' ([long]$finalInput.uiGeneration)
             if ($firstRender.Count -eq 0) {
                 throw "Scenario '$($scenario.id)' did not produce first-text render evidence for its final query."
@@ -169,7 +176,7 @@ try {
                 finalQueryLength = [int]$finalInput.queryLength
                 resultCount = [int]$firstRender[0].resultCount
                 inputToFirstTextMilliseconds = [Math]::Round([double]$firstRender[0].monotonicMilliseconds - [double]$finalInput.monotonicMilliseconds, 3)
-                typingBurstToFirstTextMilliseconds = [Math]::Round([double]$firstRender[0].monotonicMilliseconds - [double]$firstInput.monotonicMilliseconds, 3)
+                typingBurstToFirstTextMilliseconds = if ($null -eq $typingBurstInput) { $null } else { [Math]::Round([double]$firstRender[0].monotonicMilliseconds - [double]$typingBurstInput.monotonicMilliseconds, 3) }
                 queueWaitMilliseconds = if ($coreStarted.Count -eq 0) { $null } else { [Math]::Round([double]$coreStarted[0].queueWaitMilliseconds, 3) }
                 coreSearchMilliseconds = Get-StageDurationMilliseconds $events 'core-search-completed' ([long]$finalInput.uiGeneration)
                 resultMappingMilliseconds = Get-StageDurationMilliseconds $events 'result-mapping-completed' ([long]$finalInput.uiGeneration)
@@ -204,8 +211,10 @@ try {
         "scenario                         median input-to-text ms  median typing-burst ms  samples")
     foreach ($group in @($samples | Group-Object scenarioId)) {
         $inputMedian = Get-Median ([double[]]@($group.Group | ForEach-Object { $_.inputToFirstTextMilliseconds }))
-        $typingMedian = Get-Median ([double[]]@($group.Group | ForEach-Object { $_.typingBurstToFirstTextMilliseconds }))
-        $summaryLines += ('{0,-32} {1,23:N3} {2,24:N3} {3,8}' -f $group.Name, $inputMedian, $typingMedian, $group.Count)
+        $typingValues = [double[]]@($group.Group | Where-Object { $null -ne $_.typingBurstToFirstTextMilliseconds } | ForEach-Object { $_.typingBurstToFirstTextMilliseconds })
+        $typingMedian = Get-Median $typingValues
+        $typingText = if ($null -eq $typingMedian) { 'n/a' } else { '{0:N3}' -f $typingMedian }
+        $summaryLines += ('{0,-32} {1,23:N3} {2,24} {3,8}' -f $group.Name, $inputMedian, $typingText, $group.Count)
     }
     $summaryLines | Set-Content -LiteralPath (Join-Path $outputRoot 'summary.txt') -Encoding utf8
     Write-Output "PASS results=$(Join-Path $outputRoot 'results.json') summary=$(Join-Path $outputRoot 'summary.txt')"

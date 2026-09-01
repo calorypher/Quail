@@ -503,12 +503,12 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         try
         {
-            _searchTrace.RecordScenarioStarted(scenario.Id);
             foreach (var warmupQuery in scenario.WarmupQueries)
             {
                 await SubmitScenarioQueryAndWaitForRenderAsync(warmupQuery);
             }
 
+            _searchTrace.RecordScenarioStarted(scenario.Id);
             if (scenario.Queries.Count == 1)
             {
                 await SubmitScenarioQueryAndWaitForRenderAsync(scenario.Queries[0]);

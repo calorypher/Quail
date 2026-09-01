@@ -4,7 +4,7 @@
 
 This is the canonical M16 procedure for measuring Quick Search perceived result availability on the developer's physical Windows PC. It is designed for the M16-B baseline campaign and later M17/M18 regression checks. M16-A validates only the harness and its output; it does not establish a performance baseline or target.
 
-The primary Quail metric is `inputToFirstTextMilliseconds`: the monotonic interval from the final non-empty QueryBox input event to the first DWM-flushed text-result render for that input generation. The harness also writes the time from the first input of a rapid-typing burst to the final result render, plus existing trace breakdowns for queue wait, Core search, result mapping, result application, source status, and shell-icon activity. Query text, paths, names, usernames, and machine identifiers are not written to results or traces.
+The primary Quail metric is `inputToFirstTextMilliseconds`: the monotonic interval from the final non-empty measured QueryBox input event to the first DWM-flushed text-result render for that input generation. For `rapid-typing` only, the harness additionally writes `typingBurstToFirstTextMilliseconds`, from the first measured input in the burst to the final result render. It is `null` for single-query scenarios. Existing trace breakdowns cover queue wait, Core search, result mapping, result application, source status, and shell-icon activity. Query text, paths, names, usernames, and machine identifiers are not written to results or traces.
 
 ## Scenario set
 
@@ -23,7 +23,7 @@ The primary Quail metric is `inputToFirstTextMilliseconds`: the monotonic interv
 
 Before M16-B, copy this file under ignored `artifacts/m16/` and replace only its example query strings with stable, non-sensitive queries that are known to return representative local results. Keep the ids, session kinds, and scenario shapes unchanged unless an approved milestone changes the regression set. Do not commit the local copy or an absolute index path.
 
-Each harness sample starts a new Quail process to prevent a resident shell from contaminating the trace. `warm-repeated` performs its declared warmup query before its measured final query; `rapid-typing` changes QueryBox through the normal input handler without external desktop-input automation.
+Each harness sample starts a new Quail process to prevent a resident shell from contaminating the trace. Every `warm-same-session` scenario must declare at least one warmup query; those queries execute before the measured scenario begins and have no measured `scenarioId`. Thus `warm-same-session` means a measured query after a controlled in-process warmup, not merely a label on a first-process query. `fresh-process-first-search` must declare no warmup query. `warm-repeated` warms and then measures the same query; `rapid-typing` warms first and then changes QueryBox through the normal input handler without external desktop-input automation.
 
 ## Quail invocation
 

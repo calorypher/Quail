@@ -43,9 +43,20 @@ internal sealed record SearchPerformanceScenario(
             throw new ArgumentException("The search performance scenario interQueryDelayMilliseconds must be between 0 and 10000.");
         }
 
+        var sessionKind = SearchPerformanceSessionKind.Parse(document.SessionKind ?? string.Empty);
+        if (sessionKind.Value == "warm-same-session" && warmupQueries.Count == 0)
+        {
+            throw new ArgumentException("A warm-same-session search performance scenario requires at least one warmup query.");
+        }
+
+        if (sessionKind.Value == "fresh-process-first-search" && warmupQueries.Count != 0)
+        {
+            throw new ArgumentException("A fresh-process-first-search search performance scenario must not define warmup queries.");
+        }
+
         return new SearchPerformanceScenario(
             document.Id,
-            SearchPerformanceSessionKind.Parse(document.SessionKind ?? string.Empty),
+            sessionKind,
             warmupQueries,
             queries,
             document.InterQueryDelayMilliseconds ?? 0);
