@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "metric": "inputToFirstTextMilliseconds",
+  "environment": {
+    "capturedAtUtc": "2026-09-02T08:49:02.3362007Z",
+    "gitHead": "993b03b1c30cdda24e4e4057e39e2b5a3ea13552",
+    "sourceDirty": true,
+    "sourceDirtyNote": "Only the uncommitted PowerShell ScenarioId null guard differed; Quail production source was unchanged.",
+    "dotnetVersion": "10.0.400",
+    "osVersion": "Microsoft Windows NT 10.0.26200.0",
+    "repetitions": 3,
+    "indexCount": 2,
+    "recordCount": 858879,
+    "databaseBytes": 273358848
+  },
+  "scenarios": [
+    {
+      "id": "ordinary-name",
+      "sessionKind": "warm-same-session",
+      "queryLength": 20,
+      "resultCount": 2,
+      "inputToFirstTextMilliseconds": [36.730, 28.047, 24.411],
+      "breakdownMedianMilliseconds": { "queueWait": 19.946, "coreSearch": 8.7333, "mapping": 0.0025, "apply": 0.0606, "sourceStatus": 2.5615 }
+    },
+    {
+      "id": "strong-prefix",
+      "sessionKind": "warm-same-session",
+      "queryLength": 24,
+      "resultCount": 2,
+      "inputToFirstTextMilliseconds": [41.791, 25.047, 26.581],
+      "breakdownMedianMilliseconds": { "queueWait": 24.349, "coreSearch": 9.1093, "mapping": 0.0031, "apply": 0.0687, "sourceStatus": 2.3250 }
+    },
+    {
+      "id": "broad-result",
+      "sessionKind": "warm-same-session",
+      "queryLength": 4,
+      "resultCount": 50,
+      "inputToFirstTextMilliseconds": [269.769, 281.509, 283.378],
+      "breakdownMedianMilliseconds": { "queueWait": 140.506, "coreSearch": 133.0380, "mapping": 0.0213, "apply": 0.4958, "sourceStatus": 2.2197 }
+    },
+    {
+      "id": "one-character",
+      "sessionKind": "warm-same-session",
+      "queryLength": 1,
+      "resultCount": 50,
+      "inputToFirstTextMilliseconds": [4046.191, 2995.578, 3006.749],
+      "breakdownMedianMilliseconds": { "queueWait": 0.067, "coreSearch": 3033.2980, "mapping": 0.0205, "apply": 0.5214, "sourceStatus": 2.4092 }
+    },
+    {
+      "id": "two-character",
+      "sessionKind": "warm-same-session",
+      "queryLength": 2,
+      "resultCount": 50,
+      "inputToFirstTextMilliseconds": [2008.437, 2027.333, 2003.535],
+      "breakdownMedianMilliseconds": { "queueWait": 0.072, "coreSearch": 1013.6440, "mapping": 0.0193, "apply": 0.5597, "sourceStatus": 1.7806 }
+    },
+    {
+      "id": "warm-repeated",
+      "sessionKind": "warm-same-session",
+      "queryLength": 3,
+      "resultCount": 50,
+      "inputToFirstTextMilliseconds": [112.191, 109.050, 118.305],
+      "breakdownMedianMilliseconds": { "queueWait": 56.493, "coreSearch": 49.6664, "mapping": 0.0115, "apply": 0.3727, "sourceStatus": 2.4982 }
+    },
+    {
+      "id": "fresh-process-first-search",
+      "sessionKind": "fresh-process-first-search",
+      "queryLength": 8,
+      "resultCount": 48,
+      "inputToFirstTextMilliseconds": [93.692, 90.089, 89.478],
+      "breakdownMedianMilliseconds": { "queueWait": 0.980, "coreSearch": 31.6617, "mapping": 0.5135, "apply": 2.1151, "sourceStatus": 4.3613 }
+    },
+    {
+      "id": "rapid-typing",
+      "sessionKind": "warm-same-session",
+      "queryLength": 5,
+      "resultCount": 50,
+      "inputToFirstTextMilliseconds": [53.959, 58.065, 57.456],
+      "typingBurstToFirstTextMilliseconds": [522.906, 529.727, 530.566],
+      "breakdownMedianMilliseconds": { "queueWait": 0.059, "coreSearch": 43.6217, "mapping": 0.0136, "apply": 0.3628, "sourceStatus": 2.0808 }
+    }
+  ]
+}
