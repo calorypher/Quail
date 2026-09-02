@@ -144,6 +144,31 @@ public sealed class FileSearchRankingTests : IDisposable
         Assert.Equal("foo!needle.txt", results[0].Name);
     }
 
+    [Theory]
+    [InlineData("a", "ba", "ca", "da", "ea", "a")]
+    [InlineData("ks", "bks", "cks", "dks", "eks", "ks")]
+    public void Short_query_exact_match_is_not_lost_after_earlier_substring_candidates(
+        string query,
+        string first,
+        string second,
+        string third,
+        string fourth,
+        string exact)
+    {
+        var store = Build($"short-exact-{query}.db", sink =>
+        {
+            AddFile(sink, Root, 2, first);
+            AddFile(sink, Root, 3, second);
+            AddFile(sink, Root, 4, third);
+            AddFile(sink, Root, 5, fourth);
+            AddFile(sink, Root, 6, exact);
+        });
+
+        var result = Assert.Single(store.Search(new FileSearchQuery(query, Limit: 1), Context));
+
+        Assert.Equal(exact, result.Name);
+    }
+
     [Fact]
     public void Text_match_quality_is_exact_then_prefix_then_token_prefix_then_substring()
     {

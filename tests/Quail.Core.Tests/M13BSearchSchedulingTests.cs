@@ -22,9 +22,9 @@ public sealed class M13BSearchSchedulingTests
     }
 
     [Fact]
-    public void Production_short_query_policy_releases_immediately_after_the_search_path_optimization()
+    public void Production_short_query_policy_uses_the_temporary_one_second_delay()
     {
-        Assert.Equal(TimeSpan.Zero, QuickSearchInputPolicy.ShortQueryDefer);
+        Assert.Equal(TimeSpan.FromSeconds(1), QuickSearchInputPolicy.ShortQueryDefer);
     }
 
     [Fact]

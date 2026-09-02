@@ -349,10 +349,7 @@ public sealed class IndexStore
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
         var usesTrigramIndex = nameQuery.Length >= 3;
-        var usesBoundedShortQueryCandidates = !usesTrigramIndex;
-        var candidateLimit = usesBoundedShortQueryCandidates
-            ? GetShortQueryCandidateLimit(query.Limit)
-            : query.Limit;
+        var candidateLimit = query.Limit;
         var results = ReadSearchCandidates(
             connection,
             query,
@@ -364,9 +361,7 @@ public sealed class IndexStore
         var canExpandForCurrentUser = CanExpandForCurrentUser(results, context);
         var hasCurrentUserVisible = results.Any(result =>
             FileSearchRanking.Classify(result, nameQuery, context).Location == FileSearchLocation.CurrentUserVisible);
-        if (!usesBoundedShortQueryCandidates &&
-            canExpandForCurrentUser &&
-            (results.Count == candidateLimit || !hasCurrentUserVisible))
+        if (canExpandForCurrentUser && (results.Count == candidateLimit || !hasCurrentUserVisible))
         {
             var seen = results.Select(result => result.FileId).ToHashSet();
             foreach (var textClass in Enum.GetValues<SearchTextCandidateClass>())
@@ -453,9 +448,7 @@ public sealed class IndexStore
         var entry = "namespace_entries";
         var textPredicate = textClass is null ? null : GetTextCandidatePredicate(textClass.Value);
         var textClassClause = textPredicate is null ? string.Empty : $"AND {textPredicate}";
-        var ordering = usesTrigramIndex
-            ? $"{entry}.name COLLATE NOCASE ASC, {entry}.name COLLATE BINARY ASC, {entry}.file_id ASC"
-            : $"{entry}.rowid ASC";
+        var ordering = $"{entry}.name COLLATE NOCASE ASC, {entry}.name COLLATE BINARY ASC, {entry}.file_id ASC";
         command.CommandText = usesTrigramIndex
             ? $"""
                 SELECT {entry}.file_id, {entry}.parent_file_id, {entry}.name, {entry}.attributes, {entry}.logical_size, {entry}.last_write_time_utc
@@ -510,12 +503,6 @@ public sealed class IndexStore
         command.Parameters.AddWithValue("$systemAttribute", (long)FileAttributeSystem);
         command.Parameters.AddWithValue("$limit", candidateLimit);
         return command;
-    }
-
-    private static int GetShortQueryCandidateLimit(int resultLimit)
-    {
-        const int shortQueryCandidateMultiplier = 4;
-        return Math.Min(resultLimit * shortQueryCandidateMultiplier, MaximumSearchResultLimit);
     }
 
     private static string GetTextCandidatePredicate(SearchTextCandidateClass textClass)

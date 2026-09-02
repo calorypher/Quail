@@ -1,25 +1,34 @@
 # M17 Results — Search Engine Performance
 
-## Outcome
+## Status
 
-M17 removes the measured interactive-search bottlenecks without changing the
-filesystem schema, build/sync lifecycle, ranking implementation, source-neutral
-Core/FileSystem direction, installer, or maintenance behavior.
+**BLOCKED by post-candidate correctness QA.** PR #10 is not ready to merge.
+The M17 performance campaign below remains valid as a measurement of commit
+`fa66270461f8f4461fd574c490a82ad214dcad39`, but it is not acceptance evidence
+because that commit weakened short-query candidate recall.
+
+## Invalidated short-query candidate
 
 For one- and two-character literal substring queries, `IndexStore` now reads a
 bounded four-times-result-limit candidate set in stable SQLite `rowid` order and
 applies the existing final ranking and result limit. This avoids repeated full
 table scans and candidate-expansion sorts on the short-query path. The existing
 trigram path and its candidate-expansion behavior remain unchanged for queries
-of three or more characters.
+of three or more characters. This strategy is invalid: a later exact or prefix
+candidate can be excluded before the unchanged ranker sees it.
 
-The temporary one-second short-query defer is now zero. `LatestSearchCoordinator`
-also reuses an already-running identical query for the latest UI generation,
-which removes the measured duplicate synchronous Core search rather than adding
-another queue or scheduler. Different queries retain the existing latest-wins
-pending-work behavior.
+The focused regression uses `Limit=1` and inserts `ba`, `ca`, `da`, `ea`, then
+`a` (and the analogous `bks` through `eks`, then `ks`). The invalid candidate
+returns the first substring instead of the later exact match for both query
+lengths. The test failed on `a70ff8fd86694609e35e5aaa2de0495d3a31fc5c` and is
+retained as the correctness guard for a future replacement.
 
-## Final physical-host campaign
+The unsafe short-query strategy and zero defer were reverted after QA. The
+coordinator's duplicate identical-query coalescing remains, because it does not
+change candidate recall or ranking behavior and independently removed measured
+queue work.
+
+## Invalidated physical-host campaign
 
 The canonical M16 harness ran once with all eight scenarios and three
 repetitions on commit `fa66270461f8f4461fd574c490a82ad214dcad39` with a clean
@@ -45,11 +54,11 @@ The ignored raw traces remain under `artifacts/m17/final-fa66270/`.
 short-query Core medians were 33.528 ms (`one-character`) and 33.573 ms
 (`two-character`), with zero measured queue wait.
 
-## Focused verification
+## Verification before the blocker
 
 | Area | Result | Evidence |
 | --- | --- | --- |
-| Short-query correctness | PASS | Literal case-insensitive matching, filters, bounded limit, and deterministic repeated short-query output remain covered by focused `FileSearchTests`. |
+| Short-query correctness | INVALIDATED | Post-candidate QA showed the `rowid` window could omit later exact matches. The final performance candidate therefore does not satisfy M17 correctness constraints. |
 | Ranking and multi-index ordering | PASS | Existing focused ranking and multi-index tests passed; final ranking and merge comparers were not changed. |
 | Duplicate-query scheduling | PASS | The focused coordinator test proves one running identical Core search serves the latest UI generation, while the existing stale-result, invalidation, bounded-pending, lane, and disposal tests remain green. |
 | Focused automated suite | PASS | `dotnet test tests\\Quail.Core.Tests\\Quail.Core.Tests.csproj --configuration Release --filter "FullyQualifiedName~FileSearchTests|FullyQualifiedName~FileSearchRankingTests|FullyQualifiedName~MultiIndexSearchTests|FullyQualifiedName~M13BSearchSchedulingTests|FullyQualifiedName~M11SearchCoordinatorTests|FullyQualifiedName~M12IndexCatalogTests|FullyQualifiedName~SearchPerformanceTraceTests|FullyQualifiedName~M11ShortQueryDeferrerTests"` — 57 passed. |
@@ -59,11 +68,16 @@ No bounded multi-index concurrency was added: the local candidate and duplicate
 query changes met every target, so the measured evidence did not justify extra
 parallelism or a scheduler framework.
 
-## Scope and remaining handoff
+## Blocker and remaining handoff
 
 No schema/index redesign, rebuild work, ranking v2, maintenance work, package
-work, or generic scheduler was introduced. Search actions and path resolution
-are unchanged; existing action/open coverage remains applicable. A short
-user-owned Quick Search smoke for result opening remains useful before merge,
-but installer, Quail-Lab, and historical architecture campaigns were correctly
-not repeated.
+work, or generic scheduler was introduced. The required small, correct short
+candidate strategy remains unresolved. Existing trigram FTS has no 1–2-character
+terms. On the physical C: index, a full exact-candidate scan with no exact match
+measured approximately 1.46 seconds for a one-character query, far beyond the
+150 ms M17 target; a correct per-class fallback therefore cannot preserve the
+target on the existing read path. A durable short-query index or another material
+search/storage design would need roadmap approval before resuming this part of
+M17. Search actions and path resolution are unchanged. Do not merge PR #10;
+installer, Quail-Lab, and historical architecture campaigns were correctly not
+repeated.
