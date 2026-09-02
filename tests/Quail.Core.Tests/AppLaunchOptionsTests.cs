@@ -15,6 +15,7 @@ public sealed class AppLaunchOptionsTests
         Assert.Equal("diagnostics.log", options.DiagnosticsPath);
         Assert.Null(options.SearchPerformanceTracePath);
         Assert.Null(options.SearchPerformanceSessionKind);
+        Assert.Null(options.SearchPerformanceScenarioPath);
         Assert.Equal(2, options.ExitAfterVisibleReadyCount);
     }
 
@@ -27,6 +28,7 @@ public sealed class AppLaunchOptionsTests
         Assert.Throws<ArgumentException>(() => AppLaunchOptions.Parse(["--test-exit-after-visible-ready-count", "0"]));
         Assert.Throws<ArgumentException>(() => AppLaunchOptions.Parse(["--search-performance-session-kind", "warm-same-session"]));
         Assert.Throws<ArgumentException>(() => AppLaunchOptions.Parse(["--search-performance-trace", "trace.jsonl", "--search-performance-session-kind", "not-a-session-kind"]));
+        Assert.Throws<ArgumentException>(() => AppLaunchOptions.Parse(["--search-performance-scenario", "scenario.json"]));
     }
 
     [Fact]
@@ -36,6 +38,18 @@ public sealed class AppLaunchOptionsTests
 
         Assert.Equal(Path.GetFullPath("trace.jsonl"), options.SearchPerformanceTracePath);
         Assert.Equal("fresh-process-first-search", options.SearchPerformanceSessionKind!.Value);
+        Assert.Null(options.SearchPerformanceScenarioPath);
+    }
+
+    [Fact]
+    public void Parse_accepts_a_search_performance_scenario_only_with_trace_context()
+    {
+        var options = AppLaunchOptions.Parse([
+            "--search-performance-trace", "trace.jsonl",
+            "--search-performance-session-kind", "warm-same-session",
+            "--search-performance-scenario", "scenario.json"]);
+
+        Assert.Equal(Path.GetFullPath("scenario.json"), options.SearchPerformanceScenarioPath);
     }
 
     [Fact]

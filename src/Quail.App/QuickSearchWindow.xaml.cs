@@ -28,6 +28,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private readonly Action _showIndexManager;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
+    private readonly SearchPerformanceScenario? _searchPerformanceScenario;
     private readonly ObservableCollection<ResultItem> _visibleResults = [];
     private readonly SearchApplicationService _searchService;
     private readonly LatestSearchCoordinator _interactiveSearchCoordinator;
@@ -52,6 +53,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private QuickSearchOverlayMode _overlayMode = QuickSearchOverlayMode.Expanded;
     private bool _shellIconFailureLogged;
     private bool _settingsDialogActive;
+    private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
 
     internal string CurrentTheme => _settings.Theme;
 
@@ -65,6 +67,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _showIndexManager = showIndexManager;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
+        _searchPerformanceScenario = options.SearchPerformanceScenarioPath is null
+            ? null
+            : SearchPerformanceScenario.Load(options.SearchPerformanceScenarioPath);
         _searchService = searchRuntime.Search;
         _interactiveSearchCoordinator = new LatestSearchCoordinator(
             query => _searchService.Search(new SearchRequest(query)),
@@ -484,9 +489,74 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _pipe.Emit(new { @event = "shell-icons-ready" });
             AppLog.Write("Visible-ready.");
             _visibleReadyCount++;
+            if (_searchPerformanceScenario is not null && _visibleReadyCount == 1)
+            {
+                _ = RunSearchPerformanceScenarioAsync(_searchPerformanceScenario);
+            }
             if (_options.ExitAfterVisibleReadyCount == _visibleReadyCount) Dispose();
         }
         CompositionTarget.Rendering += OnRendering;
+    }
+
+    private async Task RunSearchPerformanceScenarioAsync(SearchPerformanceScenario scenario)
+    {
+        try
+        {
+            foreach (var warmupQuery in scenario.WarmupQueries)
+            {
+                await SubmitScenarioQueryAndWaitForRenderAsync(warmupQuery);
+            }
+
+            _searchTrace.RecordScenarioStarted(scenario.Id);
+            if (scenario.Queries.Count == 1)
+            {
+                await SubmitScenarioQueryAndWaitForRenderAsync(scenario.Queries[0]);
+            }
+            else
+            {
+                Task? finalRenderCompletion = null;
+                for (var index = 0; index < scenario.Queries.Count; index++)
+                {
+                    var query = scenario.Queries[index];
+                    if (index == scenario.Queries.Count - 1)
+                    {
+                        finalRenderCompletion = WaitForScenarioRenderAsync(query);
+                    }
+
+                    QueryBox.Text = query;
+                    if (index < scenario.Queries.Count - 1)
+                    {
+                        await Task.Delay(scenario.InterQueryDelayMilliseconds);
+                    }
+                }
+
+                await finalRenderCompletion!;
+            }
+
+            _searchTrace.RecordScenarioCompleted();
+        }
+        catch (Exception exception)
+        {
+            _searchTrace.RecordScenarioFailed();
+            AppLog.Write("Search performance scenario failed.", exception);
+        }
+        finally
+        {
+            _exitApplication();
+        }
+    }
+
+    private async Task SubmitScenarioQueryAndWaitForRenderAsync(string query)
+    {
+        var renderCompletion = WaitForScenarioRenderAsync(query);
+        QueryBox.Text = string.Empty;
+        QueryBox.Text = query;
+        await renderCompletion;
+    }
+
+    private Task WaitForScenarioRenderAsync(string query)
+    {
+        return _searchPerformanceRenderWaiter.PrepareForQuery(query).WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     private void CenterActualWindowOnMonitor(nint monitor, NativeMethods.Rect windowRect)
@@ -509,6 +579,10 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _shortQueryDeferrer.Cancel();
         var query = QueryBox?.Text?.Trim() ?? string.Empty;
         _searchTrace.RecordInput(_queryGeneration, query.Length);
+        if (_searchPerformanceScenario is not null)
+        {
+            _searchPerformanceRenderWaiter.ObserveProcessedInput(query, _queryGeneration);
+        }
         if (!_settingsDialogActive)
         {
             ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
@@ -648,6 +722,10 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             CompositionTarget.Rendering -= OnRendering;
             NativeMethods.DwmFlush();
             _searchTrace.RecordFirstTextRender(completion.UiGeneration, completion.Generation, resultCount);
+            if (_searchPerformanceScenario is not null)
+            {
+                _searchPerformanceRenderWaiter.ObserveFirstTextRender(completion.UiGeneration);
+            }
         }
 
         CompositionTarget.Rendering += OnRendering;
