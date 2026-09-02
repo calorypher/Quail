@@ -16,6 +16,8 @@ Before starting a milestone, read at least:
 
 Before planning or running Windows/runtime/package verification, also read `docs/verification-playbook.md`. Its settled findings and change-impact verification rules are canonical unless the active milestone explicitly requires stricter verification.
 
+Before changing concurrency, scheduling, worker-pool, asynchronous source fan-out, or parallel indexing behavior, also read `docs/concurrency-direction.md`. Its approved principles apply unless the active milestone deliberately narrows them for a measured workload.
+
 Chat history and Google Drive are not substitutes for repository state. The private historical archive is reference-only; do not use it as an active development repository unless a task explicitly requires historical investigation.
 
 ## Project intent
@@ -73,6 +75,18 @@ Normal App/Core search-flow types and names should be source-neutral unless a co
 Preserve source-native identity where available. Do not reduce filesystem identity to the current path merely to fit a generic model. Provider/source identity, content identity, and future cross-source relationships are separate concepts.
 
 First-party source modules are intended to become physically optional over time. Omitting a source assembly should eventually remove that source's results, actions, indexing/synchronization behavior, and source-specific settings without breaking source-neutral search surfaces or Core. Do not implement runtime module loading before a concrete milestone requires it, but do not introduce dependencies that would make future physical optionality require another broad search-stack refactor.
+
+## Concurrency and scalability
+
+Quail should expose independent work so it can execute concurrently where measurements show a latency or throughput benefit. Do not serialize independent search sources by architectural default.
+
+Use asynchronous tasks/I/O for waiting workloads and bounded CPU parallelism for CPU-heavy work. Do not adopt a permanent OS-thread-per-provider model or let every source independently consume all logical processors. Providers may choose different internal execution models behind the source-neutral Core contract.
+
+Interactive search has priority over background throughput work. As multiple sources and workers appear, prevent oversubscription, bound queues/worker counts, and propagate cancellation or supersession far enough to avoid expensive obsolete work where practical. Introduce shared scheduling/resource-governance machinery only when multiple real workloads demonstrate the need; do not create a speculative scheduler framework.
+
+Maximum CPU utilization is not a goal by itself. A short high-utilization burst may be preferable to prolonged serial work, but the useful degree of parallelism must be measured because CPU power, thermal limits, storage bottlenecks, and battery state can change the optimum.
+
+The detailed approved direction, including cross-source fan-out, intra-source concurrency, cancellation, priority classes, energy considerations, and the relationship to M17/M17.5/M19/M20, is canonical in `docs/concurrency-direction.md`.
 
 ## Resource and quality constraints
 
