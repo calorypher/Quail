@@ -19,65 +19,65 @@
       "sessionKind": "warm-same-session",
       "queryLength": 20,
       "resultCount": 2,
-      "inputToFirstTextMilliseconds": [36.730, 28.047, 24.411],
-      "breakdownMedianMilliseconds": { "queueWait": 19.946, "coreSearch": 8.7333, "mapping": 0.0025, "apply": 0.0606, "sourceStatus": 2.5615 }
+      "inputToFirstTextMilliseconds": { "samples": [36.730, 28.047, 24.411], "median": 28.047 },
+      "breakdownMedianMilliseconds": { "queueWait": 10.938, "coreSearch": 8.5911, "mapping": 0.0022, "apply": 0.0516, "sourceStatus": 2.0836 }
     },
     {
       "id": "strong-prefix",
       "sessionKind": "warm-same-session",
       "queryLength": 24,
       "resultCount": 2,
-      "inputToFirstTextMilliseconds": [41.791, 25.047, 26.581],
-      "breakdownMedianMilliseconds": { "queueWait": 24.349, "coreSearch": 9.1093, "mapping": 0.0031, "apply": 0.0687, "sourceStatus": 2.3250 }
+      "inputToFirstTextMilliseconds": { "samples": [41.791, 25.047, 26.581], "median": 26.581 },
+      "breakdownMedianMilliseconds": { "queueWait": 9.302, "coreSearch": 8.8155, "mapping": 0.0029, "apply": 0.0630, "sourceStatus": 2.0742 }
     },
     {
       "id": "broad-result",
       "sessionKind": "warm-same-session",
       "queryLength": 4,
       "resultCount": 50,
-      "inputToFirstTextMilliseconds": [269.769, 281.509, 283.378],
-      "breakdownMedianMilliseconds": { "queueWait": 140.506, "coreSearch": 133.0380, "mapping": 0.0213, "apply": 0.4958, "sourceStatus": 2.2197 }
+      "inputToFirstTextMilliseconds": { "samples": [269.769, 281.509, 283.378], "median": 281.509 },
+      "breakdownMedianMilliseconds": { "queueWait": 138.193, "coreSearch": 129.7286, "mapping": 0.0176, "apply": 0.4474, "sourceStatus": 2.1389 }
     },
     {
       "id": "one-character",
       "sessionKind": "warm-same-session",
       "queryLength": 1,
       "resultCount": 50,
-      "inputToFirstTextMilliseconds": [4046.191, 2995.578, 3006.749],
-      "breakdownMedianMilliseconds": { "queueWait": 0.067, "coreSearch": 3033.2980, "mapping": 0.0205, "apply": 0.5214, "sourceStatus": 2.4092 }
+      "inputToFirstTextMilliseconds": { "samples": [4046.191, 2995.578, 3006.749], "median": 3006.749 },
+      "breakdownMedianMilliseconds": { "queueWait": 0.067, "coreSearch": 1992.2205, "mapping": 0.0190, "apply": 0.4662, "sourceStatus": 1.8607 }
     },
     {
       "id": "two-character",
       "sessionKind": "warm-same-session",
       "queryLength": 2,
       "resultCount": 50,
-      "inputToFirstTextMilliseconds": [2008.437, 2027.333, 2003.535],
-      "breakdownMedianMilliseconds": { "queueWait": 0.072, "coreSearch": 1013.6440, "mapping": 0.0193, "apply": 0.5597, "sourceStatus": 1.7806 }
+      "inputToFirstTextMilliseconds": { "samples": [2008.437, 2027.333, 2003.535], "median": 2008.437 },
+      "breakdownMedianMilliseconds": { "queueWait": 0.070, "coreSearch": 1001.2410, "mapping": 0.0183, "apply": 0.4377, "sourceStatus": 1.7581 }
     },
     {
       "id": "warm-repeated",
       "sessionKind": "warm-same-session",
       "queryLength": 3,
       "resultCount": 50,
-      "inputToFirstTextMilliseconds": [112.191, 109.050, 118.305],
-      "breakdownMedianMilliseconds": { "queueWait": 56.493, "coreSearch": 49.6664, "mapping": 0.0115, "apply": 0.3727, "sourceStatus": 2.4982 }
+      "inputToFirstTextMilliseconds": { "samples": [112.191, 109.050, 118.305], "median": 112.191 },
+      "breakdownMedianMilliseconds": { "queueWait": 51.603, "coreSearch": 48.4157, "mapping": 0.0085, "apply": 0.3372, "sourceStatus": 2.0697 }
     },
     {
       "id": "fresh-process-first-search",
       "sessionKind": "fresh-process-first-search",
       "queryLength": 8,
       "resultCount": 48,
-      "inputToFirstTextMilliseconds": [93.692, 90.089, 89.478],
-      "breakdownMedianMilliseconds": { "queueWait": 0.980, "coreSearch": 31.6617, "mapping": 0.5135, "apply": 2.1151, "sourceStatus": 4.3613 }
+      "inputToFirstTextMilliseconds": { "samples": [93.692, 90.089, 89.478], "median": 90.089 },
+      "breakdownMedianMilliseconds": { "queueWait": 0.946, "coreSearch": 27.0138, "mapping": 0.3449, "apply": 2.0763, "sourceStatus": 4.3449 }
     },
     {
       "id": "rapid-typing",
       "sessionKind": "warm-same-session",
       "queryLength": 5,
       "resultCount": 50,
-      "inputToFirstTextMilliseconds": [53.959, 58.065, 57.456],
-      "typingBurstToFirstTextMilliseconds": [522.906, 529.727, 530.566],
-      "breakdownMedianMilliseconds": { "queueWait": 0.059, "coreSearch": 43.6217, "mapping": 0.0136, "apply": 0.3628, "sourceStatus": 2.0808 }
+      "inputToFirstTextMilliseconds": { "samples": [53.959, 58.065, 57.456], "median": 57.456 },
+      "typingBurstToFirstTextMilliseconds": { "samples": [522.906, 529.727, 530.566], "median": 529.727 },
+      "breakdownMedianMilliseconds": { "queueWait": 0.054, "coreSearch": 43.1658, "mapping": 0.0107, "apply": 0.3350, "sourceStatus": 2.0190 }
     }
   ]
 }

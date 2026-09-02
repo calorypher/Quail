@@ -20,25 +20,25 @@ The measured application commit was `993b03b1c30cdda24e4e4057e39e2b5a3ea13552`. 
 
 | Scenario | Median input-to-first-text (ms) | Three-sample range (ms) | Median typing burst (ms) | Result count |
 | --- | ---: | ---: | ---: | ---: |
-| `ordinary-name` | 36.730 | 24.411-36.730 | n/a | 2 |
-| `strong-prefix` | 41.791 | 25.047-41.791 | n/a | 2 |
-| `broad-result` | 283.378 | 269.769-283.378 | n/a | 50 |
-| `one-character` | 4,046.191 | 2,995.578-4,046.191 | n/a | 50 |
-| `two-character` | 2,027.333 | 2,003.535-2,027.333 | n/a | 50 |
-| `warm-repeated` | 118.305 | 109.050-118.305 | n/a | 50 |
-| `fresh-process-first-search` | 93.692 | 89.478-93.692 | n/a | 48 |
-| `rapid-typing` | 58.065 | 53.959-58.065 | 530.566 (522.906-530.566) | 50 |
+| `ordinary-name` | 28.047 | 24.411-36.730 | n/a | 2 |
+| `strong-prefix` | 26.581 | 25.047-41.791 | n/a | 2 |
+| `broad-result` | 281.509 | 269.769-283.378 | n/a | 50 |
+| `one-character` | 3,006.749 | 2,995.578-4,046.191 | n/a | 50 |
+| `two-character` | 2,008.437 | 2,003.535-2,027.333 | n/a | 50 |
+| `warm-repeated` | 112.191 | 109.050-118.305 | n/a | 50 |
+| `fresh-process-first-search` | 90.089 | 89.478-93.692 | n/a | 48 |
+| `rapid-typing` | 57.456 | 53.959-58.065 | 529.727 (522.906-530.566) | 50 |
 
 The `rapid-typing` burst includes the prescribed five inputs at 120 ms cadence. Its roughly 530 ms burst figure is therefore not comparable to the final-input latency alone.
 
 ## Initial measured conclusions
 
-- The one- and two-character paths are the dominant latency problem. Their medians are approximately 4.0 s and 2.0 s respectively. Core search accounts for about 3,033 ms and 1,014 ms; queue, mapping, apply, and source-status costs are not material there. The one-character samples also show meaningful spread (about 3.0-4.0 s), so three samples establish the scale and bottleneck class, not a finer-grained cause.
-- `broad-result` is the next clear bottleneck: median queue wait is 140.506 ms and Core search 133.038 ms, together explaining most of the 283.378 ms end-to-end value. Mapping (0.021 ms), apply (0.496 ms), and source status (2.220 ms) are not material.
-- Ordinary and strong-prefix searches reach first text in 36.730 ms and 41.791 ms medians. Their Core searches are about 9 ms; the visible spread is principally in queue wait (about 8-24 ms), not mapping or apply.
-- `warm-repeated` remains materially slower than the two narrow-name cases (118.305 ms median), split roughly between queue wait (56.493 ms) and Core search (49.666 ms).
-- The fresh-process first search is 93.692 ms median after the process is visible. It is not an application-start measurement. Its Core median is 31.662 ms; the remaining interval is outside the individually timed mapping/apply/source-status stages and should not be over-interpreted from three samples.
-- The final `rapid-typing` input is 58.065 ms median, with 0.059 ms queue wait and 43.622 ms Core search. Mapping, apply, and source status are again small.
+- The one- and two-character paths are the dominant latency problem. Their medians are approximately 3.0 s and 2.0 s respectively. Core search accounts for about 1,992 ms and 1,001 ms; queue, mapping, apply, and source-status costs are not material there. The one-character samples range from about 3.0-4.0 s, so three samples establish the scale and bottleneck class, not a finer-grained cause.
+- `broad-result` is the next clear bottleneck: median queue wait is 138.193 ms and Core search 129.729 ms, together explaining most of the 281.509 ms end-to-end value. Mapping (0.018 ms), apply (0.447 ms), and source status (2.139 ms) are not material.
+- Ordinary and strong-prefix searches reach first text in 28.047 ms and 26.581 ms medians. Their Core searches are about 9 ms; the visible spread is principally in queue wait (about 9-20 ms), not mapping or apply.
+- `warm-repeated` remains slower than the two narrow-name cases (112.191 ms median), split roughly between queue wait (51.603 ms) and Core search (48.416 ms).
+- The fresh-process first search is 90.089 ms median after the process is visible. It is not an application-start measurement. Its Core median is 27.014 ms; the remaining interval is outside the individually timed mapping/apply/source-status stages and should not be over-interpreted from three samples.
+- The final `rapid-typing` input is 57.456 ms median, with 0.054 ms queue wait and 43.166 ms Core search. Mapping, apply, and source status are again small.
 
 These are observations, not M17 targets or an optimization decision. No search, ranking, timing, or production-code behavior changed in M16-B.
 

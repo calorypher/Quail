@@ -41,7 +41,7 @@ function Get-Median([double[]] $Values) {
         return $null
     }
 
-    $middle = [int]($ordered.Count / 2)
+    $middle = [int][Math]::Floor($ordered.Count / 2)
     if ($ordered.Count % 2 -eq 1) {
         return $ordered[$middle]
     }
