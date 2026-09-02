@@ -58,7 +58,7 @@ try {
     }
 
     $scenarios = @($scenarioDocument.scenarios)
-    if ($ScenarioId.Count -gt 0) {
+    if ($null -ne $ScenarioId -and $ScenarioId.Count -gt 0) {
         $requested = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         $ScenarioId | ForEach-Object { [void]$requested.Add($_) }
         $scenarios = @($scenarios | Where-Object { $requested.Contains([string]$_.id) })
