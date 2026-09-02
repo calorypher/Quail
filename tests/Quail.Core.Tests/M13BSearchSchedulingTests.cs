@@ -22,9 +22,9 @@ public sealed class M13BSearchSchedulingTests
     }
 
     [Fact]
-    public void Production_short_query_policy_uses_the_approved_one_second_delay()
+    public void Production_short_query_policy_releases_immediately_after_the_search_path_optimization()
     {
-        Assert.Equal(TimeSpan.FromMilliseconds(1000), QuickSearchInputPolicy.ShortQueryDefer);
+        Assert.Equal(TimeSpan.Zero, QuickSearchInputPolicy.ShortQueryDefer);
     }
 
     [Fact]
@@ -170,6 +170,35 @@ public sealed class M13BSearchSchedulingTests
         await completions.WaitAsync(TimeSpan.FromSeconds(2));
         await completions.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(["one", "request-200"], calls);
+    }
+
+    [Fact]
+    public async Task Duplicate_running_query_reuses_the_active_core_search_for_the_latest_ui_generation()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        var completion = new TaskCompletionSource<SearchCompletion>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new LatestSearchCoordinator(query =>
+        {
+            Interlocked.Increment(ref calls);
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(5));
+            return [Result(query)];
+        });
+        coordinator.Completed += completed => completion.TrySetResult(completed);
+
+        coordinator.Request("same", uiGeneration: 1);
+        Assert.True(started.Wait(TimeSpan.FromSeconds(2)));
+        coordinator.Request("same", uiGeneration: 2);
+        release.Set();
+
+        var actual = await completion.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(1, Volatile.Read(ref calls));
+        Assert.True(actual.IsCurrent);
+        Assert.Equal(2, actual.UiGeneration);
+        Assert.Equal("same", Assert.Single(actual.Results!).Title);
     }
 
     [Fact]

@@ -47,7 +47,8 @@ internal sealed class LatestSearchCoordinator : IDisposable
     private readonly Task _worker;
     private readonly Action<SearchCoordinatorTraceEvent>? _trace;
     private readonly SearchExecutionLane _lane;
-    private (long Generation, long UiGeneration, string Query, int QueryLength, long EnqueuedTimestamp)? _pendingRequest;
+    private SearchRequestState? _pendingRequest;
+    private SearchRequestState? _runningRequest;
     private bool _signalPending;
     private long _latestGeneration;
     private bool _disposed;
@@ -74,13 +75,45 @@ internal sealed class LatestSearchCoordinator : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         var enqueuedTimestamp = Stopwatch.GetTimestamp();
         long generation;
+        SearchCoordinatorTraceEvent? activeSearchTrace = null;
         lock (_gate)
         {
             ThrowIfDisposed();
             generation = ++_latestGeneration;
-            _pendingRequest = (generation, uiGeneration, query, query.Length, enqueuedTimestamp);
+            if (_runningRequest is not null && string.Equals(_runningRequest.Query, query, StringComparison.Ordinal))
+            {
+                _runningRequest.Update(generation, uiGeneration, enqueuedTimestamp);
+                if (_runningRequest.SearchStartedTimestamp is long searchStartedTimestamp)
+                {
+                    activeSearchTrace = new SearchCoordinatorTraceEvent(
+                        SearchCoordinatorStage.CoreSearchStarted,
+                        generation,
+                        uiGeneration,
+                        query.Length,
+                        enqueuedTimestamp,
+                        QueueWait: TimeSpan.Zero,
+                        Lane: _lane);
+                }
+            }
+            else if (_pendingRequest is not null && string.Equals(_pendingRequest.Query, query, StringComparison.Ordinal))
+            {
+                _pendingRequest.Update(generation, uiGeneration, enqueuedTimestamp);
+            }
+            else
+            {
+                _pendingRequest = new SearchRequestState(generation, uiGeneration, query, enqueuedTimestamp);
+            }
+
             _trace?.Invoke(new SearchCoordinatorTraceEvent(SearchCoordinatorStage.RequestEnqueued, generation, uiGeneration, query.Length, enqueuedTimestamp, Lane: _lane));
-            SignalWorkerIfNeeded();
+            if (_runningRequest is null || !string.Equals(_runningRequest.Query, query, StringComparison.Ordinal))
+            {
+                SignalWorkerIfNeeded();
+            }
+        }
+
+        if (activeSearchTrace is SearchCoordinatorTraceEvent traceEvent)
+        {
+            _trace?.Invoke(traceEvent);
         }
 
         return generation;
@@ -119,7 +152,7 @@ internal sealed class LatestSearchCoordinator : IDisposable
         while (true)
         {
             await _requestSignal.WaitAsync();
-            (long Generation, long UiGeneration, string Query, int QueryLength, long EnqueuedTimestamp) request;
+            SearchRequestState request;
             lock (_gate)
             {
                 _signalPending = false;
@@ -133,13 +166,15 @@ internal sealed class LatestSearchCoordinator : IDisposable
                     continue;
                 }
 
-                request = _pendingRequest.Value;
+                request = _pendingRequest;
                 _pendingRequest = null;
+                _runningRequest = request;
             }
 
             var dequeuedTimestamp = Stopwatch.GetTimestamp();
             _trace?.Invoke(new SearchCoordinatorTraceEvent(SearchCoordinatorStage.WorkerDequeued, request.Generation, request.UiGeneration, request.QueryLength, dequeuedTimestamp, Lane: _lane));
             var searchStartedTimestamp = Stopwatch.GetTimestamp();
+            request.SearchStartedTimestamp = searchStartedTimestamp;
             _trace?.Invoke(new SearchCoordinatorTraceEvent(
                 SearchCoordinatorStage.CoreSearchStarted,
                 request.Generation,
@@ -175,6 +210,10 @@ internal sealed class LatestSearchCoordinator : IDisposable
             {
                 current = !_disposed && request.Generation == _latestGeneration;
                 deliverCompletion = !_disposed;
+                if (ReferenceEquals(_runningRequest, request))
+                {
+                    _runningRequest = null;
+                }
             }
 
             if (deliverCompletion)
@@ -210,6 +249,23 @@ internal sealed class LatestSearchCoordinator : IDisposable
         if (_disposed)
         {
             throw new ObjectDisposedException(nameof(LatestSearchCoordinator));
+        }
+    }
+
+    private sealed class SearchRequestState(long generation, long uiGeneration, string query, long enqueuedTimestamp)
+    {
+        public long Generation { get; private set; } = generation;
+        public long UiGeneration { get; private set; } = uiGeneration;
+        public string Query { get; } = query;
+        public int QueryLength => Query.Length;
+        public long EnqueuedTimestamp { get; private set; } = enqueuedTimestamp;
+        public long? SearchStartedTimestamp { get; set; }
+
+        public void Update(long generation, long uiGeneration, long enqueuedTimestamp)
+        {
+            Generation = generation;
+            UiGeneration = uiGeneration;
+            EnqueuedTimestamp = enqueuedTimestamp;
         }
     }
 }
