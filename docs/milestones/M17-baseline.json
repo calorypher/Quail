@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "metric": "inputToFirstTextMilliseconds",
+  "environment": {
+    "capturedAtUtc": "2026-09-02T14:05:59.5831684Z",
+    "gitHead": "fa66270461f8f4461fd574c490a82ad214dcad39",
+    "sourceDirty": false,
+    "dotnetVersion": "10.0.400",
+    "osVersion": "Microsoft Windows NT 10.0.26200.0",
+    "repetitions": 3,
+    "indexCount": 2,
+    "recordCount": 858879,
+    "databaseBytes": 273358848
+  },
+  "scenarios": [
+    {
+      "id": "ordinary-name",
+      "queryLength": 20,
+      "resultCount": 2,
+      "samples": [21.865, 16.439, 21.628],
+      "median": 21.628
+    },
+    {
+      "id": "strong-prefix",
+      "queryLength": 24,
+      "resultCount": 2,
+      "samples": [18.427, 17.149, 15.426],
+      "median": 17.149
+    },
+    {
+      "id": "broad-result",
+      "queryLength": 4,
+      "resultCount": 50,
+      "samples": [135.741, 136.219, 139.119],
+      "median": 136.219
+    },
+    {
+      "id": "one-character",
+      "queryLength": 1,
+      "resultCount": 50,
+      "samples": [39.891, 41.092, 40.867],
+      "median": 40.867
+    },
+    {
+      "id": "two-character",
+      "queryLength": 2,
+      "resultCount": 50,
+      "samples": [43.410, 41.082, 47.259],
+      "median": 43.410
+    },
+    {
+      "id": "warm-repeated",
+      "queryLength": 3,
+      "resultCount": 50,
+      "samples": [60.807, 60.667, 60.177],
+      "median": 60.667
+    },
+    {
+      "id": "fresh-process-first-search",
+      "queryLength": 8,
+      "resultCount": 48,
+      "samples": [89.961, 88.056, 87.328],
+      "median": 88.056
+    },
+    {
+      "id": "rapid-typing",
+      "queryLength": 5,
+      "resultCount": 50,
+      "samples": [56.422, 58.381, 55.676],
+      "median": 56.422,
+      "typingBurstSamples": [538.225, 538.309, 525.437],
+      "typingBurstMedian": 538.225
+    }
+  ]
+}
