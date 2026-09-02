@@ -24,21 +24,30 @@ The committed file contains only replaceable example query strings. M16-B must u
 | Focused scenario, trace, and render-waiter tests | PASS — 13 tests, Release configuration |
 | Release `Quail.App` build | PASS — 0 warnings, 0 errors |
 | PowerShell harness parameter parsing | PASS — `scripts/run-m16-benchmark.ps1 -?` |
-| Live host harness sample (`broad-result`, then `broad-result` + `rapid-typing`, one repetition) | BLOCKED by execution environment before managed App startup |
+| Physical-host local-interactive harness validation (`broad-result`, `rapid-typing`, one repetition) | PASS — both scenarios completed and produced expected artifacts |
 
-The live sample used only the small validation subset and did not produce a measurement result. In this Codex desktop execution environment, the newly launched `Quail.exe` remained alive for the 45-second scenario timeout but did not create its requested diagnostics log or trace; therefore it did not reach `Program startup` and this is not evidence about Quail search latency or ranking. The harness left the child process for inspection as designed; the implementation session then stopped only that exact child process. A second attempt with the harness's per-run diagnostics path had the same infrastructure-only outcome. No alternative desktop automation path was added.
+The earlier Codex desktop sample used only the small validation subset but was blocked before managed App startup: the newly launched `Quail.exe` remained alive for the 45-second scenario timeout without creating its diagnostics log or trace. That remains useful environment context, but is no longer a blocker because the physical-host local-interactive validation passed. No alternative desktop automation path was added.
 
 The Windows PowerShell `PropertyNotFoundStrict` compatibility blocker reported by independent QA was fixed in `scripts/run-m16-benchmark.ps1`: `Get-TraceStage` is now explicitly single-or-null, and its consumers use null checks and scalar properties. A second StrictMode failure was found during user-owned validation: conditional warmup assignments could unwrap a one-item array into a scalar. Both validation and driver-preparation paths now initialize `$warmupQueries` as an array before assigning `@(...)`. The narrow audit found no additional unwrapped scalar collection checks in the affected path; explicitly array-wrapped collections remain unchanged.
 
-User-owned local validation then exposed a scenario-driver synchronization failure. The warmup search completed and emitted `first-text-results-rendered` for its actual UI generation, but the scenario timed out before `scenario-start`. The driver had captured `_queryGeneration` immediately after assigning `QueryBox.Text`, before the ordinary `TextChanged`/`ApplySearch` flow had necessarily assigned the generation for that input. `SearchPerformanceRenderWaiter` now prepares a completion task for the expected non-empty query before submission, binds it only when `ApplySearch` processes that query and assigns the actual UI generation, and completes only when the corresponding first-text render is recorded. Empty clearing input cannot bind the waiter. Rapid typing prepares the waiter immediately before the final query setter, so it binds only to the final processed query generation. The user-owned local-interactive validation rerun remains pending.
+User-owned local validation then exposed a scenario-driver synchronization failure. The warmup search completed and emitted `first-text-results-rendered` for its actual UI generation, but the scenario timed out before `scenario-start`. The driver had captured `_queryGeneration` immediately after assigning `QueryBox.Text`, before the ordinary `TextChanged`/`ApplySearch` flow had necessarily assigned the generation for that input. `SearchPerformanceRenderWaiter` now prepares a completion task for the expected non-empty query before submission, binds it only when `ApplySearch` processes that query and assigns the actual UI generation, and completes only when the corresponding first-text render is recorded. Empty clearing input cannot bind the waiter. Rapid typing prepares the waiter immediately before the final query setter, so it binds only to the final processed query generation.
 
-Independent M16-A QA must perform one small local-interactive validation run from the physical desktop session, for example:
+The physical-host validation was run from a local Windows session with the committed example scenario and one repetition. The harness performed its Release build and exited with `PASS`. `results.json` reported `sourceDirty=false`, HEAD `cdf4fb3bc8c10b7ab252b261a0f63173176be9d0`, .NET SDK `10.0.400`, Windows `Microsoft Windows NT 10.0.26200.0`, and exactly two samples. Both `broad-result` and `rapid-typing` completed with `resultCount=50`; both had `inputToFirstTextMilliseconds`, while only `rapid-typing` had `typingBurstToFirstTextMilliseconds` (`broad-result` was `null`). The corresponding `summary.txt` and JSONL trace artifacts were produced. These are harness/runtime validation samples only, not an M16 performance baseline or M17 target; M16-B remains responsible for the controlled three-repetition baseline and Everything comparison. No further M16-A runtime validation is required.
+
+| Scenario | Input-to-first-text (ms) | Typing-burst-to-first-text (ms) | Queue wait (ms) | Core search (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| `broad-result` | 549.702 | `null` | 427.337 | 115.4165 |
+| `rapid-typing` | 42.309 | 522.057 | 0.053 | 32.7364 |
+
+Both samples used index scale `indexCount=1`, `recordCount=911883`, and `databaseBytes=269438976`.
+
+The completed physical-host validation used:
 
 ```powershell
-.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\benchmarks\m16\scenarios.example.json -ScenarioId broad-result,rapid-typing -NoBuild
+.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\benchmarks\m16\scenarios.example.json -ScenarioId broad-result,rapid-typing -Repetitions 1
 ```
 
-It should confirm that `results.json` contains one sample for each requested id and a corresponding JSONL trace; every sample must have `inputToFirstTextMilliseconds`, while `typingBurstToFirstTextMilliseconds` is populated only for `rapid-typing`. This is a harness validation only, not M16-B.
+It confirmed that `results.json` contains one sample for each requested id and corresponding JSONL traces; every sample has `inputToFirstTextMilliseconds`, while `typingBurstToFirstTextMilliseconds` is populated only for `rapid-typing`. This is harness validation only, not M16-B.
 
 ## Everything comparison ownership
 
@@ -55,4 +64,4 @@ After QA approval, M16-B should use the local scenario copy, run the eight scena
 - First text-result availability is primary; shell-icon completion is supporting trace data rather than the completion condition.
 - The scenario-driver synchronization remediation passed focused automated verification and a Release `Quail.App` build; it does not authorize another Codex desktop validation attempt.
 - Focused helper check: PASS under `Set-StrictMode -Version Latest`; parser/parameter check: PASS via `scripts/run-m16-benchmark.ps1 -?`. No Release build was required for those PowerShell-only remediations; the later C# synchronization remediation is covered by the Release build above.
-- The Codex desktop execution environment could not complete the live validation run described above. This must be resolved by the one user/QA-owned local-interactive validation, not by further automation work in M16-A.
+- The Codex desktop execution environment could not complete its earlier live validation run; the physical-host local-interactive validation subsequently passed, so this is no longer an M16-A blocker.
