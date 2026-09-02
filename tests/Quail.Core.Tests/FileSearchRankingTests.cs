@@ -170,6 +170,48 @@ public sealed class FileSearchRankingTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_compact_order_preserves_location_text_and_static_rank()
+    {
+        var store = Build("short-compact-order.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "za-user-substring.txt");
+            AddFile(sink, desktop, 6, "xa-user-substring.txt");
+            var windows = AddDirectory(sink, Root, 7, "Windows");
+            AddFile(sink, windows, 8, "a");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 4), Context);
+
+        Assert.Equal(
+            ["Alice", "xa-user-substring.txt", "za-user-substring.txt", "a"],
+            results.Select(result => result.Name));
+    }
+
+    [Fact]
+    public void Short_query_retains_late_exact_candidates_across_posting_chunks()
+    {
+        var store = Build("short-chunk-recall.db", sink =>
+        {
+            for (var index = 0; index < 1_100; index++)
+            {
+                AddFile(sink, Root, index + 2, $"b{index:D4}a");
+            }
+
+            AddFile(sink, Root, 2_000, "a");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 1_000), Context);
+
+        Assert.Equal(1_000, results.Count);
+        Assert.Equal("a", results[0].Name);
+        Assert.Contains(results, result => result.Name == "b0000a");
+        Assert.Contains(results, result => result.Name == "b0998a");
+    }
+
+    [Fact]
     public void Text_match_quality_is_exact_then_prefix_then_token_prefix_then_substring()
     {
         var store = Build("text-quality.db", sink =>

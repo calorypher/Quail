@@ -12,7 +12,7 @@ public enum IndexStoreJournalLifecycle
 
 public sealed class IndexStore
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private const string NamespaceIdentityFormat = "canonical-file-id-128-v1";
     private const string SearchIndexFormat = "fts5-trigram-v1";
     private const string MetadataFormat = "file-metadata-v1";
@@ -348,6 +348,11 @@ public sealed class IndexStore
         using var connection = OpenReadOnly(_databasePath);
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
+        if (nameQuery.Length <= 2 && IsUnfiltered(query))
+        {
+            return ShortQueryIndex.Search(connection, nameQuery, query.Limit, context);
+        }
+
         var usesTrigramIndex = nameQuery.Length >= 3;
         var candidateLimit = query.Limit;
         var results = ReadSearchCandidates(
@@ -525,6 +530,17 @@ public sealed class IndexStore
     }
 
     private static string EscapeLike(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    private static bool IsUnfiltered(FileSearchQuery query) =>
+        query.EntryType == SearchEntryType.Any &&
+        query.Extension is null &&
+        query.MinimumSize is null &&
+        query.MaximumSize is null &&
+        query.ModifiedAfterUtcFileTime is null &&
+        query.ModifiedBeforeUtcFileTime is null &&
+        !query.Hidden &&
+        !query.ReadOnly &&
+        !query.System;
 
     private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
 
@@ -722,21 +738,42 @@ public sealed class IndexStore
             }
         }
         using var transaction = connection.BeginTransaction();
+        var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
         foreach (var record in canonicalRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
             {
+                if (maintainShortQueryIndex)
+                {
+                    ShortQueryIndex.RemoveCurrentEntry(connection, transaction, record.NamespaceRecord.FileId);
+                }
                 Delete(connection, transaction, record.NamespaceRecord.FileId);
             }
             else if (!UsnReason.IsRenameOldName(record.Reason))
             {
-                Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                if (maintainShortQueryIndex)
+                {
+                    UpsertWithShortQueryIndex(
+                        connection,
+                        transaction,
+                        record.NamespaceRecord,
+                        metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                }
+                else
+                {
+                    Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                }
             }
         }
         if (failBeforeCommit)
         {
             throw new InvalidOperationException(
                 "Test fault injection interrupted the journal batch before commit.");
+        }
+
+        if (maintainShortQueryIndex)
+        {
+            ShortQueryIndex.AdvanceGeneration(connection, transaction);
         }
 
         var checkpoint = new IncrementalCheckpoint(journal.JournalId, batch.NextUsn, journal.FirstUsn, journal.LowestValidUsn);
@@ -747,6 +784,27 @@ public sealed class IndexStore
             "record_count",
             CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
         transaction.Commit();
+    }
+
+    private static void UpsertWithShortQueryIndex(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NamespaceRecord record,
+        FileMetadata? metadata)
+    {
+        var affected = ShortQueryIndex.IsDirectory(connection, record.FileId)
+            ? ShortQueryIndex.ReadSubtreeIds(connection, record.FileId)
+            : new[] { record.FileId };
+        foreach (var fileId in affected)
+        {
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, fileId);
+        }
+
+        Upsert(connection, transaction, record, metadata);
+        foreach (var fileId in affected)
+        {
+            ShortQueryIndex.InsertCurrentEntry(connection, transaction, fileId);
+        }
     }
 
     private static void Upsert(
@@ -939,6 +997,12 @@ public sealed class IndexStore
             return false;
         }
 
+        if (!ShortQueryIndex.IsCurrent(connection))
+        {
+            reason = "short-query-derived-state-rebuild-required";
+            return false;
+        }
+
         if (GetMeta(connection, "build_state") != "complete")
         {
             reason = "index-not-complete";
@@ -984,6 +1048,7 @@ public sealed class IndexStore
 
     private static void CompleteBuild(SqliteConnection connection, IncrementalCheckpoint checkpoint)
     {
+        ShortQueryIndex.Build(connection);
         using var transaction = connection.BeginTransaction();
         SetCheckpoint(connection, transaction, checkpoint);
         SetMeta(connection, transaction, "record_count", CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1223,9 +1288,10 @@ public sealed class IndexStore
             GetMeta(connection, "namespace_identity_format") != NamespaceIdentityFormat ||
             GetMeta(connection, "search_index_format") != SearchIndexFormat ||
             GetMeta(connection, "metadata_format") != MetadataFormat ||
+            !ShortQueryIndex.IsCurrent(connection) ||
             ReadCheckpoint(connection) is null)
         {
-            throw new InvalidOperationException("Search requires a complete current schema-v3 metadata index.");
+            throw new InvalidOperationException("Search requires a complete current schema-v4 metadata index.");
         }
     }
 
@@ -1249,6 +1315,7 @@ public sealed class IndexStore
             END;
             """;
         command.ExecuteNonQuery();
+        ShortQueryIndex.CreateSchema(connection);
         SetMeta(connection, "schema_version", SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
         SetMeta(connection, "search_index_format", SearchIndexFormat);
         SetMeta(connection, "metadata_format", MetadataFormat);
@@ -1395,6 +1462,18 @@ public sealed class IndexStore
                     complete,
                     null,
                     "Namespace identity format requires a safe rebuild.", refreshed);
+            }
+
+            if (!ShortQueryIndex.IsCurrent(connection))
+            {
+                return new IndexStatus(
+                    IndexState.RebuildRequired,
+                    volumeIdentity,
+                    mountPoint,
+                    count,
+                    complete,
+                    null,
+                    "Short-query derived state requires a safe rebuild.", refreshed);
             }
 
             var checkpoint = ReadCheckpoint(connection);

@@ -2,10 +2,61 @@
 
 ## Status
 
-**BLOCKED by post-candidate correctness QA.** PR #10 is not ready to merge.
-The M17 performance campaign below remains valid as a measurement of commit
-`fa66270461f8f4461fd574c490a82ad214dcad39`, but it is not acceptance evidence
-because that commit weakened short-query candidate recall.
+**IMPLEMENTATION IN PROGRESS — physical-host acceptance evidence pending.**
+PR #10 is not ready to merge. The M17 performance campaign below remains valid
+only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
+it is not acceptance evidence because that commit weakened short-query
+candidate recall.
+
+## Current production implementation evidence (not acceptance evidence)
+
+The active branch now contains the amended M17 compact short-query path:
+
+- `namespace_entries` remains authoritative; schema v4 adds filesystem-owned
+  SQLite rank and posting chunk tables built inside staging before publication;
+- postings are chunked at 1,024 labels and delta-varint encoded, so ordinary
+  create/rename/delete changes rewrite only affected chunks rather than a
+  complete term list;
+- 64-bit sparse labels preserve static ordering; a separate chunked static-order
+  map allocates insertion gaps without a corpus-sized numeric merge key;
+- runtime current-user and system-location precedence is derived from indexed
+  parent topology and the searching context. No builder-process user identity
+  is persisted as ranking state;
+- a matching derived generation is required for search and sync. A missing or
+  mismatched structure is reported as rebuild-required rather than trusted;
+- the one-second short-query defer is removed. The retained duplicate-query
+  coalescing remains unchanged.
+
+Focused automated evidence on the implementation branch:
+
+- `FileSearchRankingTests`: permanent late exact `a` and `ks` guards, compact
+  location/text/static ordering, and a 1,100-entry cross-chunk recall guard;
+- `IncrementalIndexStoreTests`: generation mismatch, create/rename/delete,
+  directory-rename descendant search, transactional checkpoint behavior, and
+  the 1,024-posting chunk bound;
+- the full `Quail.Core.Tests` Release suite and the affected `Quail.App` Release
+  build pass locally.
+
+No physical-host performance, footprint, load-cost, direct-build-cost, or
+write-amplification numbers are recorded for this implementation yet. The
+Codex session cannot open `C:` for the required NTFS build (`CreateFile(C:)`),
+so it must not claim M17 timing acceptance or reuse the invalidated campaign.
+
+### User-owned physical-host final run pending
+
+After checking out the final clean production commit, rebuild the configured
+indexes through the established privileged filesystem-index workflow. Schema v4
+intentionally treats older development indexes as rebuild-required; do not
+attempt an in-place upgrade. Then run exactly one canonical campaign:
+
+```powershell
+.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3
+```
+
+The final owner must record the compact footprint/load/build/mutation evidence
+from the rebuilt representative corpus, update `M17-baseline.json` and this
+file with the actual final commit and samples, and verify every M17 target and
+guardrail before changing this status or merging PR #10.
 
 ## Invalidated short-query candidate
 

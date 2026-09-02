@@ -49,6 +49,52 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         var reopened = new IndexStore(DatabasePath);
         Assert.Equal(200, reopened.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("X:\\alpha\\renamed.txt", reopened.ReconstructPath(_file).Path);
+        Assert.Equal("renamed.txt", Assert.Single(reopened.Search(new FileSearchQuery("r", Limit: 1))).Name);
+    }
+
+    [Fact]
+    public void Short_query_chunks_follow_create_rename_and_delete()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var created = Id("0000000000000004");
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(100),
+        [
+            Batch(200, new JournalRecord(new NamespaceRecord(created, _root, "beta.txt", 0, 120, 2), UsnReason.FileCreate)),
+            Batch(300, new JournalRecord(new NamespaceRecord(created, _root, "bravo.txt", 0, 220, 2), UsnReason.RenameNewName)),
+        ]);
+
+        Assert.Equal("bravo.txt", Assert.Single(Store.Search(new FileSearchQuery("br", Limit: 1))).Name);
+        Assert.DoesNotContain(Store.Search(new FileSearchQuery("be", Limit: 50)), result => result.Name == "beta.txt");
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(100),
+        [Batch(400, new JournalRecord(new NamespaceRecord(created, _root, "bravo.txt", 0, 320, 2), UsnReason.FileDelete))]);
+
+        Assert.DoesNotContain(Store.Search(new FileSearchQuery("br", Limit: 50)), result => result.Name == "bravo.txt");
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT max(posting_count) FROM short_query_posting_chunks";
+        Assert.True(Convert.ToInt64(command.ExecuteScalar()) <= 1_024);
+    }
+
+    [Fact]
+    public void Short_query_generation_mismatch_requires_a_safe_rebuild()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE metadata SET value='stale' WHERE key='short_query_generation'";
+            command.ExecuteNonQuery();
+        }
+
+        var status = Store.GetStatus();
+
+        Assert.Equal(IndexState.RebuildRequired, status.State);
+        Assert.Contains("Short-query", status.Detail!);
+        Assert.Throws<InvalidOperationException>(() => Store.Search(new FileSearchQuery("f")));
     }
 
     [Fact]
@@ -185,6 +231,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         });
 
         Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("f", Limit: 1))).Name);
         var descendant = Store.ReadAllForDiagnostics().Single(record => record.Name == "file.txt");
         Assert.Equal(V3(_directoryId), descendant.ParentFileId);
     }
