@@ -53,8 +53,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private QuickSearchOverlayMode _overlayMode = QuickSearchOverlayMode.Expanded;
     private bool _shellIconFailureLogged;
     private bool _settingsDialogActive;
-    private long? _searchPerformanceAwaitedUiGeneration;
-    private TaskCompletionSource? _searchPerformanceRenderCompletion;
+    private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
 
     internal string CurrentTheme => _settings.Theme;
 
@@ -515,16 +514,23 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             }
             else
             {
+                Task? finalRenderCompletion = null;
                 for (var index = 0; index < scenario.Queries.Count; index++)
                 {
-                    QueryBox.Text = scenario.Queries[index];
+                    var query = scenario.Queries[index];
+                    if (index == scenario.Queries.Count - 1)
+                    {
+                        finalRenderCompletion = WaitForScenarioRenderAsync(query);
+                    }
+
+                    QueryBox.Text = query;
                     if (index < scenario.Queries.Count - 1)
                     {
                         await Task.Delay(scenario.InterQueryDelayMilliseconds);
                     }
                 }
 
-                await WaitForScenarioRenderAsync(_queryGeneration);
+                await finalRenderCompletion!;
             }
 
             _searchTrace.RecordScenarioCompleted();
@@ -542,16 +548,15 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private async Task SubmitScenarioQueryAndWaitForRenderAsync(string query)
     {
+        var renderCompletion = WaitForScenarioRenderAsync(query);
         QueryBox.Text = string.Empty;
         QueryBox.Text = query;
-        await WaitForScenarioRenderAsync(_queryGeneration);
+        await renderCompletion;
     }
 
-    private Task WaitForScenarioRenderAsync(long uiGeneration)
+    private Task WaitForScenarioRenderAsync(string query)
     {
-        _searchPerformanceAwaitedUiGeneration = uiGeneration;
-        _searchPerformanceRenderCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        return _searchPerformanceRenderCompletion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        return _searchPerformanceRenderWaiter.PrepareForQuery(query).WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     private void CenterActualWindowOnMonitor(nint monitor, NativeMethods.Rect windowRect)
@@ -574,6 +579,10 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _shortQueryDeferrer.Cancel();
         var query = QueryBox?.Text?.Trim() ?? string.Empty;
         _searchTrace.RecordInput(_queryGeneration, query.Length);
+        if (_searchPerformanceScenario is not null)
+        {
+            _searchPerformanceRenderWaiter.ObserveProcessedInput(query, _queryGeneration);
+        }
         if (!_settingsDialogActive)
         {
             ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
@@ -713,11 +722,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             CompositionTarget.Rendering -= OnRendering;
             NativeMethods.DwmFlush();
             _searchTrace.RecordFirstTextRender(completion.UiGeneration, completion.Generation, resultCount);
-            if (_searchPerformanceAwaitedUiGeneration == completion.UiGeneration)
+            if (_searchPerformanceScenario is not null)
             {
-                _searchPerformanceRenderCompletion?.TrySetResult();
-                _searchPerformanceAwaitedUiGeneration = null;
-                _searchPerformanceRenderCompletion = null;
+                _searchPerformanceRenderWaiter.ObserveFirstTextRender(completion.UiGeneration);
             }
         }
 
