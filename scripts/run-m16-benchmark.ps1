@@ -74,7 +74,10 @@ try {
         if ($scenario.sessionKind -notin @('fresh-process-first-search', 'warm-same-session')) {
             throw "Scenario '$($scenario.id)' has an unsupported sessionKind."
         }
-        $warmupQueries = if ($null -eq $scenario.PSObject.Properties['warmupQueries']) { @() } else { @($scenario.warmupQueries) }
+        $warmupQueries = @()
+        if ($null -ne $scenario.PSObject.Properties['warmupQueries']) {
+            $warmupQueries = @($scenario.warmupQueries)
+        }
         if ($scenario.sessionKind -eq 'warm-same-session' -and $warmupQueries.Count -eq 0) {
             throw "Scenario '$($scenario.id)' is warm-same-session and requires at least one warmup query."
         }
@@ -118,7 +121,10 @@ try {
         for ($iteration = 1; $iteration -le $Repetitions; $iteration++) {
             $runName = '{0}-{1:D2}' -f $scenario.id, $iteration
             $driverPath = Join-Path $driverDirectory "$runName.json"
-            $warmupQueries = if ($null -eq $scenario.PSObject.Properties['warmupQueries']) { @() } else { @($scenario.warmupQueries) }
+            $warmupQueries = @()
+            if ($null -ne $scenario.PSObject.Properties['warmupQueries']) {
+                $warmupQueries = @($scenario.warmupQueries)
+            }
             $interQueryDelayMilliseconds = if ($null -eq $scenario.PSObject.Properties['interQueryDelayMilliseconds']) { 0 } else { [int]$scenario.interQueryDelayMilliseconds }
             [ordered]@{
                 schemaVersion = 1
