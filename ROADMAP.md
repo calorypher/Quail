@@ -90,7 +90,7 @@ Quick Search
 
 The detailed product and architectural direction is recorded in `docs/0.3-direction.md`.
 
-The approved release plan is M15 through M24. The sequence is intentionally mostly linear so each milestone validates the assumptions used by the next one. If M16 or M19 produces evidence that materially changes the planned implementation path, return to roadmap planning before expanding scope.
+The approved release plan is M15 through M24 with a bounded M17.5 investigation inserted after M16 evidence exposed a separate full build/rebuild performance gap. The sequence remains intentionally mostly linear so each milestone validates the assumptions used by the next one. If M17.5 or M19 produces evidence that materially changes the planned implementation path, return to roadmap planning before expanding scope.
 
 ### M15 — Core / FileSystem Boundary Extraction
 
@@ -180,11 +180,11 @@ Stop if the current search architecture appears fundamentally incapable of meeti
 
 ### M17 — Search Engine Performance
 
-**Goal:** remove the measured bottlenecks from M16 and make normal filesystem search feel effectively immediate.
+**Goal:** remove the measured interactive-search bottlenecks from M16 and make normal filesystem search feel effectively immediate.
 
 Scope is driven by M16 evidence and may include query/candidate strategy, FTS/direct lookup behavior, unnecessary materialization/allocation, work performed before top results are available, interactive query-update behavior, and UI/icon work only where profiling shows those areas are on the critical path.
 
-Do not add complexity for unmeasured theoretical performance issues.
+Do not add complexity for unmeasured theoretical performance issues. Full index build/rebuild performance is explicitly outside M17 and is owned by M17.5.
 
 Acceptance boundary:
 
@@ -195,6 +195,42 @@ Acceptance boundary:
 - build/sync/storage costs do not regress materially without a documented reason.
 
 Stop if meeting the target requires replacement of the overall storage/search architecture or another material roadmap-level redesign.
+
+### M17.5 — Index Build/Rebuild Performance Investigation & Target
+
+**Goal:** determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
+
+M16 comparison work exposed a separate high-signal gap: on the physical host, Quail currently rebuilds a roughly 0.86-million-record corpus in about three minutes, while a 30 FPS Everything recording showed its roughly 0.93-million-object rebuild completing in about 2.6-2.7 seconds. The datasets, stored metadata, durability model, and internal architectures are not identical, so Everything is a reference point rather than a parity requirement. The magnitude of the gap is nevertheless large enough to justify measurement before 0.3 freezes its filesystem lifecycle.
+
+Scope:
+
+- establish a repeatable full build/rebuild benchmark on a representative Quail corpus and preserve the current end-to-end baseline;
+- attribute elapsed time across the major existing stages, including MFT/enumeration, metadata acquisition, SQLite base-row writes, FTS/search-index maintenance, and WAL/checkpoint/finalization;
+- measure the cost of the current staging/durability path where it materially contributes;
+- determine whether per-row FTS triggers, transaction/bulk-insert strategy, metadata acquisition, serial work, CPU utilization, or I/O are dominant bottlenecks;
+- evaluate bounded parallelism or a staged reader/worker/writer pipeline only as measured hypotheses; do not assume that more threads or concurrent SQLite writers are beneficial;
+- record Quail database size, indexed object count, approximate bytes/object, and stabilized memory footprint; collect the comparable Everything database/object figures where available and interpret differences in light of Quail's broader metadata and SQLite/FTS representation;
+- optionally record cold-load/startup implications only if they are inexpensive to measure and materially relevant;
+- produce an evidence-based target/range and a recommendation on whether 0.3 needs a separate production build/rebuild optimization milestone before M18/M19, or whether the work should be deferred with an explicit rationale.
+
+Out of scope:
+
+- implementing the production optimization itself;
+- weakening durability, protected-storage, or integrity guarantees for benchmark results;
+- changing search/ranking semantics;
+- schema/storage redesign without a separate roadmap decision;
+- continuous-maintenance/service architecture;
+- speculative multicore or multi-writer redesign not supported by measurements.
+
+Acceptance boundary:
+
+- the representative rebuild baseline is reproducible and its major phase costs account for the practical majority of elapsed time;
+- dominant bottlenecks are identified with evidence rather than inferred from total runtime alone;
+- Quail storage/record-count/bytes-per-object baseline is recorded, with an appropriately qualified Everything comparison where available;
+- realistic optimization opportunities are ranked by expected gain, implementation risk, and maintenance cost;
+- the milestone ends with an explicit roadmap recommendation: add a bounded production optimization before M18/M19, or continue to M18 with rebuild optimization deferred.
+
+If the evidence recommends material schema, durability, privilege/security, or broad architecture changes, stop and return to roadmap planning rather than implementing them inside M17.5.
 
 ### M18 — Ranking / Relevance v2
 
