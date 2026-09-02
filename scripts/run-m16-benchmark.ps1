@@ -41,7 +41,7 @@ function Get-Median([double[]] $Values) {
         return $null
     }
 
-    $middle = [int]($ordered.Count / 2)
+    $middle = [int][Math]::Floor($ordered.Count / 2)
     if ($ordered.Count % 2 -eq 1) {
         return $ordered[$middle]
     }
@@ -58,7 +58,7 @@ try {
     }
 
     $scenarios = @($scenarioDocument.scenarios)
-    if ($ScenarioId.Count -gt 0) {
+    if ($null -ne $ScenarioId -and $ScenarioId.Count -gt 0) {
         $requested = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         $ScenarioId | ForEach-Object { [void]$requested.Add($_) }
         $scenarios = @($scenarios | Where-Object { $requested.Contains([string]$_.id) })
