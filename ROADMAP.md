@@ -1,6 +1,6 @@
 # Quail Roadmap
 
-This roadmap records the current product direction. An approved release plan defines the intended milestone sequence, but only the currently approved active milestone authorizes implementation. Later milestones may be revised when earlier evidence changes the technical picture.
+This roadmap records the current product direction. An approved release plan defines the release goal, version boundary, and initial milestone structure. Once execution of a version begins, its dedicated version thread may refine, split, add, remove, reorder, or replace milestones when implementation or QA evidence justifies it, provided the approved release goal and scope boundary remain intact.
 
 The long-term product direction is described in `docs/product-vision.md`. Repository workflow and engineering guardrails are defined in `AGENTS.md`.
 
@@ -90,7 +90,7 @@ Quick Search
 
 The detailed product and architectural direction is recorded in `docs/0.3-direction.md`.
 
-The approved release plan is M15 through M24 with two bounded decision/investigation gates in the performance phase: M17-S after the M17 short-query storage stop condition, and M17.5 after M17 is resolved to investigate full build/rebuild performance. The sequence remains intentionally mostly linear so each milestone validates the assumptions used by the next one. If M17-S, M17.5, or M19 produces evidence that materially changes the planned implementation path, return to roadmap planning before expanding scope.
+The approved release plan is M15 through M24 with two bounded decision/investigation gates currently present in the performance phase: M17-S after the M17 short-query storage stop condition, and M17.5 after M17 is resolved to investigate full build/rebuild performance. This is the current plan, not an immutable milestone decomposition. The dedicated Quail 0.3 execution thread owns evidence-driven adaptation of milestones inside the approved 0.3 product/scope boundary. Return to the parent roadmap thread only if evidence requires changing the 0.3 release goal or boundary, moving substantial scope between releases, or changing a major cross-version product/architecture direction.
 
 ### M15 — Core / FileSystem Boundary Extraction
 
@@ -186,7 +186,7 @@ M17's first target-meeting candidate was invalidated by correctness QA: its boun
 
 This evidence triggers M17's explicit stop condition for a new durable short-query structure or material persistent search/index redesign. PR #10 remains blocked and must not be merged in its current state.
 
-The approved short-query target is not relaxed merely because the current storage model cannot meet it. M17 remains paused while M17-S determines whether a bounded solution can satisfy latency, full candidate recall/relevance, footprint, build/rebuild, and maintenance constraints. If M17-S finds no acceptable bounded solution, target/product behavior returns to roadmap review explicitly.
+The approved short-query target is not relaxed merely because the current storage model cannot meet it. M17 remains paused while M17-S determines whether a bounded solution can satisfy latency, full candidate recall/relevance, footprint, build/rebuild, and maintenance constraints. The Quail 0.3 execution thread owns the resulting in-version decision: it may amend M17, choose another bounded implementation path, or change a target/product behavior that remains within the already approved 0.3 release goal and boundary. Escalate to the parent roadmap thread only if the evidence would change that release boundary or a major cross-version direction.
 
 Scope otherwise remains driven by M16 evidence and may include query/candidate strategy, FTS/direct lookup behavior, unnecessary materialization/allocation, work performed before top results are available, interactive query-update behavior, and UI/icon work only where profiling shows those areas are on the critical path.
 
@@ -200,7 +200,7 @@ Acceptance boundary:
 - search correctness and full candidate recall/relevance remain intact;
 - build/sync/storage costs do not regress materially without a documented reason.
 
-Stop if meeting the target requires replacement of the overall search/storage architecture or another material roadmap-level redesign. A bounded short-query structure may be added to M17 only after M17-S and an explicit roadmap amendment to the active M17 contract.
+Stop if meeting the target requires replacement of the overall search/storage architecture or another material redesign outside the approved 0.3 boundary. A bounded short-query structure may be added to M17 after M17-S through an explicit in-version contract amendment owned by the Quail 0.3 execution thread.
 
 ### M17-S — Short-Query Search Structure Spike
 
@@ -217,12 +217,12 @@ Scope:
 - estimate or measure full build/rebuild cost contribution and incremental update/maintenance cost sufficiently to judge interaction with M17.5 and M19/M20;
 - consider failure/recovery and index-consistency implications at the level needed to reject unsafe designs, without designing M19/M20 service architecture;
 - rank viable options by latency, correctness, complexity, footprint, build/rebuild cost, incremental-maintenance cost, and ongoing maintenance burden;
-- recommend one bounded direction for roadmap approval, or recommend changing the target/product behavior if no bounded direction is credible.
+- recommend one bounded direction for an explicit Quail 0.3 execution decision, or recommend changing the target/product behavior if no bounded direction is credible.
 
 Out of scope:
 
-- shipping the chosen production structure;
-- broad storage/search architecture replacement;
+- shipping the chosen production structure before the spike decision is recorded;
+- broad storage/search architecture replacement outside the approved 0.3 boundary;
 - M18 ranking redesign;
 - M17.5 full rebuild optimization;
 - M19/M20 continuous-maintenance/service implementation;
@@ -236,9 +236,9 @@ Acceptance boundary:
 - at least the most credible bounded alternatives are compared with enough evidence to make a decision rather than by architecture preference alone;
 - the recommended direction has a plausible path to the M17 short-query latency target without weakening recall/relevance;
 - footprint, build/rebuild, and incremental-maintenance consequences are explicit enough to decide whether the approach belongs in 0.3;
-- the milestone ends by returning to roadmap planning before production implementation.
+- the milestone ends with an explicit decision in the Quail 0.3 execution thread before production implementation continues.
 
-If every credible bounded option requires a broad storage redesign, unacceptable footprint/maintenance cost, weakened correctness, or a materially different product contract, stop and recommend revisiting the target instead of forcing an implementation.
+If every credible bounded option requires a broad storage redesign, unacceptable footprint/maintenance cost, weakened correctness, or a materially different release contract, stop. The Quail 0.3 execution thread may revise the in-version technical plan or target where that remains inside the approved 0.3 goal; return to the parent roadmap thread only if the release boundary or major cross-version direction must change.
 
 ### M17.5 — Index Build/Rebuild Performance Investigation & Target
 
@@ -261,10 +261,10 @@ Scope:
 
 Out of scope:
 
-- implementing the production optimization itself;
+- implementing the production optimization itself before the investigation decision is recorded;
 - weakening durability, protected-storage, or integrity guarantees for benchmark results;
 - changing search/ranking semantics;
-- schema/storage redesign without a separate roadmap decision;
+- schema/storage redesign outside the approved 0.3 boundary;
 - continuous-maintenance/service architecture;
 - speculative multicore or multi-writer redesign not supported by measurements.
 
@@ -275,9 +275,9 @@ Acceptance boundary:
 - Quail storage/record-count/bytes-per-object baseline is recorded, with an appropriately qualified Everything comparison where available;
 - any accepted short-query structure's contribution to build/rebuild and footprint is explicitly measured;
 - realistic optimization opportunities are ranked by expected gain, implementation risk, and maintenance cost;
-- the milestone ends with an explicit roadmap recommendation: add a bounded production optimization before M18/M19, or continue to M18 with rebuild optimization deferred.
+- the milestone ends with an explicit Quail 0.3 execution decision: add a bounded production optimization before M18/M19, or continue to M18 with rebuild optimization deferred.
 
-If the evidence recommends material schema, durability, privilege/security, or broad architecture changes, stop and return to roadmap planning rather than implementing them inside M17.5.
+If the evidence recommends a production optimization that remains inside the approved 0.3 release goal and boundary, the Quail 0.3 execution thread may add/split/reorder the required milestone work and continue. Return to the parent roadmap thread only if the evidence requires changing the release boundary, moving substantial scope between versions, or changing a major cross-version architecture/product direction.
 
 ### M18 — Ranking / Relevance v2
 
