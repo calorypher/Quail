@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -21,9 +22,10 @@ internal static class Program
                 "report" => WriteReport(options),
                 "decompose" => WriteDecomposition(options),
                 "search" => MeasureSearch(options),
+                "profile-search" => ProfileSearch(options),
                 "snapshot" => WriteSnapshot(options),
                 "compare" => CompareSnapshots(options),
-                _ => throw new ArgumentException("Command must be report, decompose, search, snapshot, or compare.")
+                _ => throw new ArgumentException("Command must be report, decompose, search, profile-search, snapshot, or compare.")
             };
         }
         catch (Exception exception)
@@ -208,6 +210,582 @@ internal static class Program
         });
         return 0;
     }
+
+    private static int ProfileSearch(Options options)
+    {
+        var indexPath = Require(options, "index");
+        var outputPath = Require(options, "output");
+        var queries = Require(options, "queries")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (queries.Length == 0 || queries.Any(query => query.Length is < 1 or > 2))
+        {
+            throw new ArgumentException("--queries must contain one- or two-character values.");
+        }
+
+        using var connection = OpenReadOnly(indexPath);
+        var context = FileSearchRankingContext.ForCurrentMachine();
+
+        Collect();
+        var rankMemoryBefore = GC.GetTotalMemory(forceFullCollection: true);
+        var rankLoad = Stopwatch.StartNew();
+        var ranks = ProfileRankMap.Read(connection);
+        rankLoad.Stop();
+        Collect();
+        var rankMemoryAfter = GC.GetTotalMemory(forceFullCollection: false);
+
+        var contextResolution = Stopwatch.StartNew();
+        var contextInfo = ResolveProfileContext(connection, ranks, context);
+        contextResolution.Stop();
+
+        var fastContextResolution = Stopwatch.StartNew();
+        var fastContextInfo = ResolveProfileContextFast(connection, ranks, context);
+        fastContextResolution.Stop();
+        if (contextInfo.CurrentUserLabel != fastContextInfo.CurrentUserLabel ||
+            !contextInfo.SystemRootLabels.SetEquals(fastContextInfo.SystemRootLabels))
+        {
+            throw new InvalidOperationException("Optimized context resolution changed ranking context.");
+        }
+
+        var locationBuild = Stopwatch.StartNew();
+        var authoritativeLocationByRankIndex = new byte[ranks.Count];
+        for (var index = 0; index < ranks.Count; index++)
+        {
+            authoritativeLocationByRankIndex[index] = (byte)ClassifyProfileLocation(ranks[index], ranks, contextInfo);
+        }
+        locationBuild.Stop();
+
+        var locationAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var optimizedLocationBuild = Stopwatch.StartNew();
+        var locationByRankIndex = BuildProfileLocationMap(ranks, fastContextInfo);
+        optimizedLocationBuild.Stop();
+        var locationAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - locationAllocatedBefore;
+        if (!authoritativeLocationByRankIndex.SequenceEqual(locationByRankIndex))
+        {
+            var mismatch = Enumerable.Range(0, ranks.Count)
+                .First(index => authoritativeLocationByRankIndex[index] != locationByRankIndex[index]);
+            var entry = ranks[mismatch];
+            throw new InvalidOperationException(
+                $"Optimized runtime location map changed location classification at index {mismatch}, label {entry.Label}, parent {entry.ParentLabel}, depth {entry.Depth}, flags {entry.Flags}, attributes {entry.Attributes}: expected {authoritativeLocationByRankIndex[mismatch]}, actual {locationByRankIndex[mismatch]}.");
+        }
+
+        var samples = new List<object>();
+        foreach (var query in queries)
+        {
+            var authoritativeSearch = Stopwatch.StartNew();
+            var authoritative = ShortQueryIndex.SearchAuthoritative(connection, query, 50, context);
+            authoritativeSearch.Stop();
+
+            Collect();
+            var productionMemoryBefore = GC.GetTotalMemory(forceFullCollection: true);
+            var productionAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            var production = Stopwatch.StartNew();
+            var productionResults = ShortQueryIndex.Search(connection, query, 50, context);
+            production.Stop();
+            var productionAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - productionAllocatedBefore;
+            var productionMemoryAfter = GC.GetTotalMemory(forceFullCollection: false);
+            Collect();
+            var productionRetainedMemoryAfter = GC.GetTotalMemory(forceFullCollection: false);
+
+            var postingRead = Stopwatch.StartNew();
+            var payloads = ReadProfilePostingPayloads(connection, query);
+            postingRead.Stop();
+
+            var postingCount = payloads.Sum(payload => payload.PostingCount);
+            var labels = new long[postingCount];
+            var matchClasses = new byte[postingCount];
+            var decode = Stopwatch.StartNew();
+            var position = 0;
+            foreach (var payload in payloads)
+            {
+                long previous = 0;
+                var offset = 0;
+                while (offset < payload.Payload.Length)
+                {
+                    previous = checked(previous + (long)ReadVarint(payload.Payload, ref offset));
+                    labels[position] = previous;
+                    matchClasses[position] = checked((byte)payload.MatchClass);
+                    position++;
+                }
+            }
+            decode.Stop();
+            if (position != postingCount) throw new InvalidOperationException("Posting count does not match decoded labels.");
+
+            var rankIndices = new int[postingCount];
+            var rankLookup = Stopwatch.StartNew();
+            for (var index = 0; index < labels.Length; index++) rankIndices[index] = ranks.IndexOf(labels[index]);
+            rankLookup.Stop();
+
+            var classified = new byte[postingCount];
+            var fullClassification = Stopwatch.StartNew();
+            for (var index = 0; index < rankIndices.Length; index++)
+            {
+                classified[index] = (byte)ClassifyProfileLocation(ranks[rankIndices[index]], ranks, contextInfo);
+            }
+            fullClassification.Stop();
+
+            var mapLookup = Stopwatch.StartNew();
+            for (var index = 0; index < rankIndices.Length; index++) classified[index] = locationByRankIndex[rankIndices[index]];
+            mapLookup.Stop();
+
+            var reconstruction = Stopwatch.StartNew();
+            var optimized = SelectAndReconstruct(connection, ranks, labels, matchClasses, classified, 50);
+            reconstruction.Stop();
+
+            var cachedSearch = Stopwatch.StartNew();
+            var cached = SearchWithRuntimeMap(connection, query, 50, ranks, locationByRankIndex);
+            cachedSearch.Stop();
+
+            var authoritativeIds = authoritative.Select(result => result.FileId.ToString()).ToArray();
+            var optimizedIds = optimized.Select(result => result.FileId.ToString()).ToArray();
+            var cachedIds = cached.Select(result => result.FileId.ToString()).ToArray();
+            samples.Add(new
+            {
+                queryLength = query.Length,
+                postingCount,
+                postingChunkCount = payloads.Count,
+                authoritativeFullScanSearchMilliseconds = Milliseconds(authoritativeSearch),
+                productionSearchMilliseconds = Milliseconds(production),
+                productionAllocatedBytes,
+                productionManagedMemoryDeltaBeforeCollectionBytes = productionMemoryAfter - productionMemoryBefore,
+                productionRetainedManagedMemoryDeltaBytes = productionRetainedMemoryAfter - productionMemoryBefore,
+                postingSqliteReadMilliseconds = Milliseconds(postingRead),
+                postingDecodeMilliseconds = Milliseconds(decode),
+                rankLabelLookupMilliseconds = Milliseconds(rankLookup),
+                fullLocationClassificationMilliseconds = Milliseconds(fullClassification),
+                runtimeLocationLookupMilliseconds = Milliseconds(mapLookup),
+                selectionAndResultReconstructionMilliseconds = Milliseconds(reconstruction),
+                cachedRuntimeMapSearchMilliseconds = Milliseconds(cachedSearch),
+                projectedFirstSearchMilliseconds = Math.Round(
+                    rankLoad.Elapsed.TotalMilliseconds + fastContextResolution.Elapsed.TotalMilliseconds +
+                    optimizedLocationBuild.Elapsed.TotalMilliseconds + cachedSearch.Elapsed.TotalMilliseconds, 3),
+                resultCount = authoritative.Count,
+                productionMatchesAuthoritative = authoritativeIds.SequenceEqual(
+                    productionResults.Select(result => result.FileId.ToString())),
+                optimizedMatchesAuthoritative = authoritativeIds.SequenceEqual(optimizedIds),
+                cachedMatchesAuthoritative = authoritativeIds.SequenceEqual(cachedIds)
+            });
+        }
+
+        Write(outputPath, new
+        {
+            schemaVersion = 1,
+            kind = "m17-production-short-query-runtime-profile",
+            indexPath = Path.GetFullPath(indexPath),
+            records = ranks.Count,
+            rankMapLoadMilliseconds = Milliseconds(rankLoad),
+            rankMapManagedMemoryDeltaBytes = rankMemoryAfter - rankMemoryBefore,
+            contextResolutionMilliseconds = Milliseconds(contextResolution),
+            optimizedContextResolutionMilliseconds = Milliseconds(fastContextResolution),
+            repeatedWalkLocationMapBuildMilliseconds = Milliseconds(locationBuild),
+            runtimeLocationMapBuildMilliseconds = Milliseconds(optimizedLocationBuild),
+            runtimeLocationMapRawBytes = locationByRankIndex.LongLength,
+            runtimeLocationMapBuildAllocatedBytes = locationAllocatedBytes,
+            samples,
+            note = "Diagnostic-only isolated decomposition. authoritativeFullScanSearchMilliseconds classifies every posting through the original parent-walk ranking oracle; productionSearchMilliseconds measures the current production path. Component timings use the same persisted payloads and ranking rules but are isolated passes, so they are not additive production instrumentation. Optimized context resolution scans the rank map once for all resolved rowids. The optimized location-map builder memoizes parent topology and is verified entry-for-entry against repeated production-equivalent classification. cachedRuntimeMapSearch uses a preloaded rank map and one-byte runtime map. All optimized result identities/order are compared with the authoritative path."
+        });
+        return 0;
+    }
+
+    private static List<ProfilePostingPayload> ReadProfilePostingPayloads(SqliteConnection connection, string query)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT match_class,posting_count,payload
+            FROM short_query_posting_chunks
+            WHERE term=$term COLLATE BINARY
+            ORDER BY match_class,first_label;
+            """;
+        command.Parameters.AddWithValue("$term", CanonicalizeSqliteAsciiTerm(query));
+        using var reader = command.ExecuteReader();
+        var payloads = new List<ProfilePostingPayload>();
+        while (reader.Read())
+        {
+            payloads.Add(new ProfilePostingPayload(reader.GetInt32(0), reader.GetInt32(1), (byte[])reader[2]));
+        }
+
+        return payloads;
+    }
+
+    private static IReadOnlyList<FileSearchResult> SearchWithRuntimeMap(
+        SqliteConnection connection,
+        string query,
+        int limit,
+        ProfileRankMap ranks,
+        byte[] locations)
+    {
+        var selected = CreateSelection(limit);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT match_class,payload
+            FROM short_query_posting_chunks
+            WHERE term=$term COLLATE BINARY
+            ORDER BY match_class,first_label;
+            """;
+        command.Parameters.AddWithValue("$term", CanonicalizeSqliteAsciiTerm(query));
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var matchClass = reader.GetInt32(0);
+            var payload = (byte[])reader[1];
+            long previous = 0;
+            var offset = 0;
+            while (offset < payload.Length)
+            {
+                previous = checked(previous + (long)ReadVarint(payload, ref offset));
+                var rankIndex = ranks.IndexOf(previous);
+                var bucket = selected[locations[rankIndex], matchClass];
+                if (bucket.Count < limit) bucket.Add(previous);
+            }
+        }
+
+        return ReconstructSelection(connection, ranks, selected, limit);
+    }
+
+    private static IReadOnlyList<FileSearchResult> SelectAndReconstruct(
+        SqliteConnection connection,
+        ProfileRankMap ranks,
+        long[] labels,
+        byte[] matchClasses,
+        byte[] locations,
+        int limit)
+    {
+        var selected = CreateSelection(limit);
+        for (var index = 0; index < labels.Length; index++)
+        {
+            var bucket = selected[locations[index], matchClasses[index]];
+            if (bucket.Count < limit) bucket.Add(labels[index]);
+        }
+
+        return ReconstructSelection(connection, ranks, selected, limit);
+    }
+
+    private static List<long>[,] CreateSelection(int limit)
+    {
+        var selected = new List<long>[7, 4];
+        for (var location = 0; location < 7; location++)
+        {
+            for (var match = 0; match < 4; match++) selected[location, match] = new List<long>(limit);
+        }
+
+        return selected;
+    }
+
+    private static IReadOnlyList<FileSearchResult> ReconstructSelection(
+        SqliteConnection connection,
+        ProfileRankMap ranks,
+        List<long>[,] selected,
+        int limit)
+    {
+        var results = new List<FileSearchResult>(limit);
+        for (var location = 0; location < 7 && results.Count < limit; location++)
+        {
+            for (var match = 0; match < 4 && results.Count < limit; match++)
+            {
+                foreach (var label in selected[location, match])
+                {
+                    results.Add(ReadProfileResult(connection, ranks[ranks.IndexOf(label)].RowId));
+                    if (results.Count == limit) break;
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private static ProfileContext ResolveProfileContext(
+        SqliteConnection connection,
+        ProfileRankMap ranks,
+        FileSearchRankingContext context)
+    {
+        var currentUser = ResolveProfilePathLabel(connection, ranks, context.CurrentUserProfilePath);
+        var systemRoots = context.SystemRootPaths
+            .Select(path => ResolveProfilePathLabel(connection, ranks, path))
+            .Where(label => label is not null)
+            .Select(label => label!.Value)
+            .ToHashSet();
+        return new ProfileContext(currentUser, systemRoots);
+    }
+
+    private static ProfileContext ResolveProfileContextFast(
+        SqliteConnection connection,
+        ProfileRankMap ranks,
+        FileSearchRankingContext context)
+    {
+        var currentUserRowId = ResolveProfilePathRowId(connection, ranks, context.CurrentUserProfilePath);
+        var systemRootRowIds = context.SystemRootPaths
+            .Select(path => ResolveProfilePathRowId(connection, ranks, path))
+            .Where(rowId => rowId is not null)
+            .Select(rowId => rowId!.Value)
+            .ToHashSet();
+        var labelsByRowId = ranks.FindLabels(
+            systemRootRowIds.Append(currentUserRowId ?? long.MinValue).ToHashSet());
+        return new ProfileContext(
+            currentUserRowId is long userRowId && labelsByRowId.TryGetValue(userRowId, out var userLabel) ? userLabel : null,
+            systemRootRowIds.Where(labelsByRowId.ContainsKey).Select(rowId => labelsByRowId[rowId]).ToHashSet());
+    }
+
+    private static long? ResolveProfilePathRowId(SqliteConnection connection, ProfileRankMap ranks, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var mountSegments = FileSearchRankingContext.GetSegments(ScalarString(connection, "SELECT value FROM metadata WHERE key='mount_point';"));
+        var pathSegments = FileSearchRankingContext.GetSegments(path);
+        if (mountSegments.Count == 0 || pathSegments.Count < mountSegments.Count ||
+            !mountSegments.SequenceEqual(pathSegments.Take(mountSegments.Count), StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        NativeFileId parent;
+        long rowId;
+        using (var root = connection.CreateCommand())
+        {
+            rowId = ranks.Root.RowId;
+            root.CommandText = "SELECT file_id FROM namespace_entries WHERE rowid=$rowid;";
+            root.Parameters.AddWithValue("$rowid", rowId);
+            using var reader = root.ExecuteReader();
+            if (!reader.Read()) return null;
+            parent = new NativeFileId((byte[])reader[0]);
+        }
+
+        for (var index = mountSegments.Count; index < pathSegments.Count; index++)
+        {
+            using var child = connection.CreateCommand();
+            child.CommandText = "SELECT rowid,file_id,name FROM namespace_entries WHERE parent_file_id=$parent;";
+            child.Parameters.Add("$parent", SqliteType.Blob).Value = parent.Bytes.ToArray();
+            using var reader = child.ExecuteReader();
+            var found = false;
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(2), pathSegments[index], StringComparison.OrdinalIgnoreCase)) continue;
+                rowId = reader.GetInt64(0);
+                parent = new NativeFileId((byte[])reader[1]);
+                found = true;
+                break;
+            }
+
+            if (!found) return null;
+        }
+
+        return rowId;
+    }
+
+    private static byte[] BuildProfileLocationMap(ProfileRankMap ranks, ProfileContext context)
+    {
+        var locations = new byte[ranks.Count];
+        var status = new byte[ranks.Count];
+        var dynamicSystem = new bool[ranks.Count];
+        var userZone = new byte[ranks.Count];
+        var appDataSubtree = new bool[ranks.Count];
+        var systemRootIndices = context.SystemRootLabels.Select(ranks.IndexOf).ToHashSet();
+        var currentUserIndex = context.CurrentUserLabel is long currentUserLabel ? ranks.IndexOf(currentUserLabel) : -1;
+        var userParentIndex = currentUserIndex >= 0 && ranks[currentUserIndex].Depth >= 2
+            ? ranks.IndexOf(ranks[currentUserIndex].ParentLabel)
+            : -1;
+
+        for (var index = 0; index < ranks.Count; index++) Resolve(index);
+        return locations;
+
+        void Resolve(int index)
+        {
+            if (status[index] == 2) return;
+            if (status[index] == 1) throw new InvalidOperationException("Cycle detected in short-query rank topology.");
+            status[index] = 1;
+            var entry = ranks[index];
+            var parentIndex = entry.ParentLabel == entry.Label ? -1 : ranks.IndexOf(entry.ParentLabel);
+            if (parentIndex >= 0) Resolve(parentIndex);
+
+            dynamicSystem[index] = systemRootIndices.Contains(index) || parentIndex >= 0 && dynamicSystem[parentIndex];
+            if (index == currentUserIndex)
+            {
+                userZone[index] = 2;
+            }
+            else if (index == userParentIndex)
+            {
+                userZone[index] = 3;
+            }
+            else if (parentIndex >= 0 && userZone[parentIndex] is 2 or 3)
+            {
+                userZone[index] = userZone[parentIndex];
+                appDataSubtree[index] = ranks[parentIndex].Depth == ranks[currentUserIndex].Depth
+                    ? (entry.Flags & 1) != 0
+                    : appDataSubtree[parentIndex];
+            }
+
+            var internalEntry = (entry.Attributes & 0x6) != 0 || appDataSubtree[index];
+            locations[index] = (byte)((entry.Flags & 2) != 0 || dynamicSystem[index]
+                ? FileSearchLocation.SystemHeavy
+                : userZone[index] == 2
+                    ? internalEntry ? FileSearchLocation.CurrentUserInternal : FileSearchLocation.CurrentUserVisible
+                    : userZone[index] == 3
+                        ? internalEntry ? FileSearchLocation.OtherUserInternal : FileSearchLocation.OtherUserVisible
+                        : (entry.Attributes & 0x6) != 0 ? FileSearchLocation.OtherInternal : FileSearchLocation.OtherVisible);
+            status[index] = 2;
+        }
+    }
+
+    private static long? ResolveProfilePathLabel(SqliteConnection connection, ProfileRankMap ranks, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var mountSegments = FileSearchRankingContext.GetSegments(ScalarString(connection, "SELECT value FROM metadata WHERE key='mount_point';"));
+        var pathSegments = FileSearchRankingContext.GetSegments(path);
+        if (mountSegments.Count == 0 || pathSegments.Count < mountSegments.Count ||
+            !mountSegments.SequenceEqual(pathSegments.Take(mountSegments.Count), StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        NativeFileId parent;
+        long rowId;
+        using (var root = connection.CreateCommand())
+        {
+            root.CommandText = "SELECT rowid,file_id FROM namespace_entries WHERE file_id=parent_file_id LIMIT 1;";
+            using var reader = root.ExecuteReader();
+            if (!reader.Read()) return null;
+            rowId = reader.GetInt64(0);
+            parent = new NativeFileId((byte[])reader[1]);
+        }
+
+        for (var index = mountSegments.Count; index < pathSegments.Count; index++)
+        {
+            using var child = connection.CreateCommand();
+            child.CommandText = "SELECT rowid,file_id FROM namespace_entries WHERE parent_file_id=$parent AND name=$name COLLATE NOCASE LIMIT 1;";
+            child.Parameters.Add("$parent", SqliteType.Blob).Value = parent.Bytes.ToArray();
+            child.Parameters.AddWithValue("$name", pathSegments[index]);
+            using var reader = child.ExecuteReader();
+            if (!reader.Read()) return null;
+            rowId = reader.GetInt64(0);
+            parent = new NativeFileId((byte[])reader[1]);
+        }
+
+        return ranks.FindLabel(rowId);
+    }
+
+    private static FileSearchLocation ClassifyProfileLocation(
+        ProfileRankEntry entry,
+        ProfileRankMap ranks,
+        ProfileContext context)
+    {
+        if ((entry.Flags & 2) != 0 || context.SystemRootLabels.Any(label => IsProfileUnder(entry, ranks, label)))
+        {
+            return FileSearchLocation.SystemHeavy;
+        }
+
+        if (context.CurrentUserLabel is long currentUserLabel)
+        {
+            var currentUser = ranks[ranks.IndexOf(currentUserLabel)];
+            if (IsProfileUnder(entry, ranks, currentUserLabel))
+            {
+                return IsProfileInternal(entry, ranks, currentUser.Depth)
+                    ? FileSearchLocation.CurrentUserInternal
+                    : FileSearchLocation.CurrentUserVisible;
+            }
+
+            if (currentUser.Depth >= 2 && IsProfileUnder(entry, ranks, currentUser.ParentLabel))
+            {
+                return IsProfileInternal(entry, ranks, currentUser.Depth)
+                    ? FileSearchLocation.OtherUserInternal
+                    : FileSearchLocation.OtherUserVisible;
+            }
+        }
+
+        return (entry.Attributes & 0x6) != 0
+            ? FileSearchLocation.OtherInternal
+            : FileSearchLocation.OtherVisible;
+    }
+
+    private static bool IsProfileUnder(ProfileRankEntry entry, ProfileRankMap ranks, long ancestorLabel)
+    {
+        var ancestor = ranks[ranks.IndexOf(ancestorLabel)];
+        var current = entry;
+        while (current.Depth > ancestor.Depth) current = ranks[ranks.IndexOf(current.ParentLabel)];
+        return current.Depth == ancestor.Depth && current.Label == ancestorLabel;
+    }
+
+    private static bool IsProfileInternal(ProfileRankEntry entry, ProfileRankMap ranks, ushort userDepth)
+    {
+        if ((entry.Attributes & 0x6) != 0) return true;
+        if (entry.Depth <= userDepth) return false;
+        var current = entry;
+        while (current.Depth > userDepth + 1) current = ranks[ranks.IndexOf(current.ParentLabel)];
+        return (current.Flags & 1) != 0;
+    }
+
+    private static FileSearchResult ReadProfileResult(SqliteConnection connection, long rowId)
+    {
+        NativeFileId fileId;
+        string name;
+        uint attributes;
+        long? logicalSize;
+        long? lastWrite;
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT file_id,name,attributes,logical_size,last_write_time_utc FROM namespace_entries WHERE rowid=$rowid;";
+            command.Parameters.AddWithValue("$rowid", rowId);
+            using var reader = command.ExecuteReader();
+            if (!reader.Read()) throw new InvalidOperationException("Short-query posting references a missing entry.");
+            fileId = new NativeFileId((byte[])reader[0]);
+            name = reader.GetString(1);
+            attributes = checked((uint)reader.GetInt64(2));
+            logicalSize = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+            lastWrite = reader.IsDBNull(4) ? null : reader.GetInt64(4);
+        }
+
+        var fullPath = ReconstructProfilePath(connection, fileId);
+        var isDirectory = (attributes & 0x10) != 0;
+        return new FileSearchResult(
+            fileId,
+            name,
+            fullPath,
+            isDirectory,
+            isDirectory ? null : Path.GetExtension(name).TrimStart('.').ToLowerInvariant() is { Length: > 0 } extension ? extension : null,
+            isDirectory ? null : logicalSize,
+            lastWrite,
+            attributes);
+    }
+
+    private static string ReconstructProfilePath(SqliteConnection connection, NativeFileId fileId)
+    {
+        var mount = ScalarString(connection, "SELECT value FROM metadata WHERE key='mount_point';") ?? string.Empty;
+        var parts = new List<string>();
+        var seen = new HashSet<NativeFileId>();
+        var current = fileId;
+        while (true)
+        {
+            if (!seen.Add(current)) throw new InvalidOperationException("Cycle detected in parent relationships.");
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT parent_file_id,name FROM namespace_entries WHERE file_id=$id;";
+            command.Parameters.Add("$id", SqliteType.Blob).Value = current.Bytes.ToArray();
+            using var reader = command.ExecuteReader();
+            if (!reader.Read()) throw new InvalidOperationException("Missing parent or record.");
+            var parent = new NativeFileId((byte[])reader[0]);
+            if (parent.Equals(current)) break;
+            parts.Add(reader.GetString(1));
+            current = parent;
+        }
+
+        parts.Reverse();
+        return parts.Count == 0 ? mount : Path.Combine([mount, .. parts]);
+    }
+
+    private static string CanonicalizeSqliteAsciiTerm(string value)
+    {
+        var characters = value.ToCharArray();
+        for (var index = 0; index < characters.Length; index++)
+        {
+            if (characters[index] is >= 'A' and <= 'Z') characters[index] = (char)(characters[index] + ('a' - 'A'));
+        }
+
+        return new string(characters);
+    }
+
+    private static void Collect()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+    private static double Milliseconds(Stopwatch stopwatch) => Math.Round(stopwatch.Elapsed.TotalMilliseconds, 3);
 
     private static int WriteSnapshot(Options options)
     {
@@ -437,6 +1015,111 @@ internal static class Program
     private sealed record LabelSpacingImpact(IReadOnlyList<VarintWidthCount> CurrentVarintWidthCounts, IReadOnlyList<SpacingProjection> Projections);
     private sealed record VarintWidthCount(int Width, long Count);
     private sealed record SpacingProjection(long Spacing, long PostingPayloadBytes, double BytesPerPosting);
+    private sealed record ProfilePostingPayload(int MatchClass, int PostingCount, byte[] Payload);
+    private readonly record struct ProfileRankEntry(
+        long Label,
+        long RowId,
+        long ParentLabel,
+        ushort Depth,
+        byte Flags,
+        byte Attributes);
+    private sealed record ProfileContext(long? CurrentUserLabel, IReadOnlySet<long> SystemRootLabels);
+
+    private sealed class ProfileRankMap
+    {
+        private const long InitialLabelSpacing = 1L << 12;
+        private const int RankEntryBytes = 28;
+        private readonly ProfileRankEntry[] _entries;
+        private readonly ProfileRankEntry _root;
+
+        private ProfileRankMap(ProfileRankEntry[] entries)
+        {
+            _entries = entries;
+            _root = entries[0];
+            if (_root.ParentLabel != _root.Label) throw new InvalidOperationException("Short-query rank map root is invalid.");
+        }
+
+        public int Count => _entries.Length;
+        public ProfileRankEntry Root => _root;
+        public ProfileRankEntry this[int index] => _entries[index];
+
+        public static ProfileRankMap Read(SqliteConnection connection)
+        {
+            var entries = new List<ProfileRankEntry>();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT payload,entry_count FROM short_query_rank_chunks ORDER BY first_label;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var payload = (byte[])reader[0];
+                var count = reader.GetInt32(1);
+                if (payload.Length != checked(count * RankEntryBytes))
+                {
+                    throw new InvalidOperationException("Short-query rank map payload is invalid.");
+                }
+
+                for (var index = 0; index < count; index++)
+                {
+                    var offset = index * RankEntryBytes;
+                    entries.Add(new ProfileRankEntry(
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 16, 8)),
+                        BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset + 24, 2)),
+                        payload[offset + 26],
+                        payload[offset + 27]));
+                }
+            }
+
+            return new ProfileRankMap(entries.ToArray());
+        }
+
+        public int IndexOf(long label)
+        {
+            if (label % InitialLabelSpacing == 0)
+            {
+                var directIndex = label / InitialLabelSpacing - 1;
+                if ((ulong)directIndex < (ulong)_entries.Length && _entries[directIndex].Label == label)
+                {
+                    return (int)directIndex;
+                }
+            }
+
+            var low = 0;
+            var high = _entries.Length - 1;
+            while (low <= high)
+            {
+                var middle = low + (high - low) / 2;
+                var comparison = _entries[middle].Label.CompareTo(label);
+                if (comparison == 0) return middle;
+                if (comparison < 0) low = middle + 1;
+                else high = middle - 1;
+            }
+
+            throw new InvalidOperationException("Short-query rank label is out of range.");
+        }
+
+        public long? FindLabel(long rowId)
+        {
+            foreach (var entry in _entries)
+            {
+                if (entry.RowId == rowId) return entry.Label;
+            }
+
+            return null;
+        }
+
+        public Dictionary<long, long> FindLabels(IReadOnlySet<long> rowIds)
+        {
+            var result = new Dictionary<long, long>();
+            foreach (var entry in _entries)
+            {
+                if (rowIds.Contains(entry.RowId)) result.Add(entry.RowId, entry.Label);
+            }
+
+            return result;
+        }
+    }
 
     private sealed class Options
     {

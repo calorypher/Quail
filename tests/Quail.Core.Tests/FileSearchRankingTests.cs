@@ -1,4 +1,5 @@
 using Quail.Core;
+using Microsoft.Data.Sqlite;
 
 namespace Quail.Core.Tests;
 
@@ -188,6 +189,44 @@ public sealed class FileSearchRankingTests : IDisposable
         Assert.Equal(
             ["Alice", "xa-user-substring.txt", "za-user-substring.txt", "a"],
             results.Select(result => result.Name));
+    }
+
+    [Theory]
+    [InlineData("a")]
+    [InlineData("ks")]
+    public void Runtime_location_map_matches_authoritative_parent_walk_for_context_changes(string query)
+    {
+        var store = Build($"short-runtime-map-{query}.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var aliceDesktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, aliceDesktop, 5, $"{query}-current.txt");
+            var appData = AddDirectory(sink, alice, 6, "AppData", hidden: true);
+            AddFile(sink, appData, 7, $"{query}-internal.txt");
+            var bob = AddDirectory(sink, users, 8, "Bob");
+            AddFile(sink, bob, 9, $"{query}-other-user.txt");
+            var windows = AddDirectory(sink, Root, 10, "Windows");
+            AddFile(sink, windows, 11, $"{query}-system.txt");
+            AddFile(sink, Root, 12, $"other-{query}.txt");
+        });
+        FileSearchRankingContext[] contexts =
+        [
+            Context,
+            new FileSearchRankingContext("x:\\users\\alice", ["x:\\windows"]),
+            new FileSearchRankingContext("X:\\Users\\Bob", ["X:\\Windows"]),
+            new FileSearchRankingContext(null, ["X:\\Users\\Alice\\Desktop"])
+        ];
+
+        using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Mode=ReadOnly;Pooling=False");
+        connection.Open();
+        foreach (var context in contexts)
+        {
+            var authoritative = ShortQueryIndex.SearchAuthoritative(connection, query, 50, context);
+            var optimized = ShortQueryIndex.Search(connection, query, 50, context);
+
+            Assert.Equal(authoritative.Select(result => result.FileId), optimized.Select(result => result.FileId));
+        }
     }
 
     [Fact]

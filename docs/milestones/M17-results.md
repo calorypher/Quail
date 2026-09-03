@@ -2,8 +2,8 @@
 
 ## Status
 
-**IMPLEMENTATION IN PROGRESS — short-query latency remains blocked; final physical-host acceptance is not authorized.**
-PR #10 is not ready to merge. The M17 performance campaign below remains valid
+**IMPLEMENTATION CANDIDATE — the bounded runtime-ranking blocker is solved; final physical-host acceptance remains pending.**
+PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
 it is not acceptance evidence because that commit weakened short-query
 candidate recall.
@@ -68,19 +68,102 @@ same operation on v3 released 172,699,648 B. The v3 direct-build copy is
 was 14,244.904 ms; this is evidence for M17.5, not a rebuild optimization claim.
 
 Focused direct `ShortQueryIndex.Search` measurements on the v3 frozen-C copy
-remain above the M17 product budget: one-character samples were 642.338 and
-443.723 ms; two-character samples were 364.640 and 371.657 ms. These include
-rank-map loading, runtime location classification, complete posting decode, and
-result reconstruction, but exclude App/Core/UI scheduling and rendering. The
-full-recall runtime ranking path still scans broad streams, so M17 must not run
-the final M16 8x3 campaign or be presented for QA. Avoiding that scan without
-weakening ranking requires a further bounded design decision; it was not folded
-into this footprint correction.
+before the runtime-ranking correction were one-character 642.338 and 443.723 ms
+and two-character 364.640 and 371.657 ms. These figures triggered the bounded
+runtime-ranking continuation recorded below; they are retained as the direct
+before baseline.
+
+## Bounded runtime-ranking correction
+
+The repeatable `profile-search` helper decomposed the unchanged pre-correction
+path on the disposable frozen-C v3 database. It disproved the initial assumption
+that repeated parent walks were the primary cost. One representative isolated
+pass produced:
+
+| Component | M16 one-character | M16 two-character |
+| --- | ---: | ---: |
+| Rank-map payload decode/load | 42.620 ms | 42.620 ms |
+| Existing current-user/system context resolution | 343.412 ms | 343.412 ms |
+| Posting SQLite read | 0.515 ms | 0.039 ms |
+| Posting decode | 3.215 ms | 0.139 ms |
+| Rank-label lookup | 1.070 ms | 0.091 ms |
+| Repeated parent-walk location classification | 16.681 ms | 0.986 ms |
+| Selection and result reconstruction | 10.180 ms | 12.222 ms |
+| Unchanged production Search total | 436.839 ms | 365.703 ms |
+
+The context lookup was dominant because finding the namespace root scanned for
+`file_id=parent_file_id`, while child lookup used `COLLATE NOCASE` against the
+existing binary `(parent_file_id,name)` index. The bounded correction instead
+uses the rank map's known root rowid, enumerates only the indexed children of
+each path parent and compares those few names case-insensitively in managed
+code, then resolves all requested context rowids in one rank-map scan. This
+reduced context resolution to 11.5-11.7 ms without adding a persistent index.
+
+The production search now derives a transient one-byte-per-rank location map.
+Its topology-memoized construction took 12.8-13.2 ms for 850,688 entries. The
+final map is 850,688 bytes; construction allocated 4,254,096 bytes including
+temporary topology arrays. The complete managed rank array retained by a
+hypothetical cache is about 27,222,232 bytes. A preloaded rank/map experiment
+searched the representative streams in 13.7-19.6 ms, but production deliberately
+does not retain that state: the uncached path already has sufficient margin and
+avoids adding about 28 MB to steady process memory. Measured production calls
+allocated 56.4-57.2 MB transiently and retained only about 18-25 KB after a
+forced collection.
+
+The derived map is runtime-only and uses the searching process's
+`FileSearchRankingContext`; no user identity is persisted. It is rebuilt for
+every short-query call, so index generation, rebuild, sync, and context changes
+cannot reuse stale classification. The persistent format remains
+`compact-short-query-v3` and the v3 footprint is unchanged.
+
+The helper verifies every one of the 850,688 map entries against the original
+parent-walk classifier before comparing exact result identities and order. The
+production result sequence matched that authoritative path for the M16 one-
+and two-character shapes and a 588,955-posting broad one-character stream.
+Permanent tests also compare both paths for `a` and `ks` across current-user,
+other-user, internal, default-system, and runtime explicit-system contexts.
+
+Focused direct production samples on fresh helper processes were:
+
+| Shape | Postings | Samples (ms) |
+| --- | ---: | ---: |
+| M16 one-character | 128,256 | 85.973; 47.749; 44.047 |
+| M16 two-character | 7,567 | 41.512; 41.738; 42.901 |
+| Broad one-character | 588,955 | 103.531; 63.100; 59.776 |
+
+The first broad sample is slightly above the approximate 100 ms spike
+preference but remains far from the 250 ms end-to-end guardrail; the contracted
+M16 one/two-character shapes retain direct-search margin for Core/App/UI work.
+Ranking-aware early termination and new chunk summaries were not attempted:
+the correctness-preserving complete scan already meets the feasibility goal,
+so adding persistent metadata or skip logic would be unjustified scope.
+
+The final canonical M16 8x3 remains deliberately unrun. This continuation ends
+at a clean implementation/evidence checkpoint for execution-thread QA and the
+later user-owned physical acceptance sequence.
+
+Verification for the runtime-ranking candidate:
+
+- diagnostic helper Release build: PASS, zero warnings/errors;
+- focused short-query/ranking/mutation/multi-index suite: 49 PASS;
+- full `Quail.Core.Tests` Release suite: 204 PASS;
+- `Quail.App` Release build: PASS, zero warnings/errors;
+- `git diff --check`: PASS;
+- ignored detailed evidence:
+  `artifacts/m17/footprint-f81780f/runtime-profile-v3-c-production-k-ks.json`,
+  `runtime-profile-v3-c-production-broad-one.json`,
+  `runtime-profile-v3-c-memory.json`,
+  `runtime-search-v3-c-final-k-ks.json`, and
+  `runtime-search-v3-c-final-broad-one.json`.
+
+**Decision A for this continuation:** the bounded M17 runtime blocker is solved.
+The branch is ready for execution-thread QA and later final user-owned physical
+acceptance, but M17 is not complete and PR #10 remains DO NOT MERGE.
 
 ### User-owned physical-host final run pending
 
 The final run must start from the final clean production commit. Schema v4 with
-the `compact-short-query-v2` format intentionally treats the earlier v1 compact
+the `compact-short-query-v3` format intentionally treats the earlier v1/v2 compact
 postings as rebuild-required; do not attempt an in-place upgrade.
 
 1. Build the affected Release application. Start that build normally, open

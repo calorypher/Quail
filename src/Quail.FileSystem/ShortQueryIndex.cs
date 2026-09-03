@@ -121,7 +121,22 @@ internal static class ShortQueryIndex
         SqliteConnection connection,
         string query,
         int limit,
-        FileSearchRankingContext context)
+        FileSearchRankingContext context) =>
+        SearchCore(connection, query, limit, context, useRuntimeLocationMap: true);
+
+    internal static IReadOnlyList<FileSearchResult> SearchAuthoritative(
+        SqliteConnection connection,
+        string query,
+        int limit,
+        FileSearchRankingContext context) =>
+        SearchCore(connection, query, limit, context, useRuntimeLocationMap: false);
+
+    private static IReadOnlyList<FileSearchResult> SearchCore(
+        SqliteConnection connection,
+        string query,
+        int limit,
+        FileSearchRankingContext context,
+        bool useRuntimeLocationMap)
     {
         if (!IsCurrent(connection))
         {
@@ -130,6 +145,7 @@ internal static class ShortQueryIndex
 
         var ranks = ReadRanks(connection);
         var contextInfo = ResolveContext(connection, ranks, context);
+        var locations = useRuntimeLocationMap ? BuildLocationMap(ranks, contextInfo) : null;
         var selected = new List<long>[7, 4];
         for (var location = 0; location < 7; location++)
         {
@@ -154,8 +170,10 @@ internal static class ShortQueryIndex
             if ((uint)matchClass >= 4) throw new InvalidOperationException("Short-query posting match class is invalid.");
             foreach (var label in DecodeLabels((byte[])reader[1]))
             {
-                var entry = ranks.Get(label);
-                var location = (int)ClassifyLocation(entry, ranks, contextInfo);
+                var rankIndex = ranks.IndexOf(label);
+                var location = locations is null
+                    ? (int)ClassifyLocation(ranks[rankIndex], ranks, contextInfo)
+                    : locations[rankIndex];
                 var bucket = selected[location, matchClass];
                 if (bucket.Count < limit) bucket.Add(label);
             }
@@ -679,7 +697,10 @@ internal static class ShortQueryIndex
 
     private static RankMap ReadRanks(SqliteConnection connection)
     {
-        var entries = new List<RankEntry>();
+        using var countCommand = connection.CreateCommand();
+        countCommand.CommandText = "SELECT coalesce(sum(entry_count), 0) FROM short_query_rank_chunks;";
+        var entries = new RankEntry[checked((int)(long)countCommand.ExecuteScalar()!)];
+        var position = 0;
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT payload,entry_count FROM short_query_rank_chunks ORDER BY first_label;";
         using var reader = command.ExecuteReader();
@@ -695,16 +716,17 @@ internal static class ShortQueryIndex
             for (var index = 0; index < count; index++)
             {
                 var offset = index * RankEntryBytes;
-                entries.Add(new RankEntry(
+                entries[position++] = new RankEntry(
                     BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8)),
                     BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)),
                     BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 16, 8)),
                     BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(offset + 24, 2)),
                     payload[offset + 26],
-                    payload[offset + 27]));
+                    payload[offset + 27]);
             }
         }
 
+        if (position != entries.Length) throw new InvalidOperationException("Short-query rank map entry count is invalid.");
         return new RankMap(entries);
     }
 
@@ -1080,16 +1102,23 @@ internal static class ShortQueryIndex
 
     private static ContextInfo ResolveContext(SqliteConnection connection, RankMap ranks, FileSearchRankingContext context)
     {
-        var currentUser = ResolvePathLabel(connection, ranks, context.CurrentUserProfilePath);
-        var systemRoots = context.SystemRootPaths
-            .Select(path => ResolvePathLabel(connection, ranks, path))
-            .Where(label => label is not null)
-            .Select(label => label!.Value)
+        var currentUserRowId = ResolvePathRowId(connection, ranks, context.CurrentUserProfilePath);
+        var systemRootRowIds = context.SystemRootPaths
+            .Select(path => ResolvePathRowId(connection, ranks, path))
+            .Where(rowId => rowId is not null)
+            .Select(rowId => rowId!.Value)
             .ToHashSet();
-        return new ContextInfo(currentUser, systemRoots);
+        var requestedRowIds = systemRootRowIds.ToHashSet();
+        if (currentUserRowId is long userRowId) requestedRowIds.Add(userRowId);
+        var labelsByRowId = ranks.FindLabels(requestedRowIds);
+        return new ContextInfo(
+            currentUserRowId is long currentRowId && labelsByRowId.TryGetValue(currentRowId, out var currentLabel)
+                ? currentLabel
+                : null,
+            systemRootRowIds.Where(labelsByRowId.ContainsKey).Select(rowId => labelsByRowId[rowId]).ToHashSet());
     }
 
-    private static long? ResolvePathLabel(SqliteConnection connection, RankMap ranks, string? path)
+    private static long? ResolvePathRowId(SqliteConnection connection, RankMap ranks, string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         var mountSegments = FileSearchRankingContext.GetSegments(GetMeta(connection, "mount_point"));
@@ -1104,26 +1133,105 @@ internal static class ShortQueryIndex
         long rowId;
         using (var root = connection.CreateCommand())
         {
-            root.CommandText = "SELECT rowid,file_id FROM namespace_entries WHERE file_id=parent_file_id LIMIT 1;";
+            rowId = ranks.Root.RowId;
+            root.CommandText = "SELECT file_id FROM namespace_entries WHERE rowid=$rowid;";
+            root.Parameters.AddWithValue("$rowid", rowId);
             using var reader = root.ExecuteReader();
             if (!reader.Read()) return null;
-            rowId = reader.GetInt64(0);
-            parent = new NativeFileId((byte[])reader[1]);
+            parent = new NativeFileId((byte[])reader[0]);
         }
 
         for (var index = mountSegments.Count; index < pathSegments.Count; index++)
         {
             using var child = connection.CreateCommand();
-            child.CommandText = "SELECT rowid,file_id FROM namespace_entries WHERE parent_file_id=$parent AND name=$name COLLATE NOCASE LIMIT 1;";
+            child.CommandText = "SELECT rowid,file_id,name FROM namespace_entries WHERE parent_file_id=$parent;";
             child.Parameters.Add("$parent", SqliteType.Blob).Value = parent.Bytes.ToArray();
-            child.Parameters.AddWithValue("$name", pathSegments[index]);
             using var reader = child.ExecuteReader();
-            if (!reader.Read()) return null;
-            rowId = reader.GetInt64(0);
-            parent = new NativeFileId((byte[])reader[1]);
+            var found = false;
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(2), pathSegments[index], StringComparison.OrdinalIgnoreCase)) continue;
+                rowId = reader.GetInt64(0);
+                parent = new NativeFileId((byte[])reader[1]);
+                found = true;
+                break;
+            }
+
+            if (!found) return null;
         }
 
-        return ranks.FindLabel(rowId);
+        return rowId;
+    }
+
+    private static byte[] BuildLocationMap(RankMap ranks, ContextInfo context)
+    {
+        const byte currentUserZone = 1;
+        const byte otherUserZone = 2;
+        var locations = new byte[ranks.Count];
+        var status = new byte[ranks.Count];
+        var dynamicSystem = new bool[ranks.Count];
+        var userZone = new byte[ranks.Count];
+        var appDataSubtree = new bool[ranks.Count];
+        var systemRootIndices = context.SystemRootLabels.Select(ranks.IndexOf).ToHashSet();
+        var currentUserIndex = context.CurrentUserLabel is long currentUserLabel ? ranks.IndexOf(currentUserLabel) : -1;
+        var currentUserDepth = currentUserIndex >= 0 ? ranks[currentUserIndex].Depth : (ushort)0;
+        var userParentIndex = currentUserIndex >= 0 && currentUserDepth >= 2
+            ? ranks.IndexOf(ranks[currentUserIndex].ParentLabel)
+            : -1;
+
+        for (var index = 0; index < ranks.Count; index++) Resolve(index);
+        return locations;
+
+        void Resolve(int index)
+        {
+            if (status[index] == 2) return;
+            if (status[index] == 1) throw new InvalidOperationException("Cycle detected in short-query rank topology.");
+            status[index] = 1;
+            var entry = ranks[index];
+            var parentIndex = entry.ParentLabel == entry.Label ? -1 : ranks.IndexOf(entry.ParentLabel);
+            if (parentIndex >= 0) Resolve(parentIndex);
+
+            dynamicSystem[index] = systemRootIndices.Contains(index) || parentIndex >= 0 && dynamicSystem[parentIndex];
+            if (index == currentUserIndex)
+            {
+                userZone[index] = currentUserZone;
+            }
+            else if (index == userParentIndex)
+            {
+                userZone[index] = otherUserZone;
+            }
+            else if (parentIndex >= 0 && userZone[parentIndex] is currentUserZone or otherUserZone)
+            {
+                userZone[index] = userZone[parentIndex];
+                appDataSubtree[index] = ranks[parentIndex].Depth == currentUserDepth
+                    ? (entry.Flags & 1) != 0
+                    : appDataSubtree[parentIndex];
+            }
+
+            var internalEntry = (entry.Attributes & InternalAttributes) != 0 || appDataSubtree[index];
+            FileSearchLocation location;
+            if ((entry.Flags & 2) != 0 || dynamicSystem[index])
+            {
+                location = FileSearchLocation.SystemHeavy;
+            }
+            else if (userZone[index] == currentUserZone)
+            {
+                location = internalEntry ? FileSearchLocation.CurrentUserInternal : FileSearchLocation.CurrentUserVisible;
+            }
+            else if (userZone[index] == otherUserZone)
+            {
+                location = internalEntry ? FileSearchLocation.OtherUserInternal : FileSearchLocation.OtherUserVisible;
+            }
+            else
+            {
+                location = (entry.Attributes & InternalAttributes) != 0
+                    ? FileSearchLocation.OtherInternal
+                    : FileSearchLocation.OtherVisible;
+            }
+
+            locations[index] = (byte)location;
+            status[index] = 2;
+        }
     }
 
     private static FileSearchLocation ClassifyLocation(RankEntry entry, RankMap ranks, ContextInfo context)
@@ -1284,9 +1392,9 @@ internal static class ShortQueryIndex
     {
         private readonly RankEntry[] _entries;
 
-        public RankMap(IReadOnlyList<RankEntry> entries)
+        public RankMap(RankEntry[] entries)
         {
-            _entries = entries.ToArray();
+            _entries = entries;
             for (var index = 0; index < _entries.Length; index++)
             {
                 if (_entries[index].Label <= 0 ||
@@ -1295,16 +1403,27 @@ internal static class ShortQueryIndex
                     throw new InvalidOperationException("Short-query rank labels are invalid.");
                 }
             }
+
+            if (_entries.Length == 0 || _entries[0].ParentLabel != _entries[0].Label)
+            {
+                throw new InvalidOperationException("Short-query rank map root is invalid.");
+            }
         }
 
-        public RankEntry Get(long label)
+        public int Count => _entries.Length;
+        public RankEntry Root => _entries[0];
+        public RankEntry this[int index] => _entries[index];
+
+        public RankEntry Get(long label) => _entries[IndexOf(label)];
+
+        public int IndexOf(long label)
         {
             if (label % InitialLabelSpacing == 0)
             {
                 var directIndex = label / InitialLabelSpacing - 1;
                 if ((ulong)directIndex < (ulong)_entries.Length && _entries[directIndex].Label == label)
                 {
-                    return _entries[directIndex];
+                    return (int)directIndex;
                 }
             }
 
@@ -1314,7 +1433,7 @@ internal static class ShortQueryIndex
             {
                 var middle = low + (high - low) / 2;
                 var comparison = _entries[middle].Label.CompareTo(label);
-                if (comparison == 0) return _entries[middle];
+                if (comparison == 0) return middle;
                 if (comparison < 0) low = middle + 1;
                 else high = middle - 1;
             }
@@ -1322,14 +1441,16 @@ internal static class ShortQueryIndex
             throw new InvalidOperationException("Short-query rank label is out of range.");
         }
 
-        public long? FindLabel(long rowId)
+        public Dictionary<long, long> FindLabels(IReadOnlySet<long> rowIds)
         {
+            var result = new Dictionary<long, long>();
+            if (rowIds.Count == 0) return result;
             foreach (var entry in _entries)
             {
-                if (entry.RowId == rowId) return entry.Label;
+                if (rowIds.Contains(entry.RowId)) result.Add(entry.RowId, entry.Label);
             }
 
-            return null;
+            return result;
         }
     }
 }
