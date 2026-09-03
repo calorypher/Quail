@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 using Quail.Core;
 
@@ -76,6 +77,96 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT max(posting_count) FROM short_query_posting_chunks";
         Assert.True(Convert.ToInt64(command.ExecuteScalar()) <= 1_024);
+    }
+
+    [Fact]
+    public void Short_query_clustered_creates_do_not_exhaust_a_fresh_rank_label_gap()
+    {
+        var lower = Id("0000000000000011");
+        var upper = Id("0000000000000012");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(lower, _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(upper, _root, "zzzz", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var records = Enumerable.Range(0, 14)
+            .Select(index =>
+            {
+                var name = new string((char)('y' - index), 4);
+                return new JournalRecord(
+                    new NamespaceRecord(Id($"000000000000{index + 0x20:X4}"), _root, name, 0, index + 1, 2),
+                    UsnReason.FileCreate);
+            })
+            .ToArray();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, records)]);
+
+        var names = Store.ReadAllForDiagnostics().Select(record => record.Name).ToHashSet();
+        Assert.All(records, record => Assert.Contains(record.NamespaceRecord.Name, names));
+        Assert.Equal("mmmm", Assert.Single(Store.Search(new FileSearchQuery("m", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Short_query_coalesces_one_mutation_without_relabeling_metadata_only_updates()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var created = Id("0000000000000021");
+        var metadataCalls = 0;
+        FileMetadata Metadata(NamespaceRecord _)
+        {
+            metadataCalls++;
+            return new FileMetadata(20, 200);
+        }
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 120, 2), UsnReason.FileCreate),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 121, 2), UsnReason.DataExtend),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 122, 2), UsnReason.BasicInfoChange))],
+            acquireMetadata: Metadata);
+
+        Assert.Equal(1, metadataCalls);
+        var labelBeforeMetadata = ReadRankLabel(created);
+        metadataCalls = 0;
+        var metadataOnly = Enumerable.Range(0, 32)
+            .Select(index => new JournalRecord(
+                new NamespaceRecord(created, _directoryId, "probe.txt", 0, 130 + index, 2),
+                index % 2 == 0 ? UsnReason.DataOverwrite : UsnReason.BasicInfoChange))
+            .ToArray();
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(200), [Batch(300, metadataOnly)], acquireMetadata: Metadata);
+
+        Assert.Equal(1, metadataCalls);
+        Assert.Equal(labelBeforeMetadata, ReadRankLabel(created));
+        Assert.Equal("probe.txt", Assert.Single(Store.Search(new FileSearchQuery("pro", Limit: 1))).Name);
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(
+                400,
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 170, 2), UsnReason.RenameOldName),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "renamed.txt", 0, 171, 2), UsnReason.RenameNewName))]);
+
+        Assert.Empty(Store.Search(new FileSearchQuery("pro", Limit: 50)));
+        Assert.Equal("renamed.txt", Assert.Single(Store.Search(new FileSearchQuery("ren", Limit: 1))).Name);
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(new NamespaceRecord(created, _directoryId, "renamed.txt", 0, 180, 2), UsnReason.FileDelete))]);
+
+        Assert.Empty(Store.Search(new FileSearchQuery("ren", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
     }
 
     [Fact]
@@ -347,6 +438,35 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         var full = new byte[16];
         legacy.Bytes.Span.CopyTo(full);
         return new NativeFileId(full);
+    }
+
+    private long ReadRankLabel(NativeFileId fileId)
+    {
+        var canonical = fileId.Bytes.Length == 16 ? fileId : V3(fileId);
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+        using var rowIdCommand = connection.CreateCommand();
+        rowIdCommand.CommandText = "SELECT rowid FROM namespace_entries WHERE file_id=$id;";
+        rowIdCommand.Parameters.Add("$id", SqliteType.Blob).Value = canonical.Bytes.ToArray();
+        var rowId = Convert.ToInt64(rowIdCommand.ExecuteScalar());
+        using var ranks = connection.CreateCommand();
+        ranks.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks;";
+        using var reader = ranks.ExecuteReader();
+        while (reader.Read())
+        {
+            var count = reader.GetInt32(0);
+            var payload = (byte[])reader[1];
+            for (var index = 0; index < count; index++)
+            {
+                var offset = index * 28;
+                if (BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)) == rowId)
+                {
+                    return BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8));
+                }
+            }
+        }
+
+        throw new InvalidOperationException("Short-query rank label is missing.");
     }
     public void Dispose()
     {

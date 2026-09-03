@@ -2,7 +2,9 @@
 
 ## Status
 
-**IMPLEMENTATION CANDIDATE — the bounded runtime-ranking blocker is solved; final physical-host acceptance remains pending.**
+**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a bounded
+incremental-maintenance correction awaits independent QA; final physical-host
+acceptance remains pending.**
 PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
 it is not acceptance evidence because that commit weakened short-query
@@ -160,6 +162,61 @@ Verification for the runtime-ranking candidate:
 The branch is ready for execution-thread QA and later final user-owned physical
 acceptance, but M17 is not complete and PR #10 remains DO NOT MERGE.
 
+## Interrupted physical acceptance on `1f53faa` (not acceptance evidence)
+
+The initial user-owned final acceptance attempt started from
+`1f53faad774fd85e0786278477115fc01d9ce58a`. Fresh production rebuilds completed
+successfully before mutation testing:
+
+| Index | Records | State immediately after rebuild | v3 bytes/posting |
+| --- | ---: | --- | ---: |
+| Current C: | 462,868 | complete | 3.095 |
+| Current D: | 20,304 | complete | 3.491 |
+
+The first ordinary D: mutation created
+`D:\quail-m17-mutation-probe.txt`. The normal **Quail Indexes** D: **Refresh**
+then returned `Rebuild required` with
+`journal-read-or-parse-failed: Short-query rank label gap is exhausted; rebuild is required.`
+The D: CLI status is consequently `rebuild-required` with 20,304 records. D:
+was not rebuilt after this failure, and the final canonical M16 8x3 was not
+started. Any partial evidence under `artifacts/m17/final-1f53faa/` is failed,
+interrupted acceptance evidence and must be retained without overwrite.
+
+The deterministic root cause has two parts. Before this correction, `ApplyBatch`
+processed every raw record for a file sequentially and performed compact
+remove/reinsert maintenance even for metadata-only state. Separately, the
+midpoint allocator could exhaust a freshly built 2^12 label gap after fourteen
+distinct leaf creates ordered into that one gap; the focused regression failed
+at `ShortQueryIndex.AllocateLabel` with the same rebuild-required message before
+the fix. Repeated metadata records alone did not need a new static rank label,
+but were still doing unnecessary compact mutation work. The physical failed
+Refresh did not retain its complete raw USN stream, so this evidence does not
+claim which of those two conditions dominated that one batch; both are removed
+as independent, deterministic lifecycle risks.
+
+The bounded remediation keeps `compact-short-query-v3` unchanged:
+
+- coalesce a journal batch to one effective transition per `FileId`, preserving
+  standalone rename-old behavior and using the final actionable record;
+- update ordinary namespace metadata without compact remove/reinsert when
+  parent, name, directory state, and hidden/system ranking attributes are
+  unchanged;
+- on a real exhausted leaf gap, locally relabel at most 128 adjacent leaf
+  entries from one static-order chunk, transactionally rewriting only their
+  rank/order/posting entries. Directories are deliberately excluded, so no
+  external `ParentLabel` references change; a case outside this bounded recovery
+  remains the existing explicit rebuild-required path.
+
+Focused automated evidence for the correction is 49 PASS across
+`IncrementalIndexStoreTests`, `MetadataIndexTests`, `FileSearchTests`, and
+`FileSearchRankingTests`. The new deterministic regressions cover clustered
+creates, repeated create/metadata records with rank-label preservation, rename,
+and delete. Final automated verification for this correction: full
+`Quail.Core.Tests` Release 206 PASS and `Quail.App` Release build PASS with zero
+warnings and zero errors. The measurement helper and frozen-C direct-search
+evidence are unchanged because neither helper nor production search execution
+changed.
+
 ### User-owned physical-host final run pending
 
 The final run must start from the final clean production commit. Schema v4 with
@@ -176,15 +233,17 @@ a normal user index and never modify its source file:
 
 #### A. Current production lifecycle and mutation evidence
 
-1. Build the affected Release application. Start that build normally, open
-   **Quail Indexes**, and select **Rebuild** once for each currently configured
-   C: and D: filesystem index. Accept the existing UAC prompt and wait for each
-   operation to report success. This is the established privileged workflow: the
-   elevated worker validates the catalog and protected storage, builds in
-   staging, then publishes the completed index. Do not call the worker command
-   line directly.
-2. Confirm both rebuilt current databases are complete with the existing CLI,
-   using their paths from `%LOCALAPPDATA%\Quail\indexes.json`:
+1. After this corrected candidate passes independent QA, build the affected
+   Release application. The current C: index was complete before the interrupted
+   mutation attempt and does not require a rebuild merely for this v3
+   maintenance correction. Through **Quail Indexes**, select **Rebuild** for
+   the current D: index exactly once; it is currently rebuild-required because
+   of the failed `1f53faa` Refresh. Accept the existing UAC prompt and wait for
+   success. This is the established privileged workflow: the elevated worker
+   validates the catalog and protected storage, builds in staging, then
+   publishes the completed index. Do not call the worker command line directly.
+2. Confirm current C: and the once-rebuilt D: are complete with the existing
+   CLI, using their paths from `%LOCALAPPDATA%\Quail\indexes.json`:
 
    ```powershell
    dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<current-C-database-path>'

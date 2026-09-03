@@ -22,6 +22,7 @@ public sealed class IndexStore
     private const uint FileAttributeReadOnly = 0x1;
     private const uint FileAttributeHidden = 0x2;
     private const uint FileAttributeSystem = 0x4;
+    private const uint ShortQueryRelevantAttributes = FileAttributeDirectory | FileAttributeHidden | FileAttributeSystem;
     private const int JournalTransitionTimeoutMilliseconds = 30_000;
     private readonly string _databasePath;
     private readonly IndexStoreJournalLifecycle _journalLifecycle;
@@ -721,25 +722,27 @@ public sealed class IndexStore
         Func<NamespaceRecord, FileMetadata> acquireMetadata)
     {
         var canonicalRecords = batch.Records.Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason)).ToArray();
+        var effectiveRecords = canonicalRecords
+            .GroupBy(record => record.NamespaceRecord.FileId)
+            .Select(CoalesceJournalRecords)
+            .ToArray();
         var metadata = new Dictionary<NativeFileId, FileMetadata>();
-        foreach (var group in canonicalRecords.GroupBy(record => record.NamespaceRecord.FileId))
+        foreach (var record in effectiveRecords)
         {
-            var reasons = group.Aggregate(0U, (current, record) => current | record.Reason);
-            var final = group.Last();
-            if (UsnReason.IsFileDelete(final.Reason))
+            if (UsnReason.IsFileDelete(record.Reason))
             {
                 continue;
             }
 
-            var requiresFallback = UsnReason.IsRenameNewName(reasons) && !EntryExists(connection, final.NamespaceRecord.FileId);
-            if (UsnReason.RequiresMetadataRefresh(reasons) || requiresFallback)
+            var requiresFallback = UsnReason.IsRenameNewName(record.Reason) && !EntryExists(connection, record.NamespaceRecord.FileId);
+            if (UsnReason.RequiresMetadataRefresh(record.Reason) || requiresFallback)
             {
-                metadata.Add(final.NamespaceRecord.FileId, acquireMetadata(final.NamespaceRecord));
+                metadata.Add(record.NamespaceRecord.FileId, acquireMetadata(record.NamespaceRecord));
             }
         }
         using var transaction = connection.BeginTransaction();
         var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
-        foreach (var record in canonicalRecords)
+        foreach (var record in effectiveRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
             {
@@ -792,6 +795,16 @@ public sealed class IndexStore
         NamespaceRecord record,
         FileMetadata? metadata)
     {
+        var existing = ReadShortQueryEntry(connection, record.FileId);
+        if (existing is not null &&
+            existing.Value.ParentFileId.Equals(record.ParentFileId) &&
+            string.Equals(existing.Value.Name, record.Name, StringComparison.Ordinal) &&
+            ((existing.Value.Attributes ^ record.Attributes) & ShortQueryRelevantAttributes) == 0)
+        {
+            Upsert(connection, transaction, record, metadata);
+            return;
+        }
+
         var affected = ShortQueryIndex.IsDirectory(connection, record.FileId)
             ? ShortQueryIndex.ReadSubtreeIds(connection, record.FileId)
             : new[] { record.FileId };
@@ -805,6 +818,26 @@ public sealed class IndexStore
         {
             ShortQueryIndex.InsertCurrentEntry(connection, transaction, fileId);
         }
+    }
+
+    private static JournalRecord CoalesceJournalRecords(IGrouping<NativeFileId, JournalRecord> group)
+    {
+        var records = group.ToArray();
+        if (records.All(record => UsnReason.IsRenameOldName(record.Reason)))
+        {
+            return records[^1];
+        }
+
+        var final = records.Last(record => !UsnReason.IsRenameOldName(record.Reason));
+        if (UsnReason.IsFileDelete(final.Reason))
+        {
+            return new JournalRecord(final.NamespaceRecord, UsnReason.FileDelete);
+        }
+
+        var reasons = records.Aggregate(0U, (current, record) => current | record.Reason);
+        return new JournalRecord(
+            final.NamespaceRecord,
+            reasons & ~(UsnReason.FileDelete | UsnReason.RenameOldName));
     }
 
     private static void Upsert(
@@ -836,6 +869,17 @@ public sealed class IndexStore
         command.CommandText = "SELECT 1 FROM namespace_entries WHERE file_id=$id LIMIT 1";
         command.Parameters.Add("$id", SqliteType.Blob).Value = fileId.Bytes.ToArray();
         return command.ExecuteScalar() is not null;
+    }
+
+    private static ShortQueryEntry? ReadShortQueryEntry(SqliteConnection connection, NativeFileId fileId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT parent_file_id,name,attributes FROM namespace_entries WHERE file_id=$id LIMIT 1;";
+        command.Parameters.Add("$id", SqliteType.Blob).Value = fileId.Bytes.ToArray();
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ShortQueryEntry(new NativeFileId((byte[])reader[0]), reader.GetString(1), checked((uint)reader.GetInt64(2)))
+            : null;
     }
 
     private static void Delete(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)
@@ -1517,4 +1561,6 @@ public sealed class IndexStore
             return new IndexStatus(IndexState.Incomplete, null, null, 0, null, null, exception.Message);
         }
     }
+
+    private readonly record struct ShortQueryEntry(NativeFileId ParentFileId, string Name, uint Attributes);
 }
