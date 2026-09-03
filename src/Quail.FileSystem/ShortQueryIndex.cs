@@ -9,8 +9,11 @@ internal static class ShortQueryIndex
     // ASCII-normalized representation under BINARY collation so build, lookup,
     // and incremental maintenance have one term identity without folding
     // non-ASCII literal substrings.
-    internal const string Format = "compact-short-query-v2";
-    private const long InitialLabelSpacing = 1L << 32;
+    internal const string Format = "compact-short-query-v3";
+    // This leaves twelve local midpoint insertions inside a freshly built gap
+    // while keeping direct-build labels close enough for compact postings.
+    // An exhausted gap remains an explicit rebuild-required recovery path.
+    private const long InitialLabelSpacing = 1L << 12;
     private const int ChunkEntryCount = 1_024;
     private const int RankEntryBytes = 28;
     private const uint InternalAttributes = 0x2 | 0x4;
@@ -154,10 +157,7 @@ internal static class ShortQueryIndex
                 var entry = ranks.Get(label);
                 var location = (int)ClassifyLocation(entry, ranks, contextInfo);
                 var bucket = selected[location, matchClass];
-                if (bucket.Count < limit)
-                {
-                    bucket.Add(label);
-                }
+                if (bucket.Count < limit) bucket.Add(label);
             }
         }
 
@@ -176,6 +176,7 @@ internal static class ShortQueryIndex
 
         return results;
     }
+
 
     public static IReadOnlyList<NativeFileId> ReadSubtreeIds(SqliteConnection connection, NativeFileId root)
     {
@@ -210,19 +211,16 @@ internal static class ShortQueryIndex
         if (node is null) return;
         node.FullPath = ResolveNodePath(connection, node);
         node.SortKey = CreateStaticSortKey(node);
-        var order = FindOrderEntry(connection, node.SortKey);
-        if (order is null)
-        {
-            throw new InvalidOperationException("Short-query rank order is missing an authoritative entry.");
-        }
+        var label = FindRankLabelByRowId(connection, node.RowId)
+            ?? throw new InvalidOperationException("Short-query rank order is missing an authoritative entry.");
 
         foreach (var term in GetTerms(node.Name))
         {
-            RemovePostingLabel(connection, transaction, term, order.Label);
+            RemovePostingLabel(connection, transaction, term, label);
         }
 
-        RemoveRankEntry(connection, transaction, order.Label);
-        RemoveOrderEntry(connection, transaction, node.SortKey);
+        RemoveOrderEntry(connection, transaction, label);
+        RemoveRankEntry(connection, transaction, label);
     }
 
     public static void InsertCurrentEntry(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)
@@ -230,8 +228,8 @@ internal static class ShortQueryIndex
         var node = ReadNode(connection, fileId) ?? throw new InvalidOperationException("Short-query mutation references a missing entry.");
         node.FullPath = ResolveNodePath(connection, node);
         node.SortKey = CreateStaticSortKey(node);
-        var (previous, next) = FindOrderNeighbors(connection, node.SortKey);
-        var label = AllocateLabel(previous?.Label, next?.Label);
+        var insertion = FindOrderInsertion(connection, node.SortKey);
+        var label = AllocateLabel(insertion.PreviousLabel, insertion.NextLabel);
         var parentNode = node.FileId.Equals(node.ParentFileId)
             ? node
             : ReadNode(connection, node.ParentFileId) ?? throw new InvalidOperationException("Short-query mutation found a missing parent.");
@@ -240,11 +238,11 @@ internal static class ShortQueryIndex
         node.RankLabel = label;
         node.ParentLabel = node.FileId.Equals(node.ParentFileId)
             ? label
-            : FindOrderEntry(connection, parentNode.SortKey)?.Label ?? throw new InvalidOperationException("Short-query mutation found a missing parent rank.");
+            : FindRankLabelByRowId(connection, parentNode.RowId) ?? throw new InvalidOperationException("Short-query mutation found a missing parent rank.");
         var result = new FileSearchResult(node.FileId, node.Name, node.FullPath, (node.Attributes & 0x10) != 0, null, null, null, node.Attributes);
         node.DefaultSystemHeavy = FileSearchRanking.Classify(result, "x", new FileSearchRankingContext(null)).Location == FileSearchLocation.SystemHeavy;
-        InsertOrderEntry(connection, transaction, new OrderEntry(label, node.SortKey));
         InsertRankEntry(connection, transaction, ToRankEntry(node));
+        InsertOrderEntry(connection, transaction, insertion, new OrderEntry(label, node.SortKey));
         foreach (var term in GetTerms(node.Name))
         {
             InsertPostingLabel(connection, transaction, term, label);
@@ -499,45 +497,33 @@ internal static class ShortQueryIndex
             firstLabel.Value = entries[0].RankLabel;
             lastLabel.Value = entries[^1].RankLabel;
             count.Value = entries.Length;
-            payload.Value = EncodeOrderEntries(entries.Select(entry => new OrderEntry(entry.RankLabel, entry.SortKey!)).ToArray());
+            payload.Value = EncodeOrderLabels(entries.Select(entry => entry.RankLabel).ToArray());
             insert.ExecuteNonQuery();
         }
     }
 
-    private static byte[] EncodeOrderEntries(IReadOnlyList<OrderEntry> entries)
+    private static byte[] EncodeOrderLabels(IReadOnlyList<long> labels)
     {
-        using var stream = new MemoryStream();
-        Span<byte> label = stackalloc byte[8];
-        foreach (var entry in entries)
+        var payload = new byte[checked(labels.Count * sizeof(long))];
+        for (var index = 0; index < labels.Count; index++)
         {
-            BinaryPrimitives.WriteInt64LittleEndian(label, entry.Label);
-            stream.Write(label);
-            WriteVarint(stream, checked((ulong)entry.SortKey.Length));
-            stream.Write(entry.SortKey);
+            BinaryPrimitives.WriteInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long)), labels[index]);
         }
 
-        return stream.ToArray();
+        return payload;
     }
 
-    private static List<OrderEntry> DecodeOrderEntries(byte[] payload, int expectedCount)
+    private static List<long> DecodeOrderLabels(byte[] payload, int expectedCount)
     {
-        var result = new List<OrderEntry>(expectedCount);
-        var offset = 0;
-        while (offset < payload.Length)
-        {
-            if (payload.Length - offset < 8) throw new InvalidOperationException("Short-query rank ordering payload is invalid.");
-            var label = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8));
-            offset += 8;
-            var length = ReadVarint(payload, ref offset);
-            if (length > int.MaxValue || payload.Length - offset < (int)length) throw new InvalidOperationException("Short-query rank ordering payload is invalid.");
-            var key = payload.AsSpan(offset, (int)length).ToArray();
-            offset += (int)length;
-            result.Add(new OrderEntry(label, key));
-        }
-
-        if (result.Count != expectedCount || result.Zip(result.Skip(1)).Any(pair => CompareBytes(pair.First.SortKey, pair.Second.SortKey) >= 0))
+        if (payload.Length != checked(expectedCount * sizeof(long)))
         {
             throw new InvalidOperationException("Short-query rank ordering payload is invalid.");
+        }
+
+        var result = new List<long>(expectedCount);
+        for (var index = 0; index < expectedCount; index++)
+        {
+            result.Add(BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long))));
         }
 
         return result;
@@ -784,6 +770,41 @@ internal static class ShortQueryIndex
         return firstReader.Read() ? new RankChunk(firstReader.GetInt64(0), firstReader.GetInt32(1), (byte[])firstReader[2]) : null;
     }
 
+    private static long? FindRankLabelByRowId(SqliteConnection connection, long rowId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks ORDER BY first_label;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var entry = DecodeRankEntries((byte[])reader[1], reader.GetInt32(0)).SingleOrDefault(candidate => candidate.RowId == rowId);
+            if (entry.Label != 0) return entry.Label;
+        }
+
+        return null;
+    }
+
+    private static byte[] ReadStaticSortKey(SqliteConnection connection, long label)
+    {
+        var chunk = FindRankChunk(connection, label, insert: false) ?? throw new InvalidOperationException("Short-query rank entry is missing.");
+        var rank = DecodeRankEntries(chunk.Payload, chunk.EntryCount).SingleOrDefault(entry => entry.Label == label);
+        if (rank.Label == 0) throw new InvalidOperationException("Short-query rank entry is missing.");
+        var node = ReadNodeByRowId(connection, rank.RowId) ?? throw new InvalidOperationException("Short-query rank entry references a missing node.");
+        node.FullPath = ResolveNodePath(connection, node);
+        return CreateStaticSortKey(node);
+    }
+
+    private static RankNode? ReadNodeByRowId(SqliteConnection connection, long rowId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT rowid,file_id,parent_file_id,name,attributes FROM namespace_entries WHERE rowid=$rowid;";
+        command.Parameters.AddWithValue("$rowid", rowId);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new RankNode(reader.GetInt64(0), new NativeFileId((byte[])reader[1]), new NativeFileId((byte[])reader[2]), reader.GetString(3), checked((uint)reader.GetInt64(4)))
+            : null;
+    }
+
     private static void SaveOrSplitRankChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, List<RankEntry> entries)
     {
         if (entries.Count <= ChunkEntryCount)
@@ -823,57 +844,53 @@ internal static class ShortQueryIndex
         command.ExecuteNonQuery();
     }
 
-    private static OrderEntry? FindOrderEntry(SqliteConnection connection, byte[] sortKey)
-    {
-        var chunk = FindOrderChunk(connection, sortKey, insert: false);
-        if (chunk is null) return null;
-        return DecodeOrderEntries(chunk.Payload, chunk.EntryCount).SingleOrDefault(entry => entry.SortKey.AsSpan().SequenceEqual(sortKey));
-    }
-
-    private static (OrderEntry? Previous, OrderEntry? Next) FindOrderNeighbors(SqliteConnection connection, byte[] sortKey)
+    private static OrderInsertion FindOrderInsertion(SqliteConnection connection, byte[] sortKey)
     {
         var chunk = FindOrderChunk(connection, sortKey, insert: true);
-        if (chunk is null) return (null, null);
-        var entries = DecodeOrderEntries(chunk.Payload, chunk.EntryCount);
-        var position = entries.FindIndex(entry => CompareBytes(entry.SortKey, sortKey) > 0);
-        if (position >= 0)
+        if (chunk is null) return new OrderInsertion(null, null, null, null, 0);
+
+        var labels = DecodeOrderLabels(chunk.Payload, chunk.EntryCount);
+        var low = 0;
+        var high = labels.Count;
+        while (low < high)
         {
-            return (position > 0 ? entries[position - 1] : PreviousOrderEntry(connection, chunk.FirstSortKey), entries[position]);
+            var middle = low + (high - low) / 2;
+            if (CompareBytes(ReadStaticSortKey(connection, labels[middle]), sortKey) > 0) high = middle;
+            else low = middle + 1;
         }
 
-        return (entries[^1], NextOrderEntry(connection, chunk.LastSortKey));
+        return new OrderInsertion(
+            low > 0 ? labels[low - 1] : PreviousOrderLabel(connection, chunk.FirstSortKey),
+            low < labels.Count ? labels[low] : NextOrderLabel(connection, chunk.LastSortKey),
+            chunk,
+            labels,
+            low);
     }
 
-    private static void InsertOrderEntry(SqliteConnection connection, SqliteTransaction transaction, OrderEntry entry)
+    private static void InsertOrderEntry(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OrderInsertion insertion,
+        OrderEntry entry)
     {
-        var chunk = FindOrderChunk(connection, entry.SortKey, insert: true);
-        if (chunk is null)
+        if (insertion.Chunk is null)
         {
-            InsertOrderChunk(connection, transaction, NextChunkId(connection, "short_query_rank_order_chunks"), [entry]);
+            InsertOrderChunk(connection, transaction, NextChunkId(connection, "short_query_rank_order_chunks"), [entry.Label]);
             return;
         }
 
-        var entries = DecodeOrderEntries(chunk.Payload, chunk.EntryCount);
-        var position = entries.FindIndex(candidate => CompareBytes(candidate.SortKey, entry.SortKey) > 0);
-        entries.Insert(position < 0 ? entries.Count : position, entry);
-        if (entries.Count <= ChunkEntryCount)
-        {
-            SaveOrderChunk(connection, transaction, chunk.ChunkId, entries);
-            return;
-        }
-
-        var split = entries.Count / 2;
-        SaveOrderChunk(connection, transaction, chunk.ChunkId, entries.Take(split).ToList());
-        InsertOrderChunk(connection, transaction, NextChunkId(connection, "short_query_rank_order_chunks"), entries.Skip(split).ToList());
+        var labels = insertion.Labels ?? throw new InvalidOperationException("Short-query rank order insertion is invalid.");
+        labels.Insert(insertion.Position, entry.Label);
+        SaveOrSplitOrderChunk(connection, transaction, insertion.Chunk.ChunkId, labels);
     }
 
-    private static void RemoveOrderEntry(SqliteConnection connection, SqliteTransaction transaction, byte[] sortKey)
+    private static void RemoveOrderEntry(SqliteConnection connection, SqliteTransaction transaction, long label)
     {
-        var chunk = FindOrderChunk(connection, sortKey, insert: false) ?? throw new InvalidOperationException("Short-query rank order is missing.");
-        var entries = DecodeOrderEntries(chunk.Payload, chunk.EntryCount);
-        if (entries.RemoveAll(entry => entry.SortKey.AsSpan().SequenceEqual(sortKey)) != 1) throw new InvalidOperationException("Short-query rank order is missing.");
-        if (entries.Count == 0) DeleteChunk(connection, transaction, "short_query_rank_order_chunks", chunk.ChunkId);
-        else SaveOrderChunk(connection, transaction, chunk.ChunkId, entries);
+        var chunk = FindOrderChunkByLabel(connection, label) ?? throw new InvalidOperationException("Short-query rank order is missing.");
+        var labels = DecodeOrderLabels(chunk.Payload, chunk.EntryCount);
+        if (!labels.Remove(label)) throw new InvalidOperationException("Short-query rank order is missing.");
+        if (labels.Count == 0) DeleteChunk(connection, transaction, "short_query_rank_order_chunks", chunk.ChunkId);
+        else SaveOrderChunk(connection, transaction, chunk.ChunkId, labels);
     }
 
     private static OrderChunk? FindOrderChunk(SqliteConnection connection, byte[] sortKey, bool insert)
@@ -890,53 +907,80 @@ internal static class ShortQueryIndex
         return firstReader.Read() ? new OrderChunk(firstReader.GetInt64(0), (byte[])firstReader[1], (byte[])firstReader[2], firstReader.GetInt32(3), (byte[])firstReader[4]) : null;
     }
 
-    private static OrderEntry? PreviousOrderEntry(SqliteConnection connection, byte[] firstSortKey)
+    private static long? PreviousOrderLabel(SqliteConnection connection, byte[] firstSortKey)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks WHERE last_sort_key < $key ORDER BY last_sort_key DESC LIMIT 1;";
         command.Parameters.Add("$key", SqliteType.Blob).Value = firstSortKey;
         using var reader = command.ExecuteReader();
         if (!reader.Read()) return null;
-        return DecodeOrderEntries((byte[])reader[1], reader.GetInt32(0))[^1];
+        return DecodeOrderLabels((byte[])reader[1], reader.GetInt32(0))[^1];
     }
 
-    private static OrderEntry? NextOrderEntry(SqliteConnection connection, byte[] lastSortKey)
+    private static long? NextOrderLabel(SqliteConnection connection, byte[] lastSortKey)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks WHERE first_sort_key > $key ORDER BY first_sort_key LIMIT 1;";
         command.Parameters.Add("$key", SqliteType.Blob).Value = lastSortKey;
         using var reader = command.ExecuteReader();
         if (!reader.Read()) return null;
-        return DecodeOrderEntries((byte[])reader[1], reader.GetInt32(0))[0];
+        return DecodeOrderLabels((byte[])reader[1], reader.GetInt32(0))[0];
     }
 
-    private static void SaveOrderChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, IReadOnlyList<OrderEntry> entries)
+    private static OrderChunk? FindOrderChunkByLabel(SqliteConnection connection, long label)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT chunk_id,first_sort_key,last_sort_key,entry_count,payload FROM short_query_rank_order_chunks;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var chunk = new OrderChunk(reader.GetInt64(0), (byte[])reader[1], (byte[])reader[2], reader.GetInt32(3), (byte[])reader[4]);
+            if (DecodeOrderLabels(chunk.Payload, chunk.EntryCount).Contains(label)) return chunk;
+        }
+
+        return null;
+    }
+
+    private static void SaveOrSplitOrderChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, List<long> labels)
+    {
+        if (labels.Count <= ChunkEntryCount)
+        {
+            SaveOrderChunk(connection, transaction, chunkId, labels);
+            return;
+        }
+
+        var split = labels.Count / 2;
+        SaveOrderChunk(connection, transaction, chunkId, labels.Take(split).ToList());
+        InsertOrderChunk(connection, transaction, NextChunkId(connection, "short_query_rank_order_chunks"), labels.Skip(split).ToList());
+    }
+
+    private static void SaveOrderChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, IReadOnlyList<long> labels)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "UPDATE short_query_rank_order_chunks SET first_sort_key=$firstKey,last_sort_key=$lastKey,first_label=$firstLabel,last_label=$lastLabel,entry_count=$count,payload=$payload WHERE chunk_id=$id;";
         command.Parameters.AddWithValue("$id", chunkId);
-        command.Parameters.Add("$firstKey", SqliteType.Blob).Value = entries[0].SortKey;
-        command.Parameters.Add("$lastKey", SqliteType.Blob).Value = entries[^1].SortKey;
-        command.Parameters.AddWithValue("$firstLabel", entries[0].Label);
-        command.Parameters.AddWithValue("$lastLabel", entries[^1].Label);
-        command.Parameters.AddWithValue("$count", entries.Count);
-        command.Parameters.Add("$payload", SqliteType.Blob).Value = EncodeOrderEntries(entries);
+        command.Parameters.Add("$firstKey", SqliteType.Blob).Value = ReadStaticSortKey(connection, labels[0]);
+        command.Parameters.Add("$lastKey", SqliteType.Blob).Value = ReadStaticSortKey(connection, labels[^1]);
+        command.Parameters.AddWithValue("$firstLabel", labels[0]);
+        command.Parameters.AddWithValue("$lastLabel", labels[^1]);
+        command.Parameters.AddWithValue("$count", labels.Count);
+        command.Parameters.Add("$payload", SqliteType.Blob).Value = EncodeOrderLabels(labels);
         if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Short-query rank order chunk is missing.");
     }
 
-    private static void InsertOrderChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, IReadOnlyList<OrderEntry> entries)
+    private static void InsertOrderChunk(SqliteConnection connection, SqliteTransaction transaction, long chunkId, IReadOnlyList<long> labels)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "INSERT INTO short_query_rank_order_chunks(chunk_id,first_sort_key,last_sort_key,first_label,last_label,entry_count,payload) VALUES($id,$firstKey,$lastKey,$firstLabel,$lastLabel,$count,$payload);";
         command.Parameters.AddWithValue("$id", chunkId);
-        command.Parameters.Add("$firstKey", SqliteType.Blob).Value = entries[0].SortKey;
-        command.Parameters.Add("$lastKey", SqliteType.Blob).Value = entries[^1].SortKey;
-        command.Parameters.AddWithValue("$firstLabel", entries[0].Label);
-        command.Parameters.AddWithValue("$lastLabel", entries[^1].Label);
-        command.Parameters.AddWithValue("$count", entries.Count);
-        command.Parameters.Add("$payload", SqliteType.Blob).Value = EncodeOrderEntries(entries);
+        command.Parameters.Add("$firstKey", SqliteType.Blob).Value = ReadStaticSortKey(connection, labels[0]);
+        command.Parameters.Add("$lastKey", SqliteType.Blob).Value = ReadStaticSortKey(connection, labels[^1]);
+        command.Parameters.AddWithValue("$firstLabel", labels[0]);
+        command.Parameters.AddWithValue("$lastLabel", labels[^1]);
+        command.Parameters.AddWithValue("$count", labels.Count);
+        command.Parameters.Add("$payload", SqliteType.Blob).Value = EncodeOrderLabels(labels);
         command.ExecuteNonQuery();
     }
 
@@ -1229,7 +1273,8 @@ internal static class ShortQueryIndex
 
     private sealed record ShortTermKey(string Term, FileSearchTextMatch Match);
     private sealed record OrderEntry(long Label, byte[] SortKey);
-    private sealed record RankEntry(long Label, long RowId, long ParentLabel, ushort Depth, byte Flags, byte Attributes);
+    private sealed record OrderInsertion(long? PreviousLabel, long? NextLabel, OrderChunk? Chunk, List<long>? Labels, int Position);
+    private readonly record struct RankEntry(long Label, long RowId, long ParentLabel, ushort Depth, byte Flags, byte Attributes);
     private sealed record RankChunk(long ChunkId, int EntryCount, byte[] Payload);
     private sealed record OrderChunk(long ChunkId, byte[] FirstSortKey, byte[] LastSortKey, int EntryCount, byte[] Payload);
     private sealed record PostingChunk(long ChunkId, string Term, int MatchClass, byte[] Payload);
@@ -1237,14 +1282,15 @@ internal static class ShortQueryIndex
 
     private sealed class RankMap
     {
-        private readonly Dictionary<long, RankEntry> _entries;
+        private readonly RankEntry[] _entries;
 
         public RankMap(IReadOnlyList<RankEntry> entries)
         {
-            _entries = new Dictionary<long, RankEntry>(entries.Count);
-            foreach (var entry in entries)
+            _entries = entries.ToArray();
+            for (var index = 0; index < _entries.Length; index++)
             {
-                if (entry.Label <= 0 || !_entries.TryAdd(entry.Label, entry))
+                if (_entries[index].Label <= 0 ||
+                    index > 0 && _entries[index - 1].Label >= _entries[index].Label)
                 {
                     throw new InvalidOperationException("Short-query rank labels are invalid.");
                 }
@@ -1253,14 +1299,32 @@ internal static class ShortQueryIndex
 
         public RankEntry Get(long label)
         {
-            return _entries.TryGetValue(label, out var entry)
-                ? entry
-                : throw new InvalidOperationException("Short-query rank label is out of range.");
+            if (label % InitialLabelSpacing == 0)
+            {
+                var directIndex = label / InitialLabelSpacing - 1;
+                if ((ulong)directIndex < (ulong)_entries.Length && _entries[directIndex].Label == label)
+                {
+                    return _entries[directIndex];
+                }
+            }
+
+            var low = 0;
+            var high = _entries.Length - 1;
+            while (low <= high)
+            {
+                var middle = low + (high - low) / 2;
+                var comparison = _entries[middle].Label.CompareTo(label);
+                if (comparison == 0) return _entries[middle];
+                if (comparison < 0) low = middle + 1;
+                else high = middle - 1;
+            }
+
+            throw new InvalidOperationException("Short-query rank label is out of range.");
         }
 
         public long? FindLabel(long rowId)
         {
-            foreach (var entry in _entries.Values)
+            foreach (var entry in _entries)
             {
                 if (entry.RowId == rowId) return entry.Label;
             }

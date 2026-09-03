@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTATION IN PROGRESS — physical-host acceptance evidence pending.**
+**IMPLEMENTATION IN PROGRESS — short-query latency remains blocked; final physical-host acceptance is not authorized.**
 PR #10 is not ready to merge. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
 it is not acceptance evidence because that commit weakened short-query
@@ -17,8 +17,9 @@ The active branch now contains the amended M17 compact short-query path:
 - postings are chunked at 1,024 labels and delta-varint encoded, so ordinary
   create/rename/delete changes rewrite only affected chunks rather than a
   complete term list;
-- 64-bit sparse labels preserve static ordering; a separate chunked static-order
-  map allocates insertion gaps without a corpus-sized numeric merge key;
+- 64-bit sparse labels preserve static ordering; a compact label-only chunked
+  static-order map allocates insertion gaps without persisting every full sort
+  key. Static keys are reconstructed only for explicit sync/order maintenance;
 - runtime current-user and system-location precedence is derived from indexed
   parent topology and the searching context. No builder-process user identity
   is persisted as ranking state;
@@ -41,10 +42,40 @@ Focused automated evidence on the implementation branch:
 - the full `Quail.Core.Tests` Release suite and the affected `Quail.App` Release
   build pass locally.
 
-No physical-host performance, footprint, load-cost, direct-build-cost, or
-write-amplification numbers are recorded for this implementation yet. The
-Codex session cannot open `C:` for the required NTFS build (`CreateFile(C:)`),
-so it must not claim M17 timing acceptance or reuse the invalidated campaign.
+## Footprint correction after Windows reinstall (not acceptance evidence)
+
+The preserved pre-reinstall C: schema-v4/v2 index at commit
+`f81780f39a11aa485ac4306a4a4ece7f5a32eccb` was measured only through
+disposable copies under `artifacts/m17/footprint-f81780f/`. It contains 850,688
+records and 35,050,071 postings. The frozen source database was never changed.
+
+The original helper figure of 223.206 ms / 317,221,198 B was not a production
+search-load measure: it read both the search-time `short_query_rank_chunks`
+and the sync-only `short_query_rank_order_chunks`. The corrected breakdown is:
+
+| Component | v2 logical payload | v3 logical payload | Finding |
+| --- | ---: | ---: | --- |
+| Delta-varint postings | 182,615,968 B | 79,648,593 B | Reducing direct-build label spacing from 2^32 to 2^12 reduces the frozen-corpus posting stream from 5.210 to 2.272 B/posting. v2 used 28,087,225 five-byte, 6,590,218 six-byte, 342,489 seven-byte, and 30,139 eight-byte varints. |
+| Search-time rank map | 23,819,264 B | 23,819,264 B | The actual search load is about 14.7 ms / 23.8 MB, not 223 ms / 317 MB. |
+| Sync-only order maintenance | 293,401,934 B | 6,805,504 B | v2 persisted full static sort keys for every entry; v3 persists ordered labels and only chunk boundary keys. |
+| Total logical compact payload | 499,837,166 B | 110,273,361 B | v3 is 3.146 B/posting, materially back in the M17-S bounded class rather than the v2 ~14.3 B/posting class. |
+
+`dbstat` is unavailable in the bundled SQLite runtime. SQLite page-state
+decomposition therefore uses a disposable copy: removing the v2 derived tables
+released 514,277,376 B of pages (the source had zero freelist pages), while the
+same operation on v3 released 172,699,648 B. The v3 direct-build copy is
+411,058,176 B versus 762,478,592 B for v2. Its direct compact build contribution
+was 14,244.904 ms; this is evidence for M17.5, not a rebuild optimization claim.
+
+Focused direct `ShortQueryIndex.Search` measurements on the v3 frozen-C copy
+remain above the M17 product budget: one-character samples were 642.338 and
+443.723 ms; two-character samples were 364.640 and 371.657 ms. These include
+rank-map loading, runtime location classification, complete posting decode, and
+result reconstruction, but exclude App/Core/UI scheduling and rendering. The
+full-recall runtime ranking path still scans broad streams, so M17 must not run
+the final M16 8x3 campaign or be presented for QA. Avoiding that scan without
+weakening ranking requires a further bounded design decision; it was not folded
+into this footprint correction.
 
 ### User-owned physical-host final run pending
 
