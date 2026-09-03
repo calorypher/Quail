@@ -166,50 +166,71 @@ The final run must start from the final clean production commit. Schema v4 with
 the `compact-short-query-v3` format intentionally treats the earlier v1/v2 compact
 postings as rebuild-required; do not attempt an in-place upgrade.
 
+Windows was reinstalled after M16/M17-S. The current C: corpus is therefore not
+comparable to the original M16 physical-host C: corpus. Keep current production
+indexes for lifecycle and manual-product evidence, but use the preserved old C:
+corpus only as a disposable benchmark input. Never configure the preserved DB as
+a normal user index and never modify its source file:
+
+`D:\Projekty\Quail\artifacts\m17\pre-reinstall-corpus\c-index-f81780f.db`
+
+#### A. Current production lifecycle and mutation evidence
+
 1. Build the affected Release application. Start that build normally, open
-   **Quail Indexes**, and select **Rebuild** for every configured filesystem
-   index. Accept the existing UAC prompt and wait for each operation to report
-   success. This is the established privileged workflow: the elevated worker
-   validates the catalog and protected storage, builds in staging, then
-   publishes the completed index. Do not call the worker command line directly.
-2. Confirm each configured database is complete with the existing CLI, using
-   the paths from `%LOCALAPPDATA%\Quail\indexes.json`:
+   **Quail Indexes**, and select **Rebuild** once for each currently configured
+   C: and D: filesystem index. Accept the existing UAC prompt and wait for each
+   operation to report success. This is the established privileged workflow: the
+   elevated worker validates the catalog and protected storage, builds in
+   staging, then publishes the completed index. Do not call the worker command
+   line directly.
+2. Confirm both rebuilt current databases are complete with the existing CLI,
+   using their paths from `%LOCALAPPDATA%\Quail\indexes.json`:
 
    ```powershell
-   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<configured-database-path>'
+   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<current-C-database-path>'
+   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<current-D-database-path>'
    ```
 
-3. Create an ignored local evidence directory and run the non-production helper
-   once for each rebuilt representative database. The optional work copy is
-   deliberately outside protected production state and is modified only to
-   measure `ShortQueryIndex.Build` from authoritative `namespace_entries`.
+3. Create one new ignored evidence directory. It must not already exist, so a
+   final run cannot overwrite prior evidence. Set the two current database paths
+   from the rebuilt catalog and collect ordinary reports without `--work-copy`:
 
    ```powershell
    $commit = (git rev-parse --short HEAD)
    $evidence = ".\artifacts\m17\final-$commit"
-   New-Item -ItemType Directory -Force -Path $evidence | Out-Null
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index '<configured-database-path>' --output "$evidence\compact-c-report.json" --work-copy "$evidence\compact-c-rebuild-copy.db"
+   New-Item -ItemType Directory -ErrorAction Stop -Path $evidence | Out-Null
+   $currentC = '<current-C-database-path>'
+   $currentD = '<current-D-database-path>'
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $currentC --output "$evidence\current-c-production-report.json"
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $currentD --output "$evidence\current-d-production-report.json"
    ```
 
-   Record from each `compact-*-report.json`: `databaseBytes`,
-   `baseDatabaseBytes`, `compactDerivedBytes`, `compactGrowthPercent`,
-   `postings`, `bytesPerPosting`, `rankLoadMilliseconds`,
-   `rankLoadPayloadBytes`, `managedMemoryDeltaBytes`, and
-   `directCompactBuildMilliseconds`. The helper uses SQLite `dbstat` where the
-   bundled SQLite supports it; if `compactDerivedBytes` is `null`, retain that
-   fact and the logical payload-byte fields rather than substituting an estimate.
+   Record `databaseBytes`, `baseDatabaseBytes`, `compactDerivedBytes`,
+   `compactGrowthPercent`, `postings`, `bytesPerPosting`, `postingPayloadBytes`,
+   `rankMapPayloadBytes`, `rankOrderPayloadBytes`, `logicalCompactPayloadBytes`,
+   `searchRankMapLoadMilliseconds`, `searchRankMapLoadPayloadBytes`,
+   `searchRankMapManagedMemoryDeltaBytes`,
+   `maintenanceRankOrderLoadMilliseconds`, `maintenanceRankOrderLoadPayloadBytes`,
+   `maintenanceRankOrderManagedMemoryDeltaBytes`, `directCompactBuildMilliseconds`,
+   and `directCompactBuildDatabaseBytes`. The `searchRankMap*` fields measure
+   the rank map read by production short-query Search; the
+   `maintenanceRankOrder*` fields separately measure sync-only order-maintenance
+   state. `directCompactBuild*` is `null` for these ordinary reports. The helper
+   uses SQLite `dbstat` where the bundled SQLite supports it; if
+   `compactDerivedBytes` is `null`, retain that fact and the logical payload-byte
+   fields rather than substituting an estimate.
 
-4. Collect focused bounded mutation evidence on a disposable representative
-   filesystem location. For each of create, rename, and delete: snapshot the
-   target index, perform that one ordinary filesystem operation, use **Refresh**
-   for that index through the same Indexes UI, then take a second snapshot and
-   compare the two. Keep the result JSON for every operation.
+4. Collect focused bounded create, rename, and delete evidence on a disposable
+   representative location on the current D: index. For each operation: snapshot
+   `$currentD`, perform that one ordinary filesystem operation, use **Refresh**
+   for D: through the same Indexes UI, take a second snapshot, and compare the
+   two. Keep the result JSON for every operation.
 
    ```powershell
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index '<configured-database-path>' --output "$evidence\before-create.json"
-   # Perform one disposable create, then Refresh that index through Quail Indexes.
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index '<configured-database-path>' --output "$evidence\after-create.json"
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- compare --before "$evidence\before-create.json" --after "$evidence\after-create.json" --output "$evidence\create-mutation.json"
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index $currentD --output "$evidence\current-d-before-create.json"
+   # Perform one disposable create on current D:, then Refresh D: through Quail Indexes.
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index $currentD --output "$evidence\current-d-after-create.json"
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- compare --before "$evidence\current-d-before-create.json" --after "$evidence\current-d-after-create.json" --output "$evidence\current-d-create-mutation.json"
    ```
 
    Repeat the three commands with `rename` and `delete`. Record
@@ -218,20 +239,63 @@ postings as rebuild-required; do not attempt an in-place upgrade.
    comparison. These are focused lower bounds for affected posting-chunk writes,
    not a claim about whole SQLite transaction I/O.
 
-5. With no source or index changes after those measurements, exit any resident
-   Quail process and run exactly one canonical M16 campaign:
+#### B. Frozen comparable benchmark corpus
 
-   ```powershell
-   .\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3 -OutputDirectory "$evidence\m16-8x3"
-   ```
+The preserved pre-reinstall C: source is schema-v4/v2. Prepare exactly one
+disposable final-v3 copy on D: with the final commit; do not rebuild the current
+C: to stand in for it and do not modify the frozen source DB. The first report
+copies the v2 source, clears only derived compact state in that copy, and runs
+the final `ShortQueryIndex.Build`. The second report measures the resulting v3
+representation without another rebuild:
+
+```powershell
+$frozenCSource = ".\artifacts\m17\pre-reinstall-corpus\c-index-f81780f.db"
+$frozenCV3 = "$evidence\frozen-c-pre-reinstall-final-v3.db"
+dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $frozenCSource --output "$evidence\frozen-c-pre-reinstall-v2-source-report.json" --work-copy $frozenCV3
+dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $frozenCV3 --output "$evidence\frozen-c-pre-reinstall-final-v3-report.json"
+```
+
+Retain both reports and the disposable `$frozenCV3`. The final-v3 report is the
+comparable compact-footprint evidence. Its `directCompactBuild*` fields are
+`null` because the direct rebuild timing and output database size are recorded
+by the first v2-source report alongside `directCompactBuildCopy`.
+
+#### C. One final canonical M16 8x3 campaign
+
+The current harness accepts repeated `-IndexPath` values and passes each one as
+an explicit `--index` to every scenario. M16 used a two-index C:+D: baseline,
+so use the disposable frozen C: final-v3 DB together with the rebuilt current
+D: DB. Do not substitute the new current C: corpus. Before the campaign, verify
+that `$frozenCV3` and `$currentD` exist and exit any resident Quail process. If
+the frozen copy or rebuilt current D: DB is unavailable, stop rather than using
+current C: or changing the scenario set.
+
+Run exactly one campaign: all eight scenarios from the existing
+`artifacts\m16\scenarios.local.json`, three repetitions, and no other final
+benchmark invocation.
+
+```powershell
+$benchmarkIndexes = @($frozenCV3, $currentD)
+.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3 -IndexPath $benchmarkIndexes -OutputDirectory "$evidence\m16-8x3-frozen-c-current-d"
+```
+
+#### D. Manual product smoke
+
+Only after performance acceptance, run the normal Quick Search smoke against
+the current production C: and D: indexes: one normal query, one one-character
+query, one two-character query, and open the intended result. The frozen C: DB
+is benchmark/evidence input only and must not be configured as a normal
+production index.
 
 The next session must read `docs/milestones/M17.md`, this file,
-`docs/milestones/M17-baseline.json`, every `compact-*-report.json`, the three
-`*-mutation.json` files, and `$evidence\m16-8x3\results.json` plus
-`summary.txt`. It must copy the final non-sensitive accepted samples and metric
-summary into `M17-baseline.json` and this document, check every M17 target and
-guardrail, then request independent QA. Do not rerun the final 8x3 campaign
-only to increase confidence.
+`docs/milestones/M17-baseline.json`, the `current-*-production-report.json`,
+both `frozen-c-pre-reinstall-*-report.json` files, the three
+`current-d-*-mutation.json` files, and
+`$evidence\m16-8x3-frozen-c-current-d\results.json` plus `summary.txt`. It
+must copy the final non-sensitive accepted samples and metric summary into
+`M17-baseline.json` and this document, check every M17 target and guardrail,
+then request independent QA. Do not rerun the final 8x3 campaign only to
+increase confidence.
 
 ## Invalidated short-query candidate
 
