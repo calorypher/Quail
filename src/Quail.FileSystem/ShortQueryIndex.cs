@@ -5,7 +5,11 @@ namespace Quail.FileSystem;
 
 internal static class ShortQueryIndex
 {
-    internal const string Format = "compact-short-query-v1";
+    // SQLite's built-in NOCASE/lower behavior is ASCII-only. Persist the same
+    // ASCII-normalized representation under BINARY collation so build, lookup,
+    // and incremental maintenance have one term identity without folding
+    // non-ASCII literal substrings.
+    internal const string Format = "compact-short-query-v2";
     private const long InitialLabelSpacing = 1L << 32;
     private const int ChunkEntryCount = 1_024;
     private const int RankEntryBytes = 28;
@@ -17,7 +21,7 @@ internal static class ShortQueryIndex
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS short_query_posting_chunks(
                 chunk_id INTEGER PRIMARY KEY,
-                term TEXT NOT NULL COLLATE NOCASE,
+                term TEXT NOT NULL COLLATE BINARY,
                 match_class INTEGER NOT NULL,
                 first_label INTEGER NOT NULL,
                 last_label INTEGER NOT NULL,
@@ -136,10 +140,10 @@ internal static class ShortQueryIndex
         command.CommandText = """
             SELECT match_class,payload
             FROM short_query_posting_chunks
-            WHERE term=$term
+            WHERE term=$term COLLATE BINARY
             ORDER BY match_class,first_label;
             """;
-        command.Parameters.AddWithValue("$term", query);
+        command.Parameters.AddWithValue("$term", CanonicalizeSqliteAsciiTerm(query));
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
@@ -591,13 +595,14 @@ internal static class ShortQueryIndex
 
     private static IEnumerable<ShortTermKey> GetTerms(string name)
     {
-        var classes = new Dictionary<string, FileSearchTextMatch>(StringComparer.OrdinalIgnoreCase);
+        var classes = new Dictionary<string, FileSearchTextMatch>(StringComparer.Ordinal);
         for (var index = 0; index < name.Length; index++)
         {
             for (var length = 1; length <= 2 && index + length <= name.Length; length++)
             {
-                var term = name.Substring(index, length);
-                var match = FileSearchRanking.ClassifyTextMatch(name, term);
+                var literalTerm = name.Substring(index, length);
+                var term = CanonicalizeSqliteAsciiTerm(literalTerm);
+                var match = FileSearchRanking.ClassifyTextMatch(name, literalTerm);
                 if (!classes.TryGetValue(term, out var existing) || match < existing)
                 {
                     classes[term] = match;
@@ -606,6 +611,28 @@ internal static class ShortQueryIndex
         }
 
         return classes.Select(pair => new ShortTermKey(pair.Key, pair.Value));
+    }
+
+    private static string CanonicalizeSqliteAsciiTerm(string term)
+    {
+        var firstUppercase = -1;
+        for (var index = 0; index < term.Length; index++)
+        {
+            if (term[index] is >= 'A' and <= 'Z')
+            {
+                firstUppercase = index;
+                break;
+            }
+        }
+
+        if (firstUppercase < 0) return term;
+        var characters = term.ToCharArray();
+        for (var index = firstUppercase; index < characters.Length; index++)
+        {
+            if (characters[index] is >= 'A' and <= 'Z') characters[index] = (char)(characters[index] + ('a' - 'A'));
+        }
+
+        return new string(characters);
     }
 
     private static byte[] EncodeLabels(IReadOnlyList<long> labels)
@@ -948,7 +975,7 @@ internal static class ShortQueryIndex
     private static PostingChunk? FindPostingChunk(SqliteConnection connection, ShortTermKey key, long label, bool insert)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT chunk_id,term,match_class,payload FROM short_query_posting_chunks WHERE term=$term AND match_class=$class AND first_label <= $label ORDER BY first_label DESC LIMIT 1;";
+        command.CommandText = "SELECT chunk_id,term,match_class,payload FROM short_query_posting_chunks WHERE term=$term COLLATE BINARY AND match_class=$class AND first_label <= $label ORDER BY first_label DESC LIMIT 1;";
         command.Parameters.AddWithValue("$term", key.Term);
         command.Parameters.AddWithValue("$class", (int)key.Match);
         command.Parameters.AddWithValue("$label", label);
@@ -956,7 +983,7 @@ internal static class ShortQueryIndex
         if (reader.Read()) return new PostingChunk(reader.GetInt64(0), reader.GetString(1), reader.GetInt32(2), (byte[])reader[3]);
         if (!insert) return null;
         using var first = connection.CreateCommand();
-        first.CommandText = "SELECT chunk_id,term,match_class,payload FROM short_query_posting_chunks WHERE term=$term AND match_class=$class ORDER BY first_label LIMIT 1;";
+        first.CommandText = "SELECT chunk_id,term,match_class,payload FROM short_query_posting_chunks WHERE term=$term COLLATE BINARY AND match_class=$class ORDER BY first_label LIMIT 1;";
         first.Parameters.AddWithValue("$term", key.Term);
         first.Parameters.AddWithValue("$class", (int)key.Match);
         using var firstReader = first.ExecuteReader();

@@ -22,6 +22,9 @@ The active branch now contains the amended M17 compact short-query path:
 - runtime current-user and system-location precedence is derived from indexed
   parent topology and the searching context. No builder-process user identity
   is persisted as ranking state;
+- posting terms use one ASCII-only canonical representation under SQLite
+  `BINARY` collation. This deliberately matches SQLite built-in `NOCASE` and
+  `lower` behavior without folding non-ASCII literal substrings;
 - a matching derived generation is required for search and sync. A missing or
   mismatched structure is reported as rebuild-required rather than trusted;
 - the one-second short-query defer is removed. The retained duplicate-query
@@ -30,10 +33,11 @@ The active branch now contains the amended M17 compact short-query path:
 Focused automated evidence on the implementation branch:
 
 - `FileSearchRankingTests`: permanent late exact `a` and `ks` guards, compact
-  location/text/static ordering, and a 1,100-entry cross-chunk recall guard;
+  location/text/static ordering, ASCII mixed-case posting order, non-ASCII
+  literal-substring preservation, and a 1,100-entry cross-chunk recall guard;
 - `IncrementalIndexStoreTests`: generation mismatch, create/rename/delete,
-  directory-rename descendant search, transactional checkpoint behavior, and
-  the 1,024-posting chunk bound;
+  directory-rename descendant search, mixed-case posting rename, transactional
+  checkpoint behavior, and the 1,024-posting chunk bound;
 - the full `Quail.Core.Tests` Release suite and the affected `Quail.App` Release
   build pass locally.
 
@@ -44,19 +48,76 @@ so it must not claim M17 timing acceptance or reuse the invalidated campaign.
 
 ### User-owned physical-host final run pending
 
-After checking out the final clean production commit, rebuild the configured
-indexes through the established privileged filesystem-index workflow. Schema v4
-intentionally treats older development indexes as rebuild-required; do not
-attempt an in-place upgrade. Then run exactly one canonical campaign:
+The final run must start from the final clean production commit. Schema v4 with
+the `compact-short-query-v2` format intentionally treats the earlier v1 compact
+postings as rebuild-required; do not attempt an in-place upgrade.
 
-```powershell
-.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3
-```
+1. Build the affected Release application. Start that build normally, open
+   **Quail Indexes**, and select **Rebuild** for every configured filesystem
+   index. Accept the existing UAC prompt and wait for each operation to report
+   success. This is the established privileged workflow: the elevated worker
+   validates the catalog and protected storage, builds in staging, then
+   publishes the completed index. Do not call the worker command line directly.
+2. Confirm each configured database is complete with the existing CLI, using
+   the paths from `%LOCALAPPDATA%\Quail\indexes.json`:
 
-The final owner must record the compact footprint/load/build/mutation evidence
-from the rebuilt representative corpus, update `M17-baseline.json` and this
-file with the actual final commit and samples, and verify every M17 target and
-guardrail before changing this status or merging PR #10.
+   ```powershell
+   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<configured-database-path>'
+   ```
+
+3. Create an ignored local evidence directory and run the non-production helper
+   once for each rebuilt representative database. The optional work copy is
+   deliberately outside protected production state and is modified only to
+   measure `ShortQueryIndex.Build` from authoritative `namespace_entries`.
+
+   ```powershell
+   $commit = (git rev-parse --short HEAD)
+   $evidence = ".\artifacts\m17\final-$commit"
+   New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index '<configured-database-path>' --output "$evidence\compact-c-report.json" --work-copy "$evidence\compact-c-rebuild-copy.db"
+   ```
+
+   Record from each `compact-*-report.json`: `databaseBytes`,
+   `baseDatabaseBytes`, `compactDerivedBytes`, `compactGrowthPercent`,
+   `postings`, `bytesPerPosting`, `rankLoadMilliseconds`,
+   `rankLoadPayloadBytes`, `managedMemoryDeltaBytes`, and
+   `directCompactBuildMilliseconds`. The helper uses SQLite `dbstat` where the
+   bundled SQLite supports it; if `compactDerivedBytes` is `null`, retain that
+   fact and the logical payload-byte fields rather than substituting an estimate.
+
+4. Collect focused bounded mutation evidence on a disposable representative
+   filesystem location. For each of create, rename, and delete: snapshot the
+   target index, perform that one ordinary filesystem operation, use **Refresh**
+   for that index through the same Indexes UI, then take a second snapshot and
+   compare the two. Keep the result JSON for every operation.
+
+   ```powershell
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index '<configured-database-path>' --output "$evidence\before-create.json"
+   # Perform one disposable create, then Refresh that index through Quail Indexes.
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index '<configured-database-path>' --output "$evidence\after-create.json"
+   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- compare --before "$evidence\before-create.json" --after "$evidence\after-create.json" --output "$evidence\create-mutation.json"
+   ```
+
+   Repeat the three commands with `rename` and `delete`. Record
+   `changedChunkCount`, `removedChunkCount`,
+   `afterPayloadBytesForChangedChunks`, and `maximumAfterPayloadBytes` from each
+   comparison. These are focused lower bounds for affected posting-chunk writes,
+   not a claim about whole SQLite transaction I/O.
+
+5. With no source or index changes after those measurements, exit any resident
+   Quail process and run exactly one canonical M16 campaign:
+
+   ```powershell
+   .\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3 -OutputDirectory "$evidence\m16-8x3"
+   ```
+
+The next session must read `docs/milestones/M17.md`, this file,
+`docs/milestones/M17-baseline.json`, every `compact-*-report.json`, the three
+`*-mutation.json` files, and `$evidence\m16-8x3\results.json` plus
+`summary.txt`. It must copy the final non-sensitive accepted samples and metric
+summary into `M17-baseline.json` and this document, check every M17 target and
+guardrail, then request independent QA. Do not rerun the final 8x3 campaign
+only to increase confidence.
 
 ## Invalidated short-query candidate
 
@@ -119,16 +180,15 @@ No bounded multi-index concurrency was added: the local candidate and duplicate
 query changes met every target, so the measured evidence did not justify extra
 parallelism or a scheduler framework.
 
-## Blocker and remaining handoff
+## Current scope and remaining handoff
 
-No schema/index redesign, rebuild work, ranking v2, maintenance work, package
-work, or generic scheduler was introduced. The required small, correct short
-candidate strategy remains unresolved. Existing trigram FTS has no 1–2-character
-terms. On the physical C: index, a full exact-candidate scan with no exact match
-measured approximately 1.46 seconds for a one-character query, far beyond the
-150 ms M17 target; a correct per-class fallback therefore cannot preserve the
-target on the existing read path. A durable short-query index or another material
-search/storage design would need roadmap approval before resuming this part of
-M17. Search actions and path resolution are unchanged. Do not merge PR #10;
-installer, Quail-Lab, and historical architecture campaigns were correctly not
-repeated.
+The historical safe-path measurement of approximately 1.46 seconds for a
+one-character no-exact-match query established why M17-S was needed; it is not a
+current M17 blocker. M17-S outcome A and the amended M17 contract approved the
+filesystem-owned compact derived structure now implemented on this branch.
+
+No M17.5 rebuild optimization, ranking v2, maintenance/service work, package
+work, generic scheduler, or unrelated architecture change was introduced.
+Search actions and path resolution remain unchanged. PR #10 must stay open and
+unmerged until the user-owned rebuild, compact lifecycle evidence, one final
+canonical 8x3 campaign, and independent QA are complete.

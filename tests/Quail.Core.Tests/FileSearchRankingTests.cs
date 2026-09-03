@@ -191,6 +191,35 @@ public sealed class FileSearchRankingTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_ascii_case_variants_share_one_posting_order()
+    {
+        var store = Build("short-ascii-case-order.db", sink =>
+        {
+            AddFile(sink, Root, 2, "A1");
+            AddFile(sink, Root, 3, "a2");
+            AddFile(sink, Root, 4, "a3");
+            AddFile(sink, Root, 5, "A4");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 2), Context);
+
+        Assert.Equal(["A1", "a2"], results.Select(result => result.Name));
+    }
+
+    [Fact]
+    public void Short_query_ascii_canonicalization_preserves_non_ascii_literal_substrings()
+    {
+        var store = Build("short-non-ascii-literal.db", sink =>
+        {
+            AddFile(sink, Root, 2, "Ąą");
+        });
+
+        var result = Assert.Single(store.Search(new FileSearchQuery("ą", Limit: 1), Context));
+
+        Assert.Equal("Ąą", result.Name);
+    }
+
+    [Fact]
     public void Short_query_retains_late_exact_candidates_across_posting_chunks()
     {
         var store = Build("short-chunk-recall.db", sink =>

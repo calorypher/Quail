@@ -79,6 +79,52 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_case_variants_remain_consistent_through_incremental_rename()
+    {
+        var first = Id("0000000000000011");
+        var second = Id("0000000000000012");
+        var third = Id("0000000000000013");
+        var fourth = Id("0000000000000014");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(first, _root, "A1", 0, 0, 2));
+            sink(new NamespaceRecord(second, _root, "a2", 0, 0, 2));
+            sink(new NamespaceRecord(third, _root, "a3", 0, 0, 2));
+            sink(new NamespaceRecord(fourth, _root, "A4", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(new NamespaceRecord(fourth, _root, "b4", 0, 0, 2), UsnReason.RenameNewName))]);
+
+        Assert.Equal(
+            ["A1", "a2", "a3"],
+            Store.Search(new FileSearchQuery("a", Limit: 3)).Select(result => result.Name));
+        Assert.Equal("b4", Assert.Single(Store.Search(new FileSearchQuery("b", Limit: 1))).Name);
+    }
+
+    [Fact]
+    public void Short_query_format_mismatch_requires_a_safe_rebuild()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE metadata SET value='compact-short-query-v1' WHERE key='short_query_format'";
+            command.ExecuteNonQuery();
+        }
+
+        var status = Store.GetStatus();
+
+        Assert.Equal(IndexState.RebuildRequired, status.State);
+        Assert.Contains("Short-query", status.Detail!);
+        Assert.Throws<InvalidOperationException>(() => Store.Search(new FileSearchQuery("f")));
+    }
+
+    [Fact]
     public void Short_query_generation_mismatch_requires_a_safe_rebuild()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
