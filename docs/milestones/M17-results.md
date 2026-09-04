@@ -2,8 +2,8 @@
 
 ## Status
 
-**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a second bounded
-incremental-ordering correction awaits independent QA; final physical-host
+**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a third bounded
+source-order lifecycle correction awaits independent QA; final physical-host
 acceptance remains pending.**
 PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
@@ -282,6 +282,71 @@ Final automated evidence for this second correction:
 
 The measurement helper, persistent footprint, and frozen-C direct Search
 evidence remain unchanged and were not rerun.
+
+## Independent QA topology blocker on `0d5d029` and source-order correction
+
+Independent review of `0d5d0291f134cdd1ff41ed63aa95789cd2c70333` found that
+position-aware structural coalescing still projected one file's final state
+onto a different source position. The confirmed deterministic batch was:
+
+1. create a child under the root;
+2. create a new parent under the root;
+3. move the child into that new parent with `RenameNewName`.
+
+The child group contained `FileCreate`, so `CoalesceJournalRecords` carried its
+final `NamespaceRecord` with `ParentFileId=new-parent` but anchored execution at
+the first child-create position. Before correction, the focused regression
+failed in `ShortQueryIndex.InsertCurrentEntry` / `ResolveNodePath` with the
+exact `Short-query mutation found a missing parent` error because the new
+parent had not yet been inserted. This is the inverse of the earlier
+parent-delete reordering defect and invalidates another positioning exception
+as a robust lifecycle model.
+
+The final design therefore removes per-`FileId` structural coalescing. Every
+canonical journal record now updates namespace and compact state in original
+source order. `RenameOldName` retains its established no-op behavior until
+`RenameNewName`; real create, move/rename, and delete transitions are no longer
+projected onto first/final group positions. Metadata acquisition remains
+bounded and non-authoritative: the pre-scan may acquire current filesystem
+metadata at most once per `FileId`, but it does not reorder lifecycle records.
+
+This simplification is sufficient because the two protections added in
+`0b8c28b` remain active. Repeated metadata-only records whose parent, name,
+directory state, and hidden/system ranking attributes are unchanged bypass
+compact removal/reinsertion, while genuine clustered insertions retain the
+transactional maximum-128-leaf local recovery. Directory labels remain fixed;
+the compact format, generation model, posting-chunk bounds, Search execution,
+and footprint remain unchanged.
+
+Deterministic coverage now includes:
+
+- the exact child-create / new-parent-create / child-move QA reproduction and
+  its directory/subtree equivalent;
+- interleaved parent create before child create, and child delete before final
+  parent delete;
+- child creation under a new directory with interleaved metadata;
+- create plus rename and create plus delete for one `FileId` in one batch;
+- an existing entry moved between parents with unrelated interleaved records;
+- interleaved directory rename/subtree maintenance and cross-batch
+  `RenameOldName` / `RenameNewName`;
+- metadata-only rank-label preservation, fourteen clustered creates, bounded
+  recovery, then post-recovery rename, delete, and nearby insertion;
+- namespace/rank/`ParentLabel`/order/posting integrity after the relevant
+  batches, plus the existing short-query recall and ranking guards.
+
+Final automated evidence for the source-order candidate:
+
+- exact QA reproduction: FAIL before the correction with
+  `Short-query mutation found a missing parent`, PASS after it;
+- focused `IncrementalIndexStoreTests`, `MetadataIndexTests`,
+  `FileSearchTests`, and `FileSearchRankingTests`: 58 PASS;
+- full `Quail.Core.Tests` Release: 215 PASS;
+- `Quail.App` Release build: PASS, zero warnings and zero errors;
+- `git diff --check`: PASS.
+
+No physical D: rebuild, frozen-C Search rerun, footprint campaign, or M16 8x3
+was performed. The next physical rebuild remains blocked until this new delta
+passes independent QA.
 
 ### User-owned physical-host final run pending
 

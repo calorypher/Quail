@@ -722,24 +722,16 @@ public sealed class IndexStore
         Func<NamespaceRecord, FileMetadata> acquireMetadata)
     {
         var canonicalRecords = batch.Records
-            .Select((record, position) => new PositionedJournalRecord(
-                new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason),
-                position))
+            .Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason))
             .ToArray();
-        // Coalescing must not move a final delete/rename/update to the FileId's
-        // first occurrence relative to other entries. Creation flows are the
-        // exception: expose their final state at the first actionable record so
-        // an interleaved child cannot be inserted before its new parent.
-        var effectiveRecords = canonicalRecords
-            .GroupBy(record => record.Record.NamespaceRecord.FileId)
-            .Select(CoalesceJournalRecords)
-            .OrderBy(record => record.Position)
-            .Select(record => record.Record)
-            .ToArray();
+        // Metadata is current filesystem state and can be acquired once per
+        // FileId. Namespace and compact-index transitions below must retain the
+        // journal's source order because parent/child lifecycle records depend
+        // on it.
         var metadata = new Dictionary<NativeFileId, FileMetadata>();
-        foreach (var record in effectiveRecords)
+        foreach (var record in canonicalRecords)
         {
-            if (UsnReason.IsFileDelete(record.Reason))
+            if (UsnReason.IsFileDelete(record.Reason) || metadata.ContainsKey(record.NamespaceRecord.FileId))
             {
                 continue;
             }
@@ -752,7 +744,7 @@ public sealed class IndexStore
         }
         using var transaction = connection.BeginTransaction();
         var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
-        foreach (var record in effectiveRecords)
+        foreach (var record in canonicalRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
             {
@@ -828,34 +820,6 @@ public sealed class IndexStore
         {
             ShortQueryIndex.InsertCurrentEntry(connection, transaction, fileId);
         }
-    }
-
-    private static PositionedJournalRecord CoalesceJournalRecords(
-        IGrouping<NativeFileId, PositionedJournalRecord> group)
-    {
-        var records = group.ToArray();
-        if (records.All(record => UsnReason.IsRenameOldName(record.Record.Reason)))
-        {
-            return records[^1];
-        }
-
-        var final = records.Last(record => !UsnReason.IsRenameOldName(record.Record.Reason));
-        if (UsnReason.IsFileDelete(final.Record.Reason))
-        {
-            return new PositionedJournalRecord(
-                new JournalRecord(final.Record.NamespaceRecord, UsnReason.FileDelete),
-                final.Position);
-        }
-
-        var reasons = records.Aggregate(0U, (current, record) => current | record.Record.Reason);
-        var isCreateFlow = records.Any(record => UsnReason.IsFileCreate(record.Record.Reason));
-        var firstActionable = records.First(record => !UsnReason.IsRenameOldName(record.Record.Reason));
-        var position = isCreateFlow ? firstActionable.Position : final.Position;
-        return new PositionedJournalRecord(
-            new JournalRecord(
-                final.Record.NamespaceRecord,
-                reasons & ~(UsnReason.FileDelete | UsnReason.RenameOldName)),
-            position);
     }
 
     private static void Upsert(
@@ -1581,5 +1545,4 @@ public sealed class IndexStore
     }
 
     private readonly record struct ShortQueryEntry(NativeFileId ParentFileId, string Name, uint Attributes);
-    private readonly record struct PositionedJournalRecord(JournalRecord Record, int Position);
 }

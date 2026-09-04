@@ -148,7 +148,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
-    public void Short_query_coalesces_one_mutation_without_relabeling_metadata_only_updates()
+    public void Short_query_deduplicates_metadata_acquisition_without_relabeling_metadata_only_updates()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
         var created = Id("0000000000000021");
@@ -205,7 +205,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
-    public void Short_query_coalescing_preserves_interleaved_child_before_parent_delete_order()
+    public void Short_query_source_order_preserves_interleaved_child_before_parent_delete()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
 
@@ -232,7 +232,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
-    public void Short_query_coalescing_keeps_interleaved_parent_create_before_child()
+    public void Short_query_source_order_keeps_interleaved_parent_create_before_child()
     {
         var parent = Id("0000000000000051");
         var child = Id("0000000000000052");
@@ -248,15 +248,18 @@ public sealed class IncrementalIndexStoreTests : IDisposable
                 200,
                 new JournalRecord(
                     new NamespaceRecord(parent, _root, "parent", 16, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 121, 2),
                     UsnReason.BasicInfoChange),
                 new JournalRecord(
-                    new NamespaceRecord(child, parent, "child.txt", 0, 121, 2),
+                    new NamespaceRecord(child, parent, "child.txt", 0, 122, 2),
                     UsnReason.FileCreate),
                 new JournalRecord(
-                    new NamespaceRecord(parent, _root, "parent", 16, 122, 2),
-                    UsnReason.FileCreate),
+                    new NamespaceRecord(parent, _root, "parent", 16, 123, 2),
+                    UsnReason.DataExtend),
                 new JournalRecord(
-                    new NamespaceRecord(child, parent, "child.txt", 0, 123, 2),
+                    new NamespaceRecord(child, parent, "child.txt", 0, 124, 2),
                     UsnReason.DataExtend))]);
 
         Assert.Equal("X:\\parent\\child.txt", Store.ReconstructPath(child).Path);
@@ -266,7 +269,167 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
-    public void Short_query_coalescing_preserves_interleaved_directory_rename_and_subtree_updates()
+    public void Short_query_create_then_move_into_a_new_parent_preserves_source_order()
+    {
+        var child = Id("0000000000000061");
+        var parent = Id("0000000000000062");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(child, _root, "child.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "new-parent", 16, 121, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\new-parent\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("ch", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_create_then_move_into_a_new_parent_updates_its_subtree()
+    {
+        var childDirectory = Id("0000000000000071");
+        var descendant = Id("0000000000000072");
+        var parent = Id("0000000000000073");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(childDirectory, _root, "child-directory", 16, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(descendant, childDirectory, "descendant.txt", 0, 121, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "new-parent", 16, 122, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(childDirectory, parent, "child-directory", 16, 123, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal(
+            "X:\\new-parent\\child-directory\\descendant.txt",
+            Store.ReconstructPath(descendant).Path);
+        Assert.Equal("descendant.txt", Assert.Single(Store.Search(new FileSearchQuery("de", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_create_and_rename_in_one_batch_converges_in_source_order()
+    {
+        var created = Id("0000000000000081");
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "before.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "before.txt", 0, 121, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(created, _directoryId, "after.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\alpha\\after.txt", Store.ReconstructPath(created).Path);
+        Assert.Empty(Store.Search(new FileSearchQuery("be", Limit: 50)));
+        Assert.Equal("after.txt", Assert.Single(Store.Search(new FileSearchQuery("af", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_create_and_delete_in_one_batch_leaves_no_compact_state()
+    {
+        var created = Id("0000000000000091");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 122, 2),
+                    UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(created).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("tr", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_existing_move_preserves_interleaved_unrelated_source_order()
+    {
+        var secondParent = Id("00000000000000A1");
+        var unrelated = Id("00000000000000A2");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            Produce(sink);
+            sink(new NamespaceRecord(secondParent, _root, "beta", 16, 0, 2));
+            sink(new NamespaceRecord(unrelated, _root, "unrelated.txt", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 120, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(unrelated, _root, "unrelated.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_file, secondParent, "moved.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\beta\\moved.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("X:\\unrelated.txt", Store.ReconstructPath(unrelated).Path);
+        Assert.Equal("moved.txt", Assert.Single(Store.Search(new FileSearchQuery("mo", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_source_order_preserves_interleaved_directory_rename_and_subtree_updates()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
 
