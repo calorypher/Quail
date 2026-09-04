@@ -38,6 +38,12 @@ public sealed class FileSearchTests : IDisposable
     {
         Build();
 
+        var firstShortQuery = Store.Search(new FileSearchQuery("r", Limit: 1));
+        var repeatedShortQuery = Store.Search(new FileSearchQuery("r", Limit: 1));
+
+        Assert.Single(firstShortQuery);
+        Assert.Equal(firstShortQuery.Select(result => result.FileId), repeatedShortQuery.Select(result => result.FileId));
+        Assert.All(firstShortQuery, result => Assert.Contains("r", result.Name, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(Store.Search(new FileSearchQuery("r")), result => result.Name == "Quarterly Report.PDF");
         Assert.Contains(Store.Search(new FileSearchQuery("RE")), result => result.Name == "Quarterly Report.PDF");
     }

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 using Quail.Core;
 
@@ -49,6 +50,720 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         var reopened = new IndexStore(DatabasePath);
         Assert.Equal(200, reopened.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("X:\\alpha\\renamed.txt", reopened.ReconstructPath(_file).Path);
+        Assert.Equal("renamed.txt", Assert.Single(reopened.Search(new FileSearchQuery("r", Limit: 1))).Name);
+    }
+
+    [Fact]
+    public void Short_query_chunks_follow_create_rename_and_delete()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var created = Id("0000000000000004");
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(100),
+        [
+            Batch(200, new JournalRecord(new NamespaceRecord(created, _root, "beta.txt", 0, 120, 2), UsnReason.FileCreate)),
+            Batch(300, new JournalRecord(new NamespaceRecord(created, _root, "bravo.txt", 0, 220, 2), UsnReason.RenameNewName)),
+        ]);
+
+        Assert.Equal("bravo.txt", Assert.Single(Store.Search(new FileSearchQuery("br", Limit: 1))).Name);
+        Assert.DoesNotContain(Store.Search(new FileSearchQuery("be", Limit: 50)), result => result.Name == "beta.txt");
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(100),
+        [Batch(400, new JournalRecord(new NamespaceRecord(created, _root, "bravo.txt", 0, 320, 2), UsnReason.FileDelete))]);
+
+        Assert.DoesNotContain(Store.Search(new FileSearchQuery("br", Limit: 50)), result => result.Name == "bravo.txt");
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT max(posting_count) FROM short_query_posting_chunks";
+        Assert.True(Convert.ToInt64(command.ExecuteScalar()) <= 1_024);
+    }
+
+    [Fact]
+    public void Short_query_clustered_creates_do_not_exhaust_a_fresh_rank_label_gap()
+    {
+        var lower = Id("0000000000000011");
+        var upper = Id("0000000000000012");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(lower, _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(upper, _root, "zzzz", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var records = Enumerable.Range(0, 14)
+            .Select(index =>
+            {
+                var name = new string((char)('y' - index), 4);
+                return new JournalRecord(
+                    new NamespaceRecord(Id($"000000000000{index + 0x20:X4}"), _root, name, 0, index + 1, 2),
+                    UsnReason.FileCreate);
+            })
+            .ToArray();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, records)]);
+
+        AssertShortQueryIntegrity();
+        var names = Store.ReadAllForDiagnostics().Select(record => record.Name).ToHashSet();
+        Assert.All(records, record => Assert.Contains(record.NamespaceRecord.Name, names));
+        Assert.Equal("mmmm", Assert.Single(Store.Search(new FileSearchQuery("m", Limit: 1))).Name);
+
+        var renamed = records.Single(record => record.NamespaceRecord.Name == "mmmm").NamespaceRecord.FileId;
+        var deleted = records.Single(record => record.NamespaceRecord.Name == "llll").NamespaceRecord.FileId;
+        var inserted = Id("0000000000000040");
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(renamed, _root, "mmmm-renamed", 0, 30, 2),
+                UsnReason.RenameNewName))]);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(400, new JournalRecord(
+                new NamespaceRecord(deleted, _root, "llll", 0, 31, 2),
+                UsnReason.FileDelete))]);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(
+                new NamespaceRecord(inserted, _root, "mmmm-middle", 0, 32, 2),
+                UsnReason.FileCreate))]);
+
+        AssertShortQueryIntegrity();
+        Assert.Equal(
+            ["mmmm-middle", "mmmm-renamed"],
+            Store.Search(new FileSearchQuery("mm", Limit: 10))
+                .Where(result => result.Name.StartsWith("mmmm", StringComparison.Ordinal))
+                .Select(result => result.Name));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.Name == "llll");
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Short_query_deduplicates_metadata_acquisition_without_relabeling_metadata_only_updates()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var created = Id("0000000000000021");
+        var metadataCalls = 0;
+        FileMetadata Metadata(NamespaceRecord _)
+        {
+            metadataCalls++;
+            return new FileMetadata(20, 200);
+        }
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 120, 2), UsnReason.FileCreate),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 121, 2), UsnReason.DataExtend),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 122, 2), UsnReason.BasicInfoChange))],
+            acquireMetadata: Metadata);
+
+        Assert.Equal(1, metadataCalls);
+        var labelBeforeMetadata = ReadRankLabel(created);
+        metadataCalls = 0;
+        var metadataOnly = Enumerable.Range(0, 32)
+            .Select(index => new JournalRecord(
+                new NamespaceRecord(created, _directoryId, "probe.txt", 0, 130 + index, 2),
+                index % 2 == 0 ? UsnReason.DataOverwrite : UsnReason.BasicInfoChange))
+            .ToArray();
+
+        Store.ApplyParsedBatchesForTesting(Volume, Journal(200), [Batch(300, metadataOnly)], acquireMetadata: Metadata);
+
+        Assert.Equal(1, metadataCalls);
+        Assert.Equal(labelBeforeMetadata, ReadRankLabel(created));
+        Assert.Equal("probe.txt", Assert.Single(Store.Search(new FileSearchQuery("pro", Limit: 1))).Name);
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(
+                400,
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "probe.txt", 0, 170, 2), UsnReason.RenameOldName),
+                new JournalRecord(new NamespaceRecord(created, _directoryId, "renamed.txt", 0, 171, 2), UsnReason.RenameNewName))]);
+
+        Assert.Empty(Store.Search(new FileSearchQuery("pro", Limit: 50)));
+        Assert.Equal("renamed.txt", Assert.Single(Store.Search(new FileSearchQuery("ren", Limit: 1))).Name);
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(new NamespaceRecord(created, _directoryId, "renamed.txt", 0, 180, 2), UsnReason.FileDelete))]);
+
+        Assert.Empty(Store.Search(new FileSearchQuery("ren", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Build_and_first_update_do_not_publish_or_reinsert_an_unrooted_system_subtree()
+    {
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        var txfLog = Id("1E000000000001000000000000000000");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+            sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            sink(new NamespaceRecord(txfLog, rmMetadata, "$TxfLog", 0x16, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var exception = Record.Exception(() => Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x10, 150, 2),
+                UsnReason.BasicInfoChange))]));
+
+        Assert.Null(exception);
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(rmMetadata));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(txfLog));
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void First_root_create_after_build_is_independent_of_unrooted_enumeration_records()
+    {
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        var txfLog = Id("1E000000000001000000000000000000");
+        var probe = Id("50000000000001000000000000000000");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+            sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            sink(new NamespaceRecord(txfLog, rmMetadata, "$TxfLog", 0x16, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var exception = Record.Exception(() => Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(probe, _root, "quail-m17-probe.txt", 0x20, 150, 2),
+                UsnReason.FileCreate))]));
+
+        Assert.Null(exception);
+        Assert.Equal("quail-m17-probe.txt", Assert.Single(Store.Search(new FileSearchQuery("qu", Limit: 10))).Name);
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Move_to_an_unrooted_parent_removes_the_now_unreachable_known_subtree()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var missingParent = Id("0000000000000099");
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, missingParent, "alpha", 0x10, 150, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(V3(_directoryId)));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(V3(_file)));
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Short_query_source_order_preserves_interleaved_child_before_parent_delete()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 121, 2),
+                    UsnReason.FileDelete),
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 122, 2),
+                    UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("f", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_parent_delete_removes_subtree_before_later_child_delete_batch()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("fi", Limit: 50)));
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_file, _directoryId, "file.txt", 0, 220, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("fi", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_delete_removes_a_multilevel_subtree_before_later_delete_batches()
+    {
+        var directory = Id("00000000000000B1");
+        var childA = Id("00000000000000B2");
+        var nestedDirectory = Id("00000000000000B3");
+        var childB = Id("00000000000000B4");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(directory, _root, "directory", 16, 0, 2));
+            sink(new NamespaceRecord(childA, directory, "child-a.txt", 0, 0, 2));
+            sink(new NamespaceRecord(nestedDirectory, directory, "nested", 16, 0, 2));
+            sink(new NamespaceRecord(childB, nestedDirectory, "child-b.txt", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(directory, _root, "directory", 16, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal([""], Store.ReadAllForDiagnostics().Select(record => record.Name));
+        Assert.Empty(Store.Search(new FileSearchQuery("ch", Limit: 50)));
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(childA, directory, "child-a.txt", 0, 220, 2),
+                UsnReason.FileDelete))]);
+        Assert.Equal(300, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(400, new JournalRecord(
+                new NamespaceRecord(nestedDirectory, directory, "nested", 16, 320, 2),
+                UsnReason.FileDelete))]);
+        Assert.Equal(400, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(
+                new NamespaceRecord(childB, nestedDirectory, "child-b.txt", 0, 420, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal([""], Store.ReadAllForDiagnostics().Select(record => record.Name));
+        Assert.Empty(Store.Search(new FileSearchQuery("ne", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        Assert.Equal(500, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_child_delete_then_parent_delete_keeps_each_committed_batch_coherent()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_file, _directoryId, "file.txt", 0, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal("X:\\alpha", Store.ReconstructPath(_directoryId).Path);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 220, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_removal_does_not_require_the_namespace_parent()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, V3(_directoryId));
+            using (var deleteParent = connection.CreateCommand())
+            {
+                deleteParent.Transaction = transaction;
+                deleteParent.CommandText = "DELETE FROM namespace_entries WHERE file_id=$id;";
+                deleteParent.Parameters.Add("$id", SqliteType.Blob).Value = V3(_directoryId).Bytes.ToArray();
+                Assert.Equal(1, deleteParent.ExecuteNonQuery());
+            }
+
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, V3(_file));
+            transaction.Rollback();
+        }
+
+        Assert.Equal("X:\\alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_source_order_keeps_interleaved_parent_create_before_child()
+    {
+        var parent = Id("0000000000000051");
+        var child = Id("0000000000000052");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 122, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 123, 2),
+                    UsnReason.DataExtend),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 124, 2),
+                    UsnReason.DataExtend))]);
+
+        Assert.Equal("X:\\parent\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("ch", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_create_then_move_into_a_new_parent_preserves_source_order()
+    {
+        var child = Id("0000000000000061");
+        var parent = Id("0000000000000062");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(child, _root, "child.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "new-parent", 16, 121, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\new-parent\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("ch", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_create_then_move_into_a_new_parent_updates_its_subtree()
+    {
+        var childDirectory = Id("0000000000000071");
+        var descendant = Id("0000000000000072");
+        var parent = Id("0000000000000073");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(childDirectory, _root, "child-directory", 16, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(descendant, childDirectory, "descendant.txt", 0, 121, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "new-parent", 16, 122, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(childDirectory, parent, "child-directory", 16, 123, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal(
+            "X:\\new-parent\\child-directory\\descendant.txt",
+            Store.ReconstructPath(descendant).Path);
+        Assert.Equal("descendant.txt", Assert.Single(Store.Search(new FileSearchQuery("de", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_create_and_rename_in_one_batch_converges_in_source_order()
+    {
+        var created = Id("0000000000000081");
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "before.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "before.txt", 0, 121, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(created, _directoryId, "after.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\alpha\\after.txt", Store.ReconstructPath(created).Path);
+        Assert.Empty(Store.Search(new FileSearchQuery("be", Limit: 50)));
+        Assert.Equal("after.txt", Assert.Single(Store.Search(new FileSearchQuery("af", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_create_and_delete_in_one_batch_leaves_no_compact_state()
+    {
+        var created = Id("0000000000000091");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 120, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(created, _root, "transient.txt", 0, 122, 2),
+                    UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(created).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("tr", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_existing_move_preserves_interleaved_unrelated_source_order()
+    {
+        var secondParent = Id("00000000000000A1");
+        var unrelated = Id("00000000000000A2");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            Produce(sink);
+            sink(new NamespaceRecord(secondParent, _root, "beta", 16, 0, 2));
+            sink(new NamespaceRecord(unrelated, _root, "unrelated.txt", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 120, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(unrelated, _root, "unrelated.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_file, secondParent, "moved.txt", 0, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\beta\\moved.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("X:\\unrelated.txt", Store.ReconstructPath(unrelated).Path);
+        Assert.Equal("moved.txt", Assert.Single(Store.Search(new FileSearchQuery("mo", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_source_order_preserves_interleaved_directory_rename_and_subtree_updates()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "renamed-alpha", 16, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_rename_across_batches_preserves_parent_topology()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                UsnReason.RenameOldName))]);
+
+        Assert.Equal("X:\\alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "renamed-alpha", 16, 220, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_case_variants_remain_consistent_through_incremental_rename()
+    {
+        var first = Id("0000000000000011");
+        var second = Id("0000000000000012");
+        var third = Id("0000000000000013");
+        var fourth = Id("0000000000000014");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(first, _root, "A1", 0, 0, 2));
+            sink(new NamespaceRecord(second, _root, "a2", 0, 0, 2));
+            sink(new NamespaceRecord(third, _root, "a3", 0, 0, 2));
+            sink(new NamespaceRecord(fourth, _root, "A4", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(new NamespaceRecord(fourth, _root, "b4", 0, 0, 2), UsnReason.RenameNewName))]);
+
+        Assert.Equal(
+            ["A1", "a2", "a3"],
+            Store.Search(new FileSearchQuery("a", Limit: 3)).Select(result => result.Name));
+        Assert.Equal("b4", Assert.Single(Store.Search(new FileSearchQuery("b", Limit: 1))).Name);
+    }
+
+    [Fact]
+    public void Short_query_format_mismatch_requires_a_safe_rebuild()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE metadata SET value='compact-short-query-v1' WHERE key='short_query_format'";
+            command.ExecuteNonQuery();
+        }
+
+        var status = Store.GetStatus();
+
+        Assert.Equal(IndexState.RebuildRequired, status.State);
+        Assert.Contains("Short-query", status.Detail!);
+        Assert.Throws<InvalidOperationException>(() => Store.Search(new FileSearchQuery("f")));
+    }
+
+    [Fact]
+    public void Short_query_generation_mismatch_requires_a_safe_rebuild()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE metadata SET value='stale' WHERE key='short_query_generation'";
+            command.ExecuteNonQuery();
+        }
+
+        var status = Store.GetStatus();
+
+        Assert.Equal(IndexState.RebuildRequired, status.State);
+        Assert.Contains("Short-query", status.Detail!);
+        Assert.Throws<InvalidOperationException>(() => Store.Search(new FileSearchQuery("f")));
     }
 
     [Fact]
@@ -141,6 +856,43 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Initial_handoff_connects_a_late_parent_and_prunes_a_permanently_unrooted_subtree()
+    {
+        var lateParent = Id("0000000000000040");
+        var lateChild = Id("0000000000000041");
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        Store.BuildFromRecordsWithHandoffForTesting(
+            Volume,
+            sink =>
+            {
+                sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+                sink(new NamespaceRecord(lateChild, lateParent, "late-child.txt", 0, 90, 2));
+                sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            },
+            Journal(100),
+            Journal(200),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(lateParent, _root, "late-parent", 0x10, 150, 2),
+                UsnReason.FileCreate))]);
+
+        Assert.Equal("X:\\late-parent\\late-child.txt", Store.ReconstructPath(lateChild).Path);
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(rmMetadata));
+        AssertShortQueryIntegrity();
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+
+        var afterHandoff = Id("0000000000000042");
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(afterHandoff, lateParent, "after-handoff.txt", 0, 250, 2),
+                UsnReason.FileCreate))]);
+        Assert.Equal("X:\\late-parent\\after-handoff.txt", Store.ReconstructPath(afterHandoff).Path);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
     public void V3_mutation_preserves_its_full_identifier_and_resolves_through_a_v2_parent()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
@@ -185,6 +937,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         });
 
         Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("f", Limit: 1))).Name);
         var descendant = Store.ReadAllForDiagnostics().Single(record => record.Name == "file.txt");
         Assert.Equal(V3(_directoryId), descendant.ParentFileId);
     }
@@ -254,6 +1007,155 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         var full = new byte[16];
         legacy.Bytes.Span.CopyTo(full);
         return new NativeFileId(full);
+    }
+
+    private long ReadRankLabel(NativeFileId fileId)
+    {
+        var canonical = fileId.Bytes.Length == 16 ? fileId : V3(fileId);
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+        using var rowIdCommand = connection.CreateCommand();
+        rowIdCommand.CommandText = "SELECT rowid FROM namespace_entries WHERE file_id=$id;";
+        rowIdCommand.Parameters.Add("$id", SqliteType.Blob).Value = canonical.Bytes.ToArray();
+        var rowId = Convert.ToInt64(rowIdCommand.ExecuteScalar());
+        using var ranks = connection.CreateCommand();
+        ranks.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks;";
+        using var reader = ranks.ExecuteReader();
+        while (reader.Read())
+        {
+            var count = reader.GetInt32(0);
+            var payload = (byte[])reader[1];
+            for (var index = 0; index < count; index++)
+            {
+                var offset = index * 28;
+                if (BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)) == rowId)
+                {
+                    return BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8));
+                }
+            }
+        }
+
+        throw new InvalidOperationException("Short-query rank label is missing.");
+    }
+
+    private void AssertShortQueryIntegrity()
+    {
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+
+        var ranksByRowId = new Dictionary<long, (long Label, long ParentLabel)>();
+        var rankLabels = new HashSet<long>();
+        using (var ranks = connection.CreateCommand())
+        {
+            ranks.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks ORDER BY first_label;";
+            using var reader = ranks.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                Assert.Equal(count * 28, payload.Length);
+                for (var index = 0; index < count; index++)
+                {
+                    var offset = index * 28;
+                    var label = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8));
+                    var rowId = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8));
+                    var parentLabel = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 16, 8));
+                    Assert.True(rankLabels.Add(label), $"Duplicate rank label {label}.");
+                    Assert.True(ranksByRowId.TryAdd(rowId, (label, parentLabel)), $"Duplicate rank rowid {rowId}.");
+                }
+            }
+        }
+
+        var namespaceEntries = new List<(long RowId, string FileId, string ParentFileId)>();
+        using (var entries = connection.CreateCommand())
+        {
+            entries.CommandText = "SELECT rowid,file_id,parent_file_id FROM namespace_entries;";
+            using var reader = entries.ExecuteReader();
+            while (reader.Read())
+            {
+                namespaceEntries.Add((
+                    reader.GetInt64(0),
+                    Convert.ToHexString((byte[])reader[1]),
+                    Convert.ToHexString((byte[])reader[2])));
+            }
+        }
+
+        Assert.Equal(namespaceEntries.Count, ranksByRowId.Count);
+        var rowIdsByFileId = namespaceEntries.ToDictionary(entry => entry.FileId, entry => entry.RowId, StringComparer.Ordinal);
+        foreach (var entry in namespaceEntries)
+        {
+            var rank = ranksByRowId[entry.RowId];
+            if (entry.FileId == entry.ParentFileId)
+            {
+                Assert.Equal(rank.Label, rank.ParentLabel);
+            }
+            else
+            {
+                Assert.True(rowIdsByFileId.TryGetValue(entry.ParentFileId, out var parentRowId), $"Missing namespace parent for rowid {entry.RowId}.");
+                Assert.Equal(ranksByRowId[parentRowId].Label, rank.ParentLabel);
+            }
+        }
+
+        var orderLabels = new List<long>();
+        using (var order = connection.CreateCommand())
+        {
+            order.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks ORDER BY first_sort_key;";
+            using var reader = order.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                Assert.Equal(count * sizeof(long), payload.Length);
+                for (var index = 0; index < count; index++)
+                {
+                    orderLabels.Add(BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long))));
+                }
+            }
+        }
+
+        Assert.Equal(rankLabels.Count, orderLabels.Count);
+        Assert.Equal(rankLabels.Order(), orderLabels.Order());
+        Assert.Equal(orderLabels.Count, orderLabels.Distinct().Count());
+        Assert.True(orderLabels.Zip(orderLabels.Skip(1), (left, right) => left < right).All(value => value));
+
+        using var postings = connection.CreateCommand();
+        postings.CommandText = "SELECT first_label,last_label,posting_count,payload FROM short_query_posting_chunks;";
+        using var postingReader = postings.ExecuteReader();
+        while (postingReader.Read())
+        {
+            var labels = DecodePostingLabels((byte[])postingReader[3]);
+            Assert.Equal(postingReader.GetInt32(2), labels.Count);
+            Assert.Equal(postingReader.GetInt64(0), labels[0]);
+            Assert.Equal(postingReader.GetInt64(1), labels[^1]);
+            Assert.All(labels, label => Assert.Contains(label, rankLabels));
+            Assert.True(labels.Zip(labels.Skip(1), (left, right) => left < right).All(value => value));
+        }
+    }
+
+    private static List<long> DecodePostingLabels(byte[] payload)
+    {
+        var labels = new List<long>();
+        long previous = 0;
+        var offset = 0;
+        while (offset < payload.Length)
+        {
+            ulong delta = 0;
+            var shift = 0;
+            while (true)
+            {
+                Assert.True(offset < payload.Length && shift <= 63, "Invalid posting varint.");
+                var next = payload[offset++];
+                delta |= (ulong)(next & 0x7f) << shift;
+                if ((next & 0x80) == 0) break;
+                shift += 7;
+            }
+
+            Assert.True(delta <= long.MaxValue && previous <= long.MaxValue - (long)delta, "Posting label overflow.");
+            previous += (long)delta;
+            labels.Add(previous);
+        }
+
+        return labels;
     }
     public void Dispose()
     {

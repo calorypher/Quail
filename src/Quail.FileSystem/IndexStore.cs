@@ -12,7 +12,7 @@ public enum IndexStoreJournalLifecycle
 
 public sealed class IndexStore
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private const string NamespaceIdentityFormat = "canonical-file-id-128-v1";
     private const string SearchIndexFormat = "fts5-trigram-v1";
     private const string MetadataFormat = "file-metadata-v1";
@@ -22,6 +22,7 @@ public sealed class IndexStore
     private const uint FileAttributeReadOnly = 0x1;
     private const uint FileAttributeHidden = 0x2;
     private const uint FileAttributeSystem = 0x4;
+    private const uint ShortQueryRelevantAttributes = FileAttributeDirectory | FileAttributeHidden | FileAttributeSystem;
     private const int JournalTransitionTimeoutMilliseconds = 30_000;
     private readonly string _databasePath;
     private readonly IndexStoreJournalLifecycle _journalLifecycle;
@@ -348,6 +349,11 @@ public sealed class IndexStore
         using var connection = OpenReadOnly(_databasePath);
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
+        if (nameQuery.Length <= 2 && IsUnfiltered(query))
+        {
+            return ShortQueryIndex.Search(connection, nameQuery, query.Limit, context);
+        }
+
         var usesTrigramIndex = nameQuery.Length >= 3;
         var candidateLimit = query.Limit;
         var results = ReadSearchCandidates(
@@ -525,6 +531,17 @@ public sealed class IndexStore
     }
 
     private static string EscapeLike(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    private static bool IsUnfiltered(FileSearchQuery query) =>
+        query.EntryType == SearchEntryType.Any &&
+        query.Extension is null &&
+        query.MinimumSize is null &&
+        query.MaximumSize is null &&
+        query.ModifiedAfterUtcFileTime is null &&
+        query.ModifiedBeforeUtcFileTime is null &&
+        !query.Hidden &&
+        !query.ReadOnly &&
+        !query.System;
 
     private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
 
@@ -704,39 +721,64 @@ public sealed class IndexStore
         bool failBeforeCommit,
         Func<NamespaceRecord, FileMetadata> acquireMetadata)
     {
-        var canonicalRecords = batch.Records.Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason)).ToArray();
+        var canonicalRecords = batch.Records
+            .Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason))
+            .ToArray();
+        // Metadata is current filesystem state and can be acquired once per
+        // FileId. Namespace and compact-index transitions below must retain the
+        // journal's source order because parent/child lifecycle records depend
+        // on it.
         var metadata = new Dictionary<NativeFileId, FileMetadata>();
-        foreach (var group in canonicalRecords.GroupBy(record => record.NamespaceRecord.FileId))
+        foreach (var record in canonicalRecords)
         {
-            var reasons = group.Aggregate(0U, (current, record) => current | record.Reason);
-            var final = group.Last();
-            if (UsnReason.IsFileDelete(final.Reason))
+            if (UsnReason.IsFileDelete(record.Reason) || metadata.ContainsKey(record.NamespaceRecord.FileId))
             {
                 continue;
             }
 
-            var requiresFallback = UsnReason.IsRenameNewName(reasons) && !EntryExists(connection, final.NamespaceRecord.FileId);
-            if (UsnReason.RequiresMetadataRefresh(reasons) || requiresFallback)
+            var requiresFallback = UsnReason.IsRenameNewName(record.Reason) && !EntryExists(connection, record.NamespaceRecord.FileId);
+            if (UsnReason.RequiresMetadataRefresh(record.Reason) || requiresFallback)
             {
-                metadata.Add(final.NamespaceRecord.FileId, acquireMetadata(final.NamespaceRecord));
+                metadata.Add(record.NamespaceRecord.FileId, acquireMetadata(record.NamespaceRecord));
             }
         }
         using var transaction = connection.BeginTransaction();
+        var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
         foreach (var record in canonicalRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
             {
-                Delete(connection, transaction, record.NamespaceRecord.FileId);
+                DeleteCurrentEntry(
+                    connection,
+                    transaction,
+                    record.NamespaceRecord.FileId,
+                    maintainShortQueryIndex);
             }
             else if (!UsnReason.IsRenameOldName(record.Reason))
             {
-                Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                if (maintainShortQueryIndex)
+                {
+                    UpsertWithShortQueryIndex(
+                        connection,
+                        transaction,
+                        record.NamespaceRecord,
+                        metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                }
+                else
+                {
+                    Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                }
             }
         }
         if (failBeforeCommit)
         {
             throw new InvalidOperationException(
                 "Test fault injection interrupted the journal batch before commit.");
+        }
+
+        if (maintainShortQueryIndex)
+        {
+            ShortQueryIndex.AdvanceGeneration(connection, transaction);
         }
 
         var checkpoint = new IncrementalCheckpoint(journal.JournalId, batch.NextUsn, journal.FirstUsn, journal.LowestValidUsn);
@@ -747,6 +789,48 @@ public sealed class IndexStore
             "record_count",
             CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
         transaction.Commit();
+    }
+
+    private static void UpsertWithShortQueryIndex(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NamespaceRecord record,
+        FileMetadata? metadata)
+    {
+        if (!record.FileId.Equals(record.ParentFileId) &&
+            !IsNamespaceEntryRooted(connection, record.ParentFileId))
+        {
+            // An entry whose parent chain does not reach an indexed root has no
+            // reconstructible path and cannot participate in authoritative
+            // static ranking. Remove any formerly reachable state; later
+            // records remain idempotent until a rooted parent exists.
+            DeleteCurrentEntry(connection, transaction, record.FileId, maintainShortQueryIndex: true);
+            return;
+        }
+
+        var existing = ReadShortQueryEntry(connection, record.FileId);
+        if (existing is not null &&
+            existing.Value.ParentFileId.Equals(record.ParentFileId) &&
+            string.Equals(existing.Value.Name, record.Name, StringComparison.Ordinal) &&
+            ((existing.Value.Attributes ^ record.Attributes) & ShortQueryRelevantAttributes) == 0)
+        {
+            Upsert(connection, transaction, record, metadata);
+            return;
+        }
+
+        var affected = ShortQueryIndex.IsDirectory(connection, record.FileId)
+            ? ShortQueryIndex.ReadSubtreeIds(connection, record.FileId)
+            : new[] { record.FileId };
+        foreach (var fileId in affected)
+        {
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, fileId);
+        }
+
+        Upsert(connection, transaction, record, metadata);
+        foreach (var fileId in affected)
+        {
+            ShortQueryIndex.InsertCurrentEntry(connection, transaction, fileId);
+        }
     }
 
     private static void Upsert(
@@ -780,9 +864,39 @@ public sealed class IndexStore
         return command.ExecuteScalar() is not null;
     }
 
-    private static void Delete(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)
+    private static ShortQueryEntry? ReadShortQueryEntry(SqliteConnection connection, NativeFileId fileId)
     {
-        DeleteOne(connection, transaction, fileId);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT parent_file_id,name,attributes FROM namespace_entries WHERE file_id=$id LIMIT 1;";
+        command.Parameters.Add("$id", SqliteType.Blob).Value = fileId.Bytes.ToArray();
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ShortQueryEntry(new NativeFileId((byte[])reader[0]), reader.GetString(1), checked((uint)reader.GetInt64(2)))
+            : null;
+    }
+
+    private static void DeleteCurrentEntry(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NativeFileId fileId,
+        bool maintainShortQueryIndex)
+    {
+        // A directory delete makes every currently known descendant
+        // unreachable. Remove the known subtree child-first so this committed
+        // batch cannot leave namespace or rank-parent orphans; later journal
+        // delete records for descendants are idempotent no-ops.
+        var affected = ShortQueryIndex.IsDirectory(connection, fileId)
+            ? ShortQueryIndex.ReadSubtreeIds(connection, fileId)
+            : [fileId];
+        for (var index = affected.Count - 1; index >= 0; index--)
+        {
+            if (maintainShortQueryIndex)
+            {
+                ShortQueryIndex.RemoveCurrentEntry(connection, transaction, affected[index]);
+            }
+
+            DeleteOne(connection, transaction, affected[index]);
+        }
     }
 
     private static void DeleteOne(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)
@@ -939,6 +1053,12 @@ public sealed class IndexStore
             return false;
         }
 
+        if (!ShortQueryIndex.IsCurrent(connection))
+        {
+            reason = "short-query-derived-state-rebuild-required";
+            return false;
+        }
+
         if (GetMeta(connection, "build_state") != "complete")
         {
             reason = "index-not-complete";
@@ -984,6 +1104,8 @@ public sealed class IndexStore
 
     private static void CompleteBuild(SqliteConnection connection, IncrementalCheckpoint checkpoint)
     {
+        RemoveUnrootedNamespaceEntries(connection);
+        ShortQueryIndex.Build(connection);
         using var transaction = connection.BeginTransaction();
         SetCheckpoint(connection, transaction, checkpoint);
         SetMeta(connection, transaction, "record_count", CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -991,6 +1113,55 @@ public sealed class IndexStore
         SetMeta(connection, transaction, "last_refreshed_utc", DateTimeOffset.UtcNow.ToString("O"));
         SetMeta(connection, transaction, "build_state", "complete");
         transaction.Commit();
+    }
+
+    internal static void RemoveUnrootedNamespaceEntries(SqliteConnection connection)
+    {
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            WITH RECURSIVE rooted(file_id) AS (
+                SELECT file_id
+                FROM namespace_entries
+                WHERE file_id=parent_file_id
+                UNION
+                SELECT child.file_id
+                FROM namespace_entries child
+                JOIN rooted parent ON child.parent_file_id=parent.file_id)
+            DELETE FROM namespace_entries
+            WHERE file_id NOT IN (SELECT file_id FROM rooted);
+            """;
+        command.ExecuteNonQuery();
+
+        using var roots = connection.CreateCommand();
+        roots.Transaction = transaction;
+        roots.CommandText = "SELECT count(*) FROM namespace_entries WHERE file_id=parent_file_id;";
+        if (Convert.ToInt64(roots.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0)
+        {
+            throw new InvalidOperationException("Index build did not produce a namespace root.");
+        }
+
+        transaction.Commit();
+    }
+
+    private static bool IsNamespaceEntryRooted(SqliteConnection connection, NativeFileId fileId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH RECURSIVE ancestry(file_id,parent_file_id) AS (
+                SELECT file_id,parent_file_id
+                FROM namespace_entries
+                WHERE file_id=$id
+                UNION
+                SELECT parent.file_id,parent.parent_file_id
+                FROM namespace_entries parent
+                JOIN ancestry child ON parent.file_id=child.parent_file_id
+                WHERE child.file_id != child.parent_file_id)
+            SELECT 1 FROM ancestry WHERE file_id=parent_file_id LIMIT 1;
+            """;
+        command.Parameters.Add("$id", SqliteType.Blob).Value = fileId.Bytes.ToArray();
+        return command.ExecuteScalar() is not null;
     }
 
     private static void PersistCheckpoint(SqliteConnection connection, IncrementalCheckpoint checkpoint)
@@ -1223,9 +1394,10 @@ public sealed class IndexStore
             GetMeta(connection, "namespace_identity_format") != NamespaceIdentityFormat ||
             GetMeta(connection, "search_index_format") != SearchIndexFormat ||
             GetMeta(connection, "metadata_format") != MetadataFormat ||
+            !ShortQueryIndex.IsCurrent(connection) ||
             ReadCheckpoint(connection) is null)
         {
-            throw new InvalidOperationException("Search requires a complete current schema-v3 metadata index.");
+            throw new InvalidOperationException("Search requires a complete current schema-v4 metadata index.");
         }
     }
 
@@ -1249,6 +1421,7 @@ public sealed class IndexStore
             END;
             """;
         command.ExecuteNonQuery();
+        ShortQueryIndex.CreateSchema(connection);
         SetMeta(connection, "schema_version", SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
         SetMeta(connection, "search_index_format", SearchIndexFormat);
         SetMeta(connection, "metadata_format", MetadataFormat);
@@ -1397,6 +1570,18 @@ public sealed class IndexStore
                     "Namespace identity format requires a safe rebuild.", refreshed);
             }
 
+            if (!ShortQueryIndex.IsCurrent(connection))
+            {
+                return new IndexStatus(
+                    IndexState.RebuildRequired,
+                    volumeIdentity,
+                    mountPoint,
+                    count,
+                    complete,
+                    null,
+                    "Short-query derived state requires a safe rebuild.", refreshed);
+            }
+
             var checkpoint = ReadCheckpoint(connection);
             if (state == "rebuild-required")
             {
@@ -1438,4 +1623,6 @@ public sealed class IndexStore
             return new IndexStatus(IndexState.Incomplete, null, null, 0, null, null, exception.Message);
         }
     }
+
+    private readonly record struct ShortQueryEntry(NativeFileId ParentFileId, string Name, uint Attributes);
 }

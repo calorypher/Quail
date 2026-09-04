@@ -1,4 +1,5 @@
 using Quail.Core;
+using Microsoft.Data.Sqlite;
 
 namespace Quail.Core.Tests;
 
@@ -142,6 +143,140 @@ public sealed class FileSearchRankingTests : IDisposable
         var tokenPrefix = Assert.Single(results, result => result.Name == "foo!needle.txt");
         Assert.Equal(FileSearchTextMatch.TokenPrefix, FileSearchRanking.Classify(tokenPrefix, "needle", Context).TextMatch);
         Assert.Equal("foo!needle.txt", results[0].Name);
+    }
+
+    [Theory]
+    [InlineData("a", "ba", "ca", "da", "ea", "a")]
+    [InlineData("ks", "bks", "cks", "dks", "eks", "ks")]
+    public void Short_query_exact_match_is_not_lost_after_earlier_substring_candidates(
+        string query,
+        string first,
+        string second,
+        string third,
+        string fourth,
+        string exact)
+    {
+        var store = Build($"short-exact-{query}.db", sink =>
+        {
+            AddFile(sink, Root, 2, first);
+            AddFile(sink, Root, 3, second);
+            AddFile(sink, Root, 4, third);
+            AddFile(sink, Root, 5, fourth);
+            AddFile(sink, Root, 6, exact);
+        });
+
+        var result = Assert.Single(store.Search(new FileSearchQuery(query, Limit: 1), Context));
+
+        Assert.Equal(exact, result.Name);
+    }
+
+    [Fact]
+    public void Short_query_compact_order_preserves_location_text_and_static_rank()
+    {
+        var store = Build("short-compact-order.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var desktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, desktop, 5, "za-user-substring.txt");
+            AddFile(sink, desktop, 6, "xa-user-substring.txt");
+            var windows = AddDirectory(sink, Root, 7, "Windows");
+            AddFile(sink, windows, 8, "a");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 4), Context);
+
+        Assert.Equal(
+            ["Alice", "xa-user-substring.txt", "za-user-substring.txt", "a"],
+            results.Select(result => result.Name));
+    }
+
+    [Theory]
+    [InlineData("a")]
+    [InlineData("ks")]
+    public void Runtime_location_map_matches_authoritative_parent_walk_for_context_changes(string query)
+    {
+        var store = Build($"short-runtime-map-{query}.db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var aliceDesktop = AddDirectory(sink, alice, 4, "Desktop");
+            AddFile(sink, aliceDesktop, 5, $"{query}-current.txt");
+            var appData = AddDirectory(sink, alice, 6, "AppData", hidden: true);
+            AddFile(sink, appData, 7, $"{query}-internal.txt");
+            var bob = AddDirectory(sink, users, 8, "Bob");
+            AddFile(sink, bob, 9, $"{query}-other-user.txt");
+            var windows = AddDirectory(sink, Root, 10, "Windows");
+            AddFile(sink, windows, 11, $"{query}-system.txt");
+            AddFile(sink, Root, 12, $"other-{query}.txt");
+        });
+        FileSearchRankingContext[] contexts =
+        [
+            Context,
+            new FileSearchRankingContext("x:\\users\\alice", ["x:\\windows"]),
+            new FileSearchRankingContext("X:\\Users\\Bob", ["X:\\Windows"]),
+            new FileSearchRankingContext(null, ["X:\\Users\\Alice\\Desktop"])
+        ];
+
+        using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Mode=ReadOnly;Pooling=False");
+        connection.Open();
+        foreach (var context in contexts)
+        {
+            var authoritative = ShortQueryIndex.SearchAuthoritative(connection, query, 50, context);
+            var optimized = ShortQueryIndex.Search(connection, query, 50, context);
+
+            Assert.Equal(authoritative.Select(result => result.FileId), optimized.Select(result => result.FileId));
+        }
+    }
+
+    [Fact]
+    public void Short_query_ascii_case_variants_share_one_posting_order()
+    {
+        var store = Build("short-ascii-case-order.db", sink =>
+        {
+            AddFile(sink, Root, 2, "A1");
+            AddFile(sink, Root, 3, "a2");
+            AddFile(sink, Root, 4, "a3");
+            AddFile(sink, Root, 5, "A4");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 2), Context);
+
+        Assert.Equal(["A1", "a2"], results.Select(result => result.Name));
+    }
+
+    [Fact]
+    public void Short_query_ascii_canonicalization_preserves_non_ascii_literal_substrings()
+    {
+        var store = Build("short-non-ascii-literal.db", sink =>
+        {
+            AddFile(sink, Root, 2, "Ąą");
+        });
+
+        var result = Assert.Single(store.Search(new FileSearchQuery("ą", Limit: 1), Context));
+
+        Assert.Equal("Ąą", result.Name);
+    }
+
+    [Fact]
+    public void Short_query_retains_late_exact_candidates_across_posting_chunks()
+    {
+        var store = Build("short-chunk-recall.db", sink =>
+        {
+            for (var index = 0; index < 1_100; index++)
+            {
+                AddFile(sink, Root, index + 2, $"b{index:D4}a");
+            }
+
+            AddFile(sink, Root, 2_000, "a");
+        });
+
+        var results = store.Search(new FileSearchQuery("a", Limit: 1_000), Context);
+
+        Assert.Equal(1_000, results.Count);
+        Assert.Equal("a", results[0].Name);
+        Assert.Contains(results, result => result.Name == "b0000a");
+        Assert.Contains(results, result => result.Name == "b0998a");
     }
 
     [Fact]
