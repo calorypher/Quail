@@ -178,29 +178,19 @@ Acceptance boundary:
 
 Stop if the current search architecture appears fundamentally incapable of meeting the product goal without a large redesign; return a recommendation instead of beginning that redesign implicitly.
 
-### M17 — Search Engine Performance — BLOCKED
+### M17 — Search Engine Performance — COMPLETE
 
-**Goal:** remove the measured interactive-search bottlenecks from M16 and make normal filesystem search feel effectively immediate.
+**Outcome:** the measured M16 interactive-search bottlenecks were removed without weakening candidate recall, ranking semantics, deterministic ordering, index durability, or the M15 source boundary.
 
-M17's first target-meeting candidate was invalidated by correctness QA: its bounded short-query candidate window could exclude later exact/prefix candidates before ranking. After reverting that strategy, a correctness-safe full one-character candidate lookup with no exact match measured about 1.46 seconds on the physical C: index, while the approved median target remains `<= 150 ms`. Existing FTS5 trigram search does not index 1–2-character terms.
+M17's first target-meeting bounded-`rowid` candidate was invalidated by correctness QA because it could exclude later exact/prefix candidates before ranking. The resulting stop condition triggered M17-S, which selected a compact filesystem-owned short-query structure as a bounded production direction.
 
-This evidence triggers M17's explicit stop condition for a new durable short-query structure or material persistent search/index redesign. PR #10 remains blocked and must not be merged in its current state.
+The completed M17 implementation uses `compact-short-query-v3`: SQLite-hosted chunked delta-varint one/two-character postings, 64-bit sparse static-rank labels, bounded local leaf relabeling, generation validation, runtime current-user location classification, and rooted namespace lifecycle invariants. The temporary one-second short-query defer was removed.
 
-The approved short-query target is not relaxed merely because the current storage model cannot meet it. M17 remains paused while M17-S determines whether a bounded solution can satisfy latency, full candidate recall/relevance, footprint, build/rebuild, and maintenance constraints. The Quail 0.3 execution thread owns the resulting in-version decision: it may amend M17, choose another bounded implementation path, or change a target/product behavior that remains within the already approved 0.3 release goal and boundary. Escalate to the parent roadmap thread only if the evidence would change that release boundary or a major cross-version direction.
+Final physical acceptance at implementation commit `5515ef59c051a50ee14d3d9e49961154aafeb4c5` passed rebuild plus CREATE/RENAME/DELETE lifecycle checks with zero namespace/rank/order/posting integrity counters. The final canonical M16 8x3 campaign met every median target and every per-sample guardrail, including one-character median 97.766 ms, two-character 91.568 ms, broad-result 124.152 ms, and rapid-typing final-input 49.501 ms. Manual Quick Search smoke also passed.
 
-Scope otherwise remains driven by M16 evidence and may include query/candidate strategy, FTS/direct lookup behavior, unnecessary materialization/allocation, work performed before top results are available, interactive query-update behavior, and UI/icon work only where profiling shows those areas are on the critical path.
+The whole PR passed final independent QA and PR #10 was merged to `main` as `8491aa2e196f70276345928eb9bd4b107fec4ef6` on 2026-09-04. Detailed accepted and historical failed-run evidence remains in `docs/milestones/M17-results.md` and `docs/milestones/M17-baseline.json`.
 
-Do not add complexity for unmeasured theoretical performance issues. Full index build/rebuild performance is explicitly outside M17 and is owned by M17.5.
-
-Acceptance boundary:
-
-- M16 release targets are met, or a simpler result with practically equivalent user experience is explicitly justified by measurements;
-- normal search feels effectively immediate in representative use;
-- the practical gap to Everything is materially reduced;
-- search correctness and full candidate recall/relevance remain intact;
-- build/sync/storage costs do not regress materially without a documented reason.
-
-Stop if meeting the target requires replacement of the overall search/storage architecture or another material redesign outside the approved 0.3 boundary. A bounded short-query structure may be added to M17 after M17-S through an explicit in-version contract amendment owned by the Quail 0.3 execution thread.
+Full build/rebuild optimization was deliberately not absorbed into M17. That work now proceeds through M17.5.
 
 ### M17-S — Short-Query Search Structure Spike
 
@@ -242,11 +232,13 @@ If every credible bounded option requires a broad storage redesign, unacceptable
 
 ### M17.5 — Index Build/Rebuild Performance Investigation & Target
 
-**Goal:** after M17 is resolved, determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
+**Status: NEXT — not started.**
+
+**Goal:** determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
 
 M16 comparison work exposed a separate high-signal gap: on the physical host, Quail currently rebuilds a roughly 0.86-million-record corpus in about three minutes, while a 30 FPS Everything recording showed its roughly 0.93-million-object rebuild completing in about 2.6-2.7 seconds. The datasets, stored metadata, durability model, and internal architectures are not identical, so Everything is a reference point rather than a parity requirement. The magnitude of the gap is nevertheless large enough to justify measurement before 0.3 freezes its filesystem lifecycle.
 
-M17.5 follows M17-S and the eventual completion of M17 so its baseline reflects the actual search/index structure selected for 0.3. If M17 adds a short-query auxiliary structure, M17.5 must include that structure's build/finalization/storage contribution rather than measuring an obsolete pre-M17 storage shape.
+M17.5 follows the completed M17 and therefore measures the actual search/index structure selected for 0.3, including the accepted compact short-query structure's build/finalization/storage contribution rather than an obsolete pre-M17 storage shape.
 
 Scope:
 
