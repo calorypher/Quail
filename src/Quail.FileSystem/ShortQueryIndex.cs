@@ -228,8 +228,6 @@ internal static class ShortQueryIndex
     {
         var node = ReadNode(connection, fileId);
         if (node is null) return;
-        node.FullPath = ResolveNodePath(connection, node);
-        node.SortKey = CreateStaticSortKey(node);
         var label = FindRankLabelByRowId(connection, node.RowId)
             ?? throw new InvalidOperationException("Short-query rank order is missing an authoritative entry.");
 

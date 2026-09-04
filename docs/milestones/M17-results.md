@@ -2,8 +2,8 @@
 
 ## Status
 
-**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a third bounded
-source-order lifecycle correction awaits independent QA; final physical-host
+**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a bounded
+committed-state durability correction awaits independent QA; final physical-host
 acceptance remains pending.**
 PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
@@ -348,6 +348,77 @@ No physical D: rebuild, frozen-C Search rerun, footprint campaign, or M16 8x3
 was performed. The next physical rebuild remains blocked until this new delta
 passes independent QA.
 
+## Third interrupted physical acceptance on `b36999c` and delete durability correction
+
+Independent delta QA passed the source-order candidate at
+`b36999c277e30db54890077ee18c6325ac685030`. The user then built the Release
+application and rebuilt D: exactly once through **Quail Indexes**. The rebuild
+completed at 20,905 records with CLI state `complete`. Creating
+`D:\quail-m17-b36999c-probe.txt` and refreshing D: passed, producing 20,906
+records with state `complete`. After renaming the probe to
+`D:\quail-m17-b36999c-probe-renamed.txt`, the next normal Refresh failed with:
+
+`journal-read-or-parse-failed: Short-query mutation found a missing parent.`
+
+D: is again rebuild-required. The DELETE stage and final M16 8x3 were not run.
+The successful create snapshots and comparison are preserved without overwrite
+under the ignored `artifacts/m17/failure-b36999c-physical-d-rename/` directory;
+they are partial evidence, not full mutation acceptance.
+
+The deterministic physical-failure-class reproduction uses two separately
+committed journal batches. Batch N deletes an indexed parent directory while
+its child remains known. Before correction that commit returned successfully
+but removed only the parent's namespace/rank/posting/order entry, leaving the
+child namespace entry and rank `ParentLabel` pointing at the removed parent.
+Batch N+1 then delivered the child `FileDelete` and failed in
+`ShortQueryIndex.RemoveCurrentEntry` / `ResolveNodePath` with the exact
+`Short-query mutation found a missing parent` exception. This can legally cross
+the implementation's batching boundary: each record set returned by the 1 MiB
+`FSCTL_READ_USN_JOURNAL` buffer is passed to `ApplyBatch` and committed
+independently.
+
+A dangling committed rank topology is not safe. The runtime location map cannot
+recover the missing ancestry and may classify such an entry outside its real
+location; the authoritative parent walk can fail on the missing rank label;
+and result path reconstruction reports a missing parent. The final durability
+rule is therefore: when `FileDelete` targets a directory currently known by the
+index, that transaction removes its entire currently known subtree from compact
+and namespace state before committing. Entries are removed child-first. Later
+descendant delete records are idempotent no-ops, regardless of later journal
+batch boundaries.
+
+The removal path is also explicitly independent of the removed entry's parent
+path. `ShortQueryIndex.RemoveCurrentEntry` needs only the node name, rowid, and
+rank label to remove posting, order, and rank references; its unused
+`ResolveNodePath` and `CreateStaticSortKey` calls were removed. A focused test
+first removes a parent's compact and namespace state, then removes the orphaned
+child compact entry successfully and rolls the diagnostic transaction back.
+Ordinary rename/move tests prove that insertion and reranking still compute the
+full path/static key where they are actually required.
+
+The multi-level regression deletes a directory containing a file, a nested
+directory, and a nested file. Immediately after the first committed batch only
+the root remains, Search exposes no removed labels, and complete
+namespace/rank/`ParentLabel`/order/posting integrity passes. Later child,
+nested-directory, and nested-file delete batches each commit as no-ops and pass
+the same integrity check. The normal child-first then parent-delete control also
+passes after each commit.
+
+Final automated evidence for the committed-state durability candidate:
+
+- exact cross-batch parent-delete then child-delete reproduction: FAIL before
+  correction with `Short-query mutation found a missing parent`, PASS after;
+- focused `IncrementalIndexStoreTests`, `MetadataIndexTests`,
+  `FileSearchTests`, and `FileSearchRankingTests`: 62 PASS;
+- full `Quail.Core.Tests` Release: 219 PASS;
+- `Quail.App` Release build: PASS, zero warnings and zero errors;
+- `git diff --check`: PASS.
+
+The bounded leaf relabel, persistent `compact-short-query-v3` format, production
+Search execution, footprint, and focused latency evidence are unchanged. No
+physical D: rebuild, frozen-C benchmark, footprint campaign, or M16 8x3 was
+performed for this correction.
+
 ### User-owned physical-host final run pending
 
 The final run must start from the final clean production commit. Schema v4 with
@@ -369,7 +440,7 @@ a normal user index and never modify its source file:
    mutation attempt and does not require a rebuild merely for this v3
    maintenance correction. Through **Quail Indexes**, select **Rebuild** for
    the current D: index exactly once; it is currently rebuild-required because
-   of the failed `0b8c28b` rename-stage Refresh. Accept the existing UAC prompt
+   of the failed `b36999c` rename-stage Refresh. Accept the existing UAC prompt
    and wait for success. This is the established privileged workflow: the elevated worker
    validates the catalog and protected storage, builds in staging, then
    publishes the completed index. Do not call the worker command line directly.

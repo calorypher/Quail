@@ -748,11 +748,11 @@ public sealed class IndexStore
         {
             if (UsnReason.IsFileDelete(record.Reason))
             {
-                if (maintainShortQueryIndex)
-                {
-                    ShortQueryIndex.RemoveCurrentEntry(connection, transaction, record.NamespaceRecord.FileId);
-                }
-                Delete(connection, transaction, record.NamespaceRecord.FileId);
+                DeleteCurrentEntry(
+                    connection,
+                    transaction,
+                    record.NamespaceRecord.FileId,
+                    maintainShortQueryIndex);
             }
             else if (!UsnReason.IsRenameOldName(record.Reason))
             {
@@ -864,9 +864,28 @@ public sealed class IndexStore
             : null;
     }
 
-    private static void Delete(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)
+    private static void DeleteCurrentEntry(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NativeFileId fileId,
+        bool maintainShortQueryIndex)
     {
-        DeleteOne(connection, transaction, fileId);
+        // A directory delete makes every currently known descendant
+        // unreachable. Remove the known subtree child-first so this committed
+        // batch cannot leave namespace or rank-parent orphans; later journal
+        // delete records for descendants are idempotent no-ops.
+        var affected = ShortQueryIndex.IsDirectory(connection, fileId)
+            ? ShortQueryIndex.ReadSubtreeIds(connection, fileId)
+            : [fileId];
+        for (var index = affected.Count - 1; index >= 0; index--)
+        {
+            if (maintainShortQueryIndex)
+            {
+                ShortQueryIndex.RemoveCurrentEntry(connection, transaction, affected[index]);
+            }
+
+            DeleteOne(connection, transaction, affected[index]);
+        }
     }
 
     private static void DeleteOne(SqliteConnection connection, SqliteTransaction transaction, NativeFileId fileId)

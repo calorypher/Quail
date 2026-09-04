@@ -232,6 +232,152 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_parent_delete_removes_subtree_before_later_child_delete_batch()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("fi", Limit: 50)));
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_file, _directoryId, "file.txt", 0, 220, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("fi", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_delete_removes_a_multilevel_subtree_before_later_delete_batches()
+    {
+        var directory = Id("00000000000000B1");
+        var childA = Id("00000000000000B2");
+        var nestedDirectory = Id("00000000000000B3");
+        var childB = Id("00000000000000B4");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(directory, _root, "directory", 16, 0, 2));
+            sink(new NamespaceRecord(childA, directory, "child-a.txt", 0, 0, 2));
+            sink(new NamespaceRecord(nestedDirectory, directory, "nested", 16, 0, 2));
+            sink(new NamespaceRecord(childB, nestedDirectory, "child-b.txt", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(directory, _root, "directory", 16, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal([""], Store.ReadAllForDiagnostics().Select(record => record.Name));
+        Assert.Empty(Store.Search(new FileSearchQuery("ch", Limit: 50)));
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(childA, directory, "child-a.txt", 0, 220, 2),
+                UsnReason.FileDelete))]);
+        Assert.Equal(300, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(400, new JournalRecord(
+                new NamespaceRecord(nestedDirectory, directory, "nested", 16, 320, 2),
+                UsnReason.FileDelete))]);
+        Assert.Equal(400, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(
+                new NamespaceRecord(childB, nestedDirectory, "child-b.txt", 0, 420, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal([""], Store.ReadAllForDiagnostics().Select(record => record.Name));
+        Assert.Empty(Store.Search(new FileSearchQuery("ne", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        Assert.Equal(500, Store.GetStatus().Checkpoint!.NextUsn);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_child_delete_then_parent_delete_keeps_each_committed_batch_coherent()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_file, _directoryId, "file.txt", 0, 120, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.Equal("X:\\alpha", Store.ReconstructPath(_directoryId).Path);
+        Assert.False(Store.ReconstructPath(_file).Success);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 220, 2),
+                UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_removal_does_not_require_the_namespace_parent()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, V3(_directoryId));
+            using (var deleteParent = connection.CreateCommand())
+            {
+                deleteParent.Transaction = transaction;
+                deleteParent.CommandText = "DELETE FROM namespace_entries WHERE file_id=$id;";
+                deleteParent.Parameters.Add("$id", SqliteType.Blob).Value = V3(_directoryId).Bytes.ToArray();
+                Assert.Equal(1, deleteParent.ExecuteNonQuery());
+            }
+
+            ShortQueryIndex.RemoveCurrentEntry(connection, transaction, V3(_file));
+            transaction.Rollback();
+        }
+
+        Assert.Equal("X:\\alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
     public void Short_query_source_order_keeps_interleaved_parent_create_before_child()
     {
         var parent = Id("0000000000000051");
