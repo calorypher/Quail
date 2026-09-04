@@ -2,13 +2,16 @@
 
 ## Status
 
-**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a bounded
-rooted-namespace build/sync correction awaits independent QA; final physical-host
-acceptance remains pending.**
-PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
-only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
-it is not acceptance evidence because that commit weakened short-query
-candidate recall.
+**ACCEPTANCE PASS — READY FOR FINAL INDEPENDENT QA.**
+
+The final production implementation was tested at
+`5515ef59c051a50ee14d3d9e49961154aafeb4c5`. Its final physical D: lifecycle,
+comparable frozen-C plus current-D canonical M16 8x3 campaign, and manual
+Quick Search smoke all pass. PR #10 remains **OPEN / DO NOT MERGE** until the
+whole PR receives its final independent QA. The historical M17 performance
+campaign below remains valid only as a measurement of commit
+`fa66270461f8f4461fd574c490a82ad214dcad39`; it is not acceptance evidence
+because that commit weakened short-query candidate recall.
 
 ## Current production implementation evidence (not acceptance evidence)
 
@@ -140,9 +143,9 @@ Ranking-aware early termination and new chunk summaries were not attempted:
 the correctness-preserving complete scan already meets the feasibility goal,
 so adding persistent metadata or skip logic would be unjustified scope.
 
-The final canonical M16 8x3 remains deliberately unrun. This continuation ends
-at a clean implementation/evidence checkpoint for execution-thread QA and the
-later user-owned physical acceptance sequence.
+At this runtime-ranking checkpoint the final canonical M16 8x3 was deliberately
+unrun. That provisional statement is superseded by the accepted final campaign
+recorded below.
 
 Verification for the runtime-ranking candidate:
 
@@ -518,145 +521,134 @@ or M16 8x3 was performed during this correction. Final automated evidence:
 - diagnostic helper Release build: PASS, zero warnings and zero errors;
 - `git diff --check`: PASS.
 
-### User-owned physical-host final run pending
+## Final accepted physical-host evidence on `5515ef5`
 
-The final run must start from the final clean production commit. Schema v4 with
-the `compact-short-query-v3` format intentionally treats the earlier v1/v2 compact
-postings as rebuild-required; do not attempt an in-place upgrade.
+The accepted raw evidence is preserved, ignored, and was not modified during
+this consolidation:
 
-Windows was reinstalled after M16/M17-S. The current C: corpus is therefore not
-comparable to the original M16 physical-host C: corpus. Keep current production
-indexes for lifecycle and manual-product evidence, but use the preserved old C:
-corpus only as a disposable benchmark input. Never configure the preserved DB as
-a normal user index and never modify its source file:
+`artifacts/m17/final-5515ef5/`
 
-`D:\Projekty\Quail\artifacts\m17\pre-reinstall-corpus\c-index-f81780f.db`
+It contains the post-rebuild and after-each-operation integrity inspections,
+before/after posting snapshots and comparisons for create/rename/delete,
+current C:/D: reports, the immutable-source and disposable-final-v3 frozen-C
+reports, the disposable final-v3 DB, and the complete canonical M16 traces,
+drivers, diagnostics, `results.json`, and `summary.txt`.
 
-#### A. Current production lifecycle and mutation evidence
+### D: rebuild, integrity, and ordinary mutation lifecycle
 
-1. After this corrected candidate passes independent QA, build the affected
-   Release application. The current C: index was complete before the interrupted
-   mutation attempts and does not require a rebuild merely for this v3
-   maintenance correction. Only after this rooted-namespace candidate passes
-   another independent QA, select **Rebuild** for the current D: index exactly
-   once through **Quail Indexes**; it is currently rebuild-required because of
-   the failed `dde2315` create-stage Refresh. Accept the existing UAC prompt
-   and wait for success. This is the established privileged workflow: the elevated worker
-   validates the catalog and protected storage, builds in staging, then
-   publishes the completed index. Do not call the worker command line directly.
-2. Confirm current C: and the once-rebuilt D: are complete with the existing
-   CLI, using their paths from `%LOCALAPPDATA%\Quail\indexes.json`:
+One normal **Quail Indexes** D: Rebuild at `5515ef5` completed with 22,639
+records, `nextUsn=35871032`, journal `01DD39FE7448A7C2`, namespace and
+short-query generation 1, and `compact-short-query-v3`. The post-rebuild
+inspection found 22,639 namespace rows, rank rows, and order labels; 721,652
+posting labels; and zero unrooted namespace rows, namespace/rank orphans,
+missing or mismatched parent labels, duplicate/missing order labels, or dangling
+posting labels.
 
-   ```powershell
-   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<current-C-database-path>'
-   dotnet run --project .\src\Quail.Cli\Quail.Cli.csproj --configuration Release -- status --index '<current-D-database-path>'
-   ```
+| Operation | Completed state | Generation | Posting labels | Changed chunks | Removed chunks | Changed payload lower bound | Largest chunk | Result |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| CREATE `quail-m17-5515ef5-probe.txt` | 22,640 records; `nextUsn=35871672` | 2 / 2 | 721,697 | 68 | 0 | 73,714 B | 2,393 B | PASS |
+| RENAME to `quail-m17-5515ef5-probe-renamed.txt` | 22,640 records; `nextUsn=35872064` | 3 / 3 | 721,707 | 22 | 0 | 28,821 B | 2,257 B | PASS |
+| DELETE renamed probe | 22,639 records; `nextUsn=35872200` | 4 / 4 | 721,652 | 55 | 0 | 61,711 B | 2,391 B | PASS |
 
-3. Create one new ignored evidence directory. It must not already exist, so a
-   final run cannot overwrite prior evidence. Set the two current database paths
-   from the rebuilt catalog and collect ordinary reports without `--work-copy`:
+Every after-operation inspection remained `complete` with all integrity counters
+at zero. After DELETE both the record count and posting-label count returned
+exactly to their post-rebuild values. The comparison payloads are focused lower
+bounds for changed posting chunks, not total SQLite transaction I/O.
 
-   ```powershell
-   $commit = (git rev-parse --short HEAD)
-   $evidence = ".\artifacts\m17\final-$commit"
-   New-Item -ItemType Directory -ErrorAction Stop -Path $evidence | Out-Null
-   $currentC = '<current-C-database-path>'
-   $currentD = '<current-D-database-path>'
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $currentC --output "$evidence\current-c-production-report.json"
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $currentD --output "$evidence\current-d-production-report.json"
-   ```
+### Production footprint and comparable frozen corpus
 
-   Record `databaseBytes`, `baseDatabaseBytes`, `compactDerivedBytes`,
-   `compactGrowthPercent`, `postings`, `bytesPerPosting`, `postingPayloadBytes`,
-   `rankMapPayloadBytes`, `rankOrderPayloadBytes`, `logicalCompactPayloadBytes`,
-   `searchRankMapLoadMilliseconds`, `searchRankMapLoadPayloadBytes`,
-   `searchRankMapManagedMemoryDeltaBytes`,
-   `maintenanceRankOrderLoadMilliseconds`, `maintenanceRankOrderLoadPayloadBytes`,
-   `maintenanceRankOrderManagedMemoryDeltaBytes`, `directCompactBuildMilliseconds`,
-   and `directCompactBuildDatabaseBytes`. The `searchRankMap*` fields measure
-   the rank map read by production short-query Search; the
-   `maintenanceRankOrder*` fields separately measure sync-only order-maintenance
-   state. `directCompactBuild*` is `null` for these ordinary reports. The helper
-   uses SQLite `dbstat` where the bundled SQLite supports it; if
-   `compactDerivedBytes` is `null`, retain that fact and the logical payload-byte
-   fields rather than substituting an estimate.
+`dbstat` was unavailable in the bundled SQLite runtime, so
+`compactDerivedBytes` and `compactGrowthPercent` are `null` in all final reports.
+Logical payload totals remain the accepted comparable lower-bound evidence; no
+substitute page estimate is claimed.
 
-4. Collect focused bounded create, rename, and delete evidence on a disposable
-   representative location on the current D: index. For each operation: snapshot
-   `$currentD`, perform that one ordinary filesystem operation, use **Refresh**
-   for D: through the same Indexes UI, take a second snapshot, and compare the
-   two. Keep the result JSON for every operation.
+| Index/report | Namespace rows | Postings | Database bytes | Bytes/posting | Posting payload | Search rank-map payload / load | Order-maintenance payload / load | Logical compact payload |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Current C: | 462,868 | 20,192,875 | 236,150,784 B | 3.095 | 45,835,279 B | 12,960,304 B / 23.015 ms | 3,702,944 B / 6.887 ms | 62,498,527 B |
+| Current D: | 22,639 | 721,652 | 9,216,000 B | 3.477 | 1,694,220 B | 633,892 B / 1.222 ms | 181,112 B / 0.207 ms | 2,509,224 B |
+| Frozen pre-reinstall C final v3 | 850,675 | 35,049,776 | 411,049,984 B | 3.146 | 79,647,777 B | 23,818,900 B / 16.041 ms | 6,805,400 B / 4.796 ms | 110,272,077 B |
 
-   ```powershell
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index $currentD --output "$evidence\current-d-before-create.json"
-   # Perform one disposable create on current D:, then Refresh D: through Quail Indexes.
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- snapshot --index $currentD --output "$evidence\current-d-after-create.json"
-   dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- compare --before "$evidence\current-d-before-create.json" --after "$evidence\current-d-after-create.json" --output "$evidence\current-d-create-mutation.json"
-   ```
+The immutable frozen v2 source report records 850,688 rows, 35,050,071
+postings, 762,478,592 B, 14.261 B/posting, and a 499,837,166 B logical compact
+payload. Its `--work-copy` compact construction created the final-v3 disposable
+DB in 14,745.821 ms at 411,049,984 B. This is compact-representation evidence,
+not a claim to optimize the full rebuild pipeline; M17.5 remains out of scope.
 
-   Repeat the three commands with `rename` and `delete`. Record
-   `changedChunkCount`, `removedChunkCount`,
-   `afterPayloadBytesForChangedChunks`, and `maximumAfterPayloadBytes` from each
-   comparison. These are focused lower bounds for affected posting-chunk writes,
-   not a claim about whole SQLite transaction I/O.
+### Comparable-corpus count diagnostic
 
-#### B. Frozen comparable benchmark corpus
+The final benchmark trace reports `recordCount=873327`, while the actual
+namespace rows of its two search indexes are 850,675 (frozen v3) plus 22,639
+(current D:) = **873,314**. The 13-row difference is understood and does not
+affect Search:
 
-The preserved pre-reinstall C: source is schema-v4/v2. Prepare exactly one
-disposable final-v3 copy on D: with the final commit; do not rebuild the current
-C: to stand in for it and do not modify the frozen source DB. The first report
-copies the v2 source, clears only derived compact state in that copy, and runs
-the final `ShortQueryIndex.Build`. The second report measures the resulting v3
-representation without another rebuild:
+- `report --work-copy` invokes `RemoveUnrootedNamespaceEntries` before direct
+  compact construction, removing 13 unrooted frozen rows, but that helper path
+  does not rewrite metadata `record_count`;
+- the work-copy therefore retains its frozen-source status metadata count of
+  850,688, while its `namespace_entries` and compact state contain 850,675 rows;
+- `FileSystemSearchSource.GetSearchIndexScale()` reads `IndexStore.GetStatus()`
+  and is used only to write the trace `session-start` scale, yielding
+  850,688 + 22,639 = 873,327;
+- production Search invokes `IndexStore.Search` / `ShortQueryIndex.Search` over
+  the actual SQLite namespace and derived tables, not this diagnostic status
+  count.
 
-```powershell
-$frozenCSource = ".\artifacts\m17\pre-reinstall-corpus\c-index-f81780f.db"
-$frozenCV3 = "$evidence\frozen-c-pre-reinstall-final-v3.db"
-dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $frozenCSource --output "$evidence\frozen-c-pre-reinstall-v2-source-report.json" --work-copy $frozenCV3
-dotnet run --project .\spikes\m17-production-measure\Quail.M17.ProductionMeasure.csproj --configuration Release -- report --index $frozenCV3 --output "$evidence\frozen-c-pre-reinstall-final-v3-report.json"
-```
+The benchmark database size cross-checks exactly:
+411,049,984 B + 9,216,000 B = 420,265,984 B. The baseline records both the
+actual comparable corpus and the separate diagnostic trace/status count; it
+does not represent 873,327 as a namespace-row count.
 
-Retain both reports and the disposable `$frozenCV3`. The final-v3 report is the
-comparable compact-footprint evidence. Its `directCompactBuild*` fields are
-`null` because the direct rebuild timing and output database size are recorded
-by the first v2-source report alongside `directCompactBuildCopy`.
+### One final canonical M16 8x3 campaign
 
-#### C. One final canonical M16 8x3 campaign
+The only final campaign used the disposable frozen pre-reinstall C final-v3 DB
+and the rebuilt current D: DB; it did not substitute the post-reinstall current
+C: corpus. The resident Quail process was closed. `results.json` records
+`gitHead=5515ef59c051a50ee14d3d9e49961154aafeb4c5`, `sourceDirty=false`,
+.NET 10.0.400, Windows 10.0.26200.0, three repetitions, two indexes, and
+420,265,984 database bytes. All 24 input-to-text samples and the three rapid
+burst samples satisfy their M17 targets and guardrails.
 
-The current harness accepts repeated `-IndexPath` values and passes each one as
-an explicit `--index` to every scenario. M16 used a two-index C:+D: baseline,
-so use the disposable frozen C: final-v3 DB together with the rebuilt current
-D: DB. Do not substitute the new current C: corpus. Before the campaign, verify
-that `$frozenCV3` and `$currentD` exist and exit any resident Quail process. If
-the frozen copy or rebuilt current D: DB is unavailable, stop rather than using
-current C: or changing the scenario set.
+| Scenario | Samples (ms) | Median | Target | Worst | Guardrail | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `ordinary-name` | 14.500, 16.998, 16.675 | 16.675 | <= 50 | 16.998 | <= 100 | PASS |
+| `strong-prefix` | 14.810, 17.658, 17.910 | 17.658 | <= 50 | 17.910 | <= 100 | PASS |
+| `broad-result` | 123.633, 124.152, 129.879 | 124.152 | <= 150 | 129.879 | <= 250 | PASS |
+| `one-character` | 97.766, 98.287, 96.501 | 97.766 | <= 150 | 98.287 | <= 250 | PASS |
+| `two-character` | 90.291, 91.568, 96.652 | 91.568 | <= 150 | 96.652 | <= 250 | PASS |
+| `warm-repeated` | 60.024, 60.174, 61.500 | 60.174 | <= 100 | 61.500 | <= 150 | PASS |
+| `fresh-process-first-search` | 81.134, 81.017, 81.295 | 81.134 | <= 125 | 81.295 | <= 150 | PASS |
+| `rapid-typing` final input | 48.730, 49.501, 50.648 | 49.501 | <= 75 | 50.648 | <= 125 | PASS |
+| `rapid-typing` prescribed burst | 548.662, 550.434, 556.827 | 550.434 | <= 600 | 556.827 | <= 700 | PASS |
 
-Run exactly one campaign: all eight scenarios from the existing
-`artifacts\m16\scenarios.local.json`, three repetitions, and no other final
-benchmark invocation.
+### Manual product smoke and acceptance assessment
 
-```powershell
-$benchmarkIndexes = @($frozenCV3, $currentD)
-.\scripts\run-m16-benchmark.ps1 -ScenarioPath .\artifacts\m16\scenarios.local.json -Repetitions 3 -IndexPath $benchmarkIndexes -OutputDirectory "$evidence\m16-8x3-frozen-c-current-d"
-```
-
-#### D. Manual product smoke
-
-Only after performance acceptance, run the normal Quick Search smoke against
-the current production C: and D: indexes: one normal query, one one-character
-query, one two-character query, and open the intended result. The frozen C: DB
-is benchmark/evidence input only and must not be configured as a normal
+After the campaign, a normal Release Quail process used the current production
+C: and D: indexes. A normal query, one-character query, two-character query,
+and opening the intended result all passed; the user observed immediate results.
+The frozen C DB was benchmark evidence only and was never configured as a user
 production index.
 
-The next session must read `docs/milestones/M17.md`, this file,
-`docs/milestones/M17-baseline.json`, the `current-*-production-report.json`,
-both `frozen-c-pre-reinstall-*-report.json` files, the three
-`current-d-*-mutation.json` files, and
-`$evidence\m16-8x3-frozen-c-current-d\results.json` plus `summary.txt`. It
-must copy the final non-sensitive accepted samples and metric summary into
-`M17-baseline.json` and this document, check every M17 target and guardrail,
-then request independent QA. Do not rerun the final 8x3 campaign only to
-increase confidence.
+| M17 acceptance area | Final evidence | Status |
+| --- | --- | --- |
+| M16 timing targets and guardrails | One canonical 8x3 above | PASS |
+| Full short-query recall and ranking | Permanent late-exact, ranking/order, ASCII/non-ASCII, mutation, and runtime-map tests; 223-test final Release suite | PASS |
+| Derived-state lifecycle and generation integrity | Staged v3 implementation, deterministic regressions, final D: rebuild plus create/rename/delete inspections | PASS |
+| Proportionate footprint/load/build/mutation cost | Current C:/D: and frozen comparable reports; bounded chunk comparisons | PASS |
+| Broad, warm, fresh, and rapid interaction | Final canonical campaign | PASS |
+| Affected Release builds | `Quail.App` Release PASS, zero warnings/errors; helper Release PASS | PASS |
+| Manual product smoke | Current production C:/D: normal/one/two/open | PASS |
+| Out-of-scope boundaries | No M17.5 rebuild optimization, M18 ranking redesign, M19/M20 service work, generic scheduler, or persistent-format change beyond v3 | PASS |
+
+`LatestSearchCoordinator` remains in `Quail.App`. That is compatible with the
+accepted M15 source-neutral boundary and is not an M17 blocker. The post-0.3
+direction may move reusable source-neutral request execution coordination out
+of the frontend, but no such refactor is part of this milestone.
+
+Consolidation verified all final JSON reports, 24 trace JSONL files, summary
+medians against `results.json`, every timing guardrail, report/lifecycle
+cross-checks, the record-count diagnosis, and an unchanged raw-evidence
+inventory. No physical operation, benchmark rerun, manual smoke rerun, build,
+or test suite was run for this documentation-only consolidation.
 
 ## Invalidated short-query candidate
 
@@ -728,6 +720,7 @@ filesystem-owned compact derived structure now implemented on this branch.
 
 No M17.5 rebuild optimization, ranking v2, maintenance/service work, package
 work, generic scheduler, or unrelated architecture change was introduced.
-Search actions and path resolution remain unchanged. PR #10 must stay open and
-unmerged until the user-owned rebuild, compact lifecycle evidence, one final
-canonical 8x3 campaign, and independent QA are complete.
+Search actions and path resolution remain unchanged. The user-owned rebuild,
+compact lifecycle evidence, one final canonical 8x3 campaign, and manual smoke
+are complete. PR #10 must stay open and unmerged until final independent QA is
+complete.

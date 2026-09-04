@@ -2,74 +2,141 @@
   "schemaVersion": 1,
   "metric": "inputToFirstTextMilliseconds",
   "environment": {
-    "capturedAtUtc": "2026-09-02T14:05:59.5831684Z",
-    "gitHead": "fa66270461f8f4461fd574c490a82ad214dcad39",
+    "capturedAtUtc": "2026-09-04T10:35:08.8074083Z",
+    "gitHead": "5515ef59c051a50ee14d3d9e49961154aafeb4c5",
     "sourceDirty": false,
     "dotnetVersion": "10.0.400",
     "osVersion": "Microsoft Windows NT 10.0.26200.0",
     "repetitions": 3,
     "indexCount": 2,
-    "recordCount": 858879,
-    "databaseBytes": 273358848
+    "recordCount": 873314,
+    "diagnosticTraceRecordCount": 873327,
+    "databaseBytes": 420265984,
+    "corpus": {
+      "frozenPreReinstallC": {
+        "role": "disposable final-v3 comparable benchmark index",
+        "actualNamespaceRows": 850675,
+        "statusMetadataRecordCount": 850688,
+        "databaseBytes": 411049984
+      },
+      "currentD": {
+        "role": "rebuilt current production index",
+        "actualNamespaceRows": 22639,
+        "statusMetadataRecordCount": 22639,
+        "databaseBytes": 9216000
+      },
+      "note": "recordCount is the actual namespace-row total. diagnosticTraceRecordCount is session-start status metadata only; the frozen work copy removed 13 unrooted namespace rows without rewriting record_count metadata."
+    }
   },
   "scenarios": [
     {
       "id": "ordinary-name",
       "queryLength": 20,
       "resultCount": 2,
-      "samples": [21.865, 16.439, 21.628],
-      "median": 21.628
+      "samples": [14.500, 16.998, 16.675],
+      "median": 16.675,
+      "target": 50,
+      "guardrail": 100,
+      "status": "PASS"
     },
     {
       "id": "strong-prefix",
       "queryLength": 24,
       "resultCount": 2,
-      "samples": [18.427, 17.149, 15.426],
-      "median": 17.149
+      "samples": [14.810, 17.658, 17.910],
+      "median": 17.658,
+      "target": 50,
+      "guardrail": 100,
+      "status": "PASS"
     },
     {
       "id": "broad-result",
       "queryLength": 4,
       "resultCount": 50,
-      "samples": [135.741, 136.219, 139.119],
-      "median": 136.219
+      "samples": [123.633, 124.152, 129.879],
+      "median": 124.152,
+      "target": 150,
+      "guardrail": 250,
+      "status": "PASS"
     },
     {
       "id": "one-character",
       "queryLength": 1,
       "resultCount": 50,
-      "samples": [39.891, 41.092, 40.867],
-      "median": 40.867
+      "samples": [97.766, 98.287, 96.501],
+      "median": 97.766,
+      "target": 150,
+      "guardrail": 250,
+      "status": "PASS"
     },
     {
       "id": "two-character",
       "queryLength": 2,
       "resultCount": 50,
-      "samples": [43.410, 41.082, 47.259],
-      "median": 43.410
+      "samples": [90.291, 91.568, 96.652],
+      "median": 91.568,
+      "target": 150,
+      "guardrail": 250,
+      "status": "PASS"
     },
     {
       "id": "warm-repeated",
       "queryLength": 3,
       "resultCount": 50,
-      "samples": [60.807, 60.667, 60.177],
-      "median": 60.667
+      "samples": [60.024, 60.174, 61.500],
+      "median": 60.174,
+      "target": 100,
+      "guardrail": 150,
+      "status": "PASS"
     },
     {
       "id": "fresh-process-first-search",
       "queryLength": 8,
-      "resultCount": 48,
-      "samples": [89.961, 88.056, 87.328],
-      "median": 88.056
+      "resultCount": 50,
+      "samples": [81.134, 81.017, 81.295],
+      "median": 81.134,
+      "target": 125,
+      "guardrail": 150,
+      "status": "PASS"
     },
     {
       "id": "rapid-typing",
       "queryLength": 5,
       "resultCount": 50,
-      "samples": [56.422, 58.381, 55.676],
-      "median": 56.422,
-      "typingBurstSamples": [538.225, 538.309, 525.437],
-      "typingBurstMedian": 538.225
+      "samples": [48.730, 49.501, 50.648],
+      "median": 49.501,
+      "target": 75,
+      "guardrail": 125,
+      "typingBurstSamples": [548.662, 550.434, 556.827],
+      "typingBurstMedian": 550.434,
+      "typingBurstTarget": 600,
+      "typingBurstGuardrail": 700,
+      "status": "PASS"
     }
-  ]
+  ],
+  "footprint": {
+    "format": "compact-short-query-v3",
+    "currentC": { "records": 462868, "postings": 20192875, "databaseBytes": 236150784, "bytesPerPosting": 3.095, "logicalCompactPayloadBytes": 62498527, "searchRankMapLoadMilliseconds": 23.015 },
+    "currentD": { "records": 22639, "postings": 721652, "databaseBytes": 9216000, "bytesPerPosting": 3.477, "logicalCompactPayloadBytes": 2509224, "searchRankMapLoadMilliseconds": 1.222 },
+    "frozenPreReinstallC": {
+      "sourceV2": { "records": 850688, "postings": 35050071, "databaseBytes": 762478592, "bytesPerPosting": 14.261, "logicalCompactPayloadBytes": 499837166 },
+      "finalV3": { "records": 850675, "postings": 35049776, "databaseBytes": 411049984, "bytesPerPosting": 3.146, "logicalCompactPayloadBytes": 110272077, "searchRankMapLoadMilliseconds": 16.041 },
+      "directCompactBuildMilliseconds": 14745.821,
+      "directCompactBuildDatabaseBytes": 411049984
+    },
+    "compactDerivedBytes": null,
+    "compactGrowthPercent": null,
+    "note": "dbstat was unavailable in the bundled SQLite runtime; logical payload totals are retained as lower-bound compact-state evidence."
+  },
+  "lifecycle": {
+    "postRebuild": { "records": 22639, "postings": 721652, "namespaceGeneration": 1, "shortQueryGeneration": 1, "allIntegrityCountersZero": true },
+    "create": { "records": 22640, "postings": 721697, "changedChunkCount": 68, "removedChunkCount": 0, "afterPayloadBytesForChangedChunks": 73714, "maximumAfterPayloadBytes": 2393, "allIntegrityCountersZero": true },
+    "rename": { "records": 22640, "postings": 721707, "changedChunkCount": 22, "removedChunkCount": 0, "afterPayloadBytesForChangedChunks": 28821, "maximumAfterPayloadBytes": 2257, "allIntegrityCountersZero": true },
+    "delete": { "records": 22639, "postings": 721652, "changedChunkCount": 55, "removedChunkCount": 0, "afterPayloadBytesForChangedChunks": 61711, "maximumAfterPayloadBytes": 2391, "allIntegrityCountersZero": true }
+  },
+  "invalidatedCampaign": {
+    "gitHead": "fa66270461f8f4461fd574c490a82ad214dcad39",
+    "reason": "bounded short-query rowid candidate window could exclude later exact or prefix candidates before ranking",
+    "baselinePath": "historical values remain in the M17-results invalidated-campaign section"
+  }
 }
