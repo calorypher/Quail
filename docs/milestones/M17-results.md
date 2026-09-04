@@ -2,20 +2,21 @@
 
 ## Status
 
-**ACCEPTANCE PASS — READY FOR FINAL INDEPENDENT QA.**
+**COMPLETE — FINAL ACCEPTANCE PASS; PR #10 MERGED.**
 
 The final production implementation was tested at
 `5515ef59c051a50ee14d3d9e49961154aafeb4c5`. Its final physical D: lifecycle,
 comparable frozen-C plus current-D canonical M16 8x3 campaign, and manual
-Quick Search smoke all pass. PR #10 remains **OPEN / DO NOT MERGE** until the
-whole PR receives its final independent QA. The historical M17 performance
-campaign below remains valid only as a measurement of commit
+Quick Search smoke all passed. The whole PR then passed final independent QA and
+PR #10 was merged to `main` as
+`8491aa2e196f70276345928eb9bd4b107fec4ef6` on 2026-09-04. The historical M17
+performance campaign below remains valid only as a measurement of commit
 `fa66270461f8f4461fd574c490a82ad214dcad39`; it is not acceptance evidence
 because that commit weakened short-query candidate recall.
 
-## Current production implementation evidence (not acceptance evidence)
+## Current production implementation evidence
 
-The active branch now contains the amended M17 compact short-query path:
+The merged M17 implementation contains the amended compact short-query path:
 
 - `namespace_entries` remains authoritative; schema v4 adds filesystem-owned
   SQLite rank and posting chunk tables built inside staging before publication;
@@ -650,6 +651,11 @@ cross-checks, the record-count diagnosis, and an unchanged raw-evidence
 inventory. No physical operation, benchmark rerun, manual smoke rerun, build,
 or test suite was run for this documentation-only consolidation.
 
+Final independent QA of the whole PR passed after consolidation. No production
+code changed after the accepted implementation commit; the post-acceptance
+branch changes were evidence consolidation and independent post-0.3
+documentation. The user then explicitly approved merge.
+
 ## Invalidated short-query candidate
 
 For one- and two-character literal substring queries, `IndexStore` now reads a
@@ -711,16 +717,16 @@ No bounded multi-index concurrency was added: the local candidate and duplicate
 query changes met every target, so the measured evidence did not justify extra
 parallelism or a scheduler framework.
 
-## Current scope and remaining handoff
+## Final scope and closure
 
 The historical safe-path measurement of approximately 1.46 seconds for a
 one-character no-exact-match query established why M17-S was needed; it is not a
 current M17 blocker. M17-S outcome A and the amended M17 contract approved the
-filesystem-owned compact derived structure now implemented on this branch.
+filesystem-owned compact derived structure merged through PR #10.
 
 No M17.5 rebuild optimization, ranking v2, maintenance/service work, package
 work, generic scheduler, or unrelated architecture change was introduced.
 Search actions and path resolution remain unchanged. The user-owned rebuild,
-compact lifecycle evidence, one final canonical 8x3 campaign, and manual smoke
-are complete. PR #10 must stay open and unmerged until final independent QA is
-complete.
+compact lifecycle evidence, one final canonical 8x3 campaign, manual smoke, and
+final independent QA are complete. PR #10 was merged to `main` as
+`8491aa2e196f70276345928eb9bd4b107fec4ef6`. M17 is complete.
