@@ -82,18 +82,30 @@ public sealed class IndexStoreTests : IDisposable
     [Fact]
     public void Missing_parent_and_cycle_are_diagnosed()
     {
-        Store.BuildFromRecords(
-            Volume,
-            sink => sink(new NamespaceRecord(_file, _alpha, "file.txt", 0, 0, 2)));
+        Store.BuildFromRecords(Volume, Produce);
+        using (var connection = new SqliteConnection($"Data Source={Path};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE namespace_entries SET parent_file_id=$missing WHERE file_id=$file;";
+            command.Parameters.Add("$missing", SqliteType.Blob).Value = Id("00000000000000990000000000000000").Bytes.ToArray();
+            command.Parameters.Add("$file", SqliteType.Blob).Value = Id("00000000000000030000000000000000").Bytes.ToArray();
+            command.ExecuteNonQuery();
+        }
         Assert.Contains("Missing parent", Store.ReconstructPath(_file).Diagnostic);
 
-        Store.BuildFromRecords(
-            Volume,
-            sink =>
-            {
-                sink(new NamespaceRecord(_alpha, _file, "alpha", 0, 0, 2));
-                sink(new NamespaceRecord(_file, _alpha, "file.txt", 0, 0, 2));
-            });
+        using (var connection = new SqliteConnection($"Data Source={Path};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE namespace_entries SET parent_file_id=$file WHERE file_id=$alpha;
+                UPDATE namespace_entries SET parent_file_id=$alpha WHERE file_id=$file;
+                """;
+            command.Parameters.Add("$alpha", SqliteType.Blob).Value = Id("00000000000000020000000000000000").Bytes.ToArray();
+            command.Parameters.Add("$file", SqliteType.Blob).Value = Id("00000000000000030000000000000000").Bytes.ToArray();
+            command.ExecuteNonQuery();
+        }
         Assert.Contains("Cycle", Store.ReconstructPath(_file).Diagnostic);
     }
 

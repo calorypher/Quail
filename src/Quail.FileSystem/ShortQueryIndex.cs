@@ -491,14 +491,10 @@ internal static class ShortQueryIndex
 
             if (!byId.TryGetValue(node.ParentFileId, out var parent))
             {
-                return node.FullPath = Path.Combine(mountPoint, "<unresolved-" + node.FileId + ">");
+                throw new InvalidOperationException("Short-query rank construction found a missing parent.");
             }
 
             return node.FullPath = Path.Combine(ResolvePath(parent, byId, mountPoint, resolving), node.Name);
-        }
-        catch (InvalidOperationException) when (node.FullPath is null)
-        {
-            return node.FullPath = Path.Combine(mountPoint, "<unresolved-" + node.FileId + ">");
         }
         finally
         {

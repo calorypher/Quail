@@ -3,7 +3,7 @@
 ## Status
 
 **IMPLEMENTATION CANDIDATE — runtime ranking is solved and a bounded
-committed-state durability correction awaits independent QA; final physical-host
+rooted-namespace build/sync correction awaits independent QA; final physical-host
 acceptance remains pending.**
 PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
@@ -419,6 +419,105 @@ Search execution, footprint, and focused latency evidence are unchanged. No
 physical D: rebuild, frozen-C benchmark, footprint campaign, or M16 8x3 was
 performed for this correction.
 
+## Fourth interrupted physical acceptance on `dde2315` and rooted-namespace correction
+
+Independent delta QA passed the delete-durability candidate at
+`dde2315cff6d3e4edd84f68c53969b9cf58bce1a`. The user built Release and rebuilt
+D: exactly once through **Quail Indexes**. The rebuild completed with 20,927
+records at `2026-09-04T08:42:36.8209086+00:00`, journal
+`01DD39FE7448A7C2`, and checkpoint `nextUsn=34398488`. A completely fresh
+mutation attempt then created `D:\quail-m17-dde2315-probe.txt`. The very first
+normal D: Refresh failed with:
+
+`journal-read-or-parse-failed: Short-query mutation found a missing parent.`
+
+Rename and delete were not attempted. D: remains deliberately
+rebuild-required, and the final M16 8x3 was not run. The sole available
+pre-create posting snapshot is preserved separately under the ignored
+`artifacts/m17/failure-dde2315-physical-d-create/` directory; it is failed-run
+evidence, not mutation acceptance.
+
+Read-only inspection of the preserved production database established that no
+journal batch had committed after publication: its checkpoint was still
+`34398488`, record count was still 20,927, and `lastRefreshedUtc` equalled the
+build-time value (11.7 microseconds after `completedUtc`). The published
+`complete` namespace nevertheless already
+contained exactly one orphan root:
+
+- `FileId=1B000000000001000000000000000000`;
+- `ParentFileId=0B00000000000B000000000000000000`;
+- name `$RmMetadata`, attributes `0x00000016`, record version 2;
+- no namespace entry existed for the parent record number 11 (`$Extend`);
+- the compact builder had assigned `$RmMetadata` rank label 53,248 and the same
+  value as its `ParentLabel`, masking the missing namespace parent.
+
+The orphan rooted a seven-entry `$RmMetadata` / `$TxfLog` system subtree. Every
+namespace row still had a rank row, and rank/order/posting label sets were
+otherwise internally consistent. This explains why the old integrity checks
+did not detect the defect: `ShortQueryIndex.Build` converted a missing parent
+to a synthetic `<unresolved-...>` path and defaulted its `ParentLabel` to its
+own label instead of rejecting or removing an unresolvable namespace subtree.
+
+Raw FSCTL journal replay was not required for the correction. A non-elevated
+attempt stopped at read-only volume open with `CreateFile(D:)` access denied;
+it did not read records or mutate the production index. The preserved database
+plus deterministic tests supplied a stronger direct proof. On the unmodified
+`dde2315` behavior, a build containing the exact observed `$RmMetadata`
+topology followed by an ordinary root-level `FileCreate` failed with the exact
+physical exception in:
+
+`InsertCurrentEntry -> FindOrderInsertion -> ReadStaticSortKey -> ResolveNodePath`.
+
+An order-relevant update of `$RmMetadata` independently failed through
+`RemoveOrderEntry -> SaveOrderChunk -> ReadStaticSortKey -> ResolveNodePath`.
+Consequently, the failing raw record did not have to reference the orphan: an
+ordinary mutation of another entry whose order chunk consulted an unresolved
+boundary was sufficient. This reproduces the fourth run's first-CREATE failure
+class without another physical rebuild and corrects the earlier assumption
+that this literal could arise only from the direct-parent check in the final
+insert step.
+
+The bounded durability rule is now: a published namespace and every committed
+sync state contain only entries whose parent chain reaches an indexed
+self-parent root. After build handoff replay and before compact construction,
+`IndexStore` removes every still-unrooted namespace subtree transactionally.
+An incremental insert or move whose parent chain is not rooted is ignored when
+new, or removes any formerly reachable known subtree; later records remain
+idempotent until a rooted parent exists. A parent absent during enumeration but
+created by handoff replay retains its child, proving that pruning occurs only
+after the continuous handoff window. A valid mutation immediately after the
+final handoff cursor also remains accepted. `ShortQueryIndex.Build` now fails
+closed if an unresolved parent reaches rank construction rather than producing
+a synthetic path.
+
+The production-measure helper gained a read-only `inspect-index` command for
+checkpoint and namespace/rank/order/posting integrity evidence. Its existing
+`report --work-copy` path now applies the same rooted-namespace normalization as
+production before direct compact construction. On a disposable copy of the
+preserved failed D: database, the corrected path produced 20,920 namespace and
+rank entries, zero namespace or rank-parent orphans, 20,920 unique order
+labels, and 660,545 posting labels with zero dangling labels. It removed only
+the seven unresolvable system-subtree rows and 130 associated posting labels;
+rooted `$RECYCLE.BIN` remained indexed. Direct compact construction took
+767.375 ms on that focused copy.
+
+The two exact regressions failed before the correction with `Short-query
+mutation found a missing parent` and pass after it. Additional coverage proves
+late-parent handoff convergence, post-handoff insertion, and removal of an
+existing directory subtree moved beneath an unrooted parent. The persistent
+format remains `compact-short-query-v3`, Search execution is unchanged, and no
+physical D: rebuild, Refresh, frozen-C performance rerun, footprint campaign,
+or M16 8x3 was performed during this correction. Final automated evidence:
+
+- the two exact physical-failure-class regressions: FAIL before correction
+  with `Short-query mutation found a missing parent`, PASS after correction;
+- focused `IncrementalIndexStoreTests`, `MetadataIndexTests`,
+  `FileSearchTests`, and `FileSearchRankingTests`: 66 PASS;
+- full `Quail.Core.Tests` Release: 223 PASS;
+- `Quail.App` Release build: PASS, zero warnings and zero errors;
+- diagnostic helper Release build: PASS, zero warnings and zero errors;
+- `git diff --check`: PASS.
+
 ### User-owned physical-host final run pending
 
 The final run must start from the final clean production commit. Schema v4 with
@@ -437,10 +536,11 @@ a normal user index and never modify its source file:
 
 1. After this corrected candidate passes independent QA, build the affected
    Release application. The current C: index was complete before the interrupted
-   mutation attempt and does not require a rebuild merely for this v3
-   maintenance correction. Through **Quail Indexes**, select **Rebuild** for
-   the current D: index exactly once; it is currently rebuild-required because
-   of the failed `b36999c` rename-stage Refresh. Accept the existing UAC prompt
+   mutation attempts and does not require a rebuild merely for this v3
+   maintenance correction. Only after this rooted-namespace candidate passes
+   another independent QA, select **Rebuild** for the current D: index exactly
+   once through **Quail Indexes**; it is currently rebuild-required because of
+   the failed `dde2315` create-stage Refresh. Accept the existing UAC prompt
    and wait for success. This is the established privileged workflow: the elevated worker
    validates the catalog and protected storage, builds in staging, then
    publishes the completed index. Do not call the worker command line directly.

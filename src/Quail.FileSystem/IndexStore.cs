@@ -797,6 +797,17 @@ public sealed class IndexStore
         NamespaceRecord record,
         FileMetadata? metadata)
     {
+        if (!record.FileId.Equals(record.ParentFileId) &&
+            !IsNamespaceEntryRooted(connection, record.ParentFileId))
+        {
+            // An entry whose parent chain does not reach an indexed root has no
+            // reconstructible path and cannot participate in authoritative
+            // static ranking. Remove any formerly reachable state; later
+            // records remain idempotent until a rooted parent exists.
+            DeleteCurrentEntry(connection, transaction, record.FileId, maintainShortQueryIndex: true);
+            return;
+        }
+
         var existing = ReadShortQueryEntry(connection, record.FileId);
         if (existing is not null &&
             existing.Value.ParentFileId.Equals(record.ParentFileId) &&
@@ -1093,6 +1104,7 @@ public sealed class IndexStore
 
     private static void CompleteBuild(SqliteConnection connection, IncrementalCheckpoint checkpoint)
     {
+        RemoveUnrootedNamespaceEntries(connection);
         ShortQueryIndex.Build(connection);
         using var transaction = connection.BeginTransaction();
         SetCheckpoint(connection, transaction, checkpoint);
@@ -1101,6 +1113,55 @@ public sealed class IndexStore
         SetMeta(connection, transaction, "last_refreshed_utc", DateTimeOffset.UtcNow.ToString("O"));
         SetMeta(connection, transaction, "build_state", "complete");
         transaction.Commit();
+    }
+
+    internal static void RemoveUnrootedNamespaceEntries(SqliteConnection connection)
+    {
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            WITH RECURSIVE rooted(file_id) AS (
+                SELECT file_id
+                FROM namespace_entries
+                WHERE file_id=parent_file_id
+                UNION
+                SELECT child.file_id
+                FROM namespace_entries child
+                JOIN rooted parent ON child.parent_file_id=parent.file_id)
+            DELETE FROM namespace_entries
+            WHERE file_id NOT IN (SELECT file_id FROM rooted);
+            """;
+        command.ExecuteNonQuery();
+
+        using var roots = connection.CreateCommand();
+        roots.Transaction = transaction;
+        roots.CommandText = "SELECT count(*) FROM namespace_entries WHERE file_id=parent_file_id;";
+        if (Convert.ToInt64(roots.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0)
+        {
+            throw new InvalidOperationException("Index build did not produce a namespace root.");
+        }
+
+        transaction.Commit();
+    }
+
+    private static bool IsNamespaceEntryRooted(SqliteConnection connection, NativeFileId fileId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH RECURSIVE ancestry(file_id,parent_file_id) AS (
+                SELECT file_id,parent_file_id
+                FROM namespace_entries
+                WHERE file_id=$id
+                UNION
+                SELECT parent.file_id,parent.parent_file_id
+                FROM namespace_entries parent
+                JOIN ancestry child ON parent.file_id=child.parent_file_id
+                WHERE child.file_id != child.parent_file_id)
+            SELECT 1 FROM ancestry WHERE file_id=parent_file_id LIMIT 1;
+            """;
+        command.Parameters.Add("$id", SqliteType.Blob).Value = fileId.Bytes.ToArray();
+        return command.ExecuteScalar() is not null;
     }
 
     private static void PersistCheckpoint(SqliteConnection connection, IncrementalCheckpoint checkpoint)

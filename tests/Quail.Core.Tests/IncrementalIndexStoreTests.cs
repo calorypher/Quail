@@ -205,6 +205,79 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Build_and_first_update_do_not_publish_or_reinsert_an_unrooted_system_subtree()
+    {
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        var txfLog = Id("1E000000000001000000000000000000");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+            sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            sink(new NamespaceRecord(txfLog, rmMetadata, "$TxfLog", 0x16, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var exception = Record.Exception(() => Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x10, 150, 2),
+                UsnReason.BasicInfoChange))]));
+
+        Assert.Null(exception);
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(rmMetadata));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(txfLog));
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void First_root_create_after_build_is_independent_of_unrooted_enumeration_records()
+    {
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        var txfLog = Id("1E000000000001000000000000000000");
+        var probe = Id("50000000000001000000000000000000");
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+            sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            sink(new NamespaceRecord(txfLog, rmMetadata, "$TxfLog", 0x16, 0, 2));
+        }, checkpoint: Checkpoint(100));
+
+        var exception = Record.Exception(() => Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(probe, _root, "quail-m17-probe.txt", 0x20, 150, 2),
+                UsnReason.FileCreate))]));
+
+        Assert.Null(exception);
+        Assert.Equal("quail-m17-probe.txt", Assert.Single(Store.Search(new FileSearchQuery("qu", Limit: 10))).Name);
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Move_to_an_unrooted_parent_removes_the_now_unreachable_known_subtree()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var missingParent = Id("0000000000000099");
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, missingParent, "alpha", 0x10, 150, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(V3(_directoryId)));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(V3(_file)));
+        AssertShortQueryIntegrity();
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
     public void Short_query_source_order_preserves_interleaved_child_before_parent_delete()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
@@ -780,6 +853,43 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         Assert.Equal(IndexState.Complete, rebuilt.GetStatus().State);
         Assert.Equal(200, rebuilt.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("X:\\alpha\\during-enumeration.txt", rebuilt.ReconstructPath(createdDuringEnumeration).Path);
+    }
+
+    [Fact]
+    public void Initial_handoff_connects_a_late_parent_and_prunes_a_permanently_unrooted_subtree()
+    {
+        var lateParent = Id("0000000000000040");
+        var lateChild = Id("0000000000000041");
+        var missingExtend = Id("0B00000000000B000000000000000000");
+        var rmMetadata = Id("1B000000000001000000000000000000");
+        Store.BuildFromRecordsWithHandoffForTesting(
+            Volume,
+            sink =>
+            {
+                sink(new NamespaceRecord(_root, _root, "", 0x10, 0, 2));
+                sink(new NamespaceRecord(lateChild, lateParent, "late-child.txt", 0, 90, 2));
+                sink(new NamespaceRecord(rmMetadata, missingExtend, "$RmMetadata", 0x16, 0, 2));
+            },
+            Journal(100),
+            Journal(200),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(lateParent, _root, "late-parent", 0x10, 150, 2),
+                UsnReason.FileCreate))]);
+
+        Assert.Equal("X:\\late-parent\\late-child.txt", Store.ReconstructPath(lateChild).Path);
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(rmMetadata));
+        AssertShortQueryIntegrity();
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+
+        var afterHandoff = Id("0000000000000042");
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(afterHandoff, lateParent, "after-handoff.txt", 0, 250, 2),
+                UsnReason.FileCreate))]);
+        Assert.Equal("X:\\late-parent\\after-handoff.txt", Store.ReconstructPath(afterHandoff).Path);
+        AssertShortQueryIntegrity();
     }
 
     [Fact]

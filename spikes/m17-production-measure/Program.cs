@@ -25,7 +25,8 @@ internal static class Program
                 "profile-search" => ProfileSearch(options),
                 "snapshot" => WriteSnapshot(options),
                 "compare" => CompareSnapshots(options),
-                _ => throw new ArgumentException("Command must be report, decompose, search, profile-search, snapshot, or compare.")
+                "inspect-index" => InspectIndex(options),
+                _ => throw new ArgumentException("Command must be report, decompose, search, profile-search, snapshot, compare, or inspect-index.")
             };
         }
         catch (Exception exception)
@@ -830,10 +831,246 @@ internal static class Program
         return 0;
     }
 
+    private static int InspectIndex(Options options)
+    {
+        var indexPath = Require(options, "index");
+        using var connection = OpenReadOnly(indexPath);
+        Write(Require(options, "output"), new
+        {
+            schemaVersion = 1,
+            kind = "m17-index-integrity-inspection",
+            indexPath = Path.GetFullPath(indexPath),
+            metadata = ReadDiagnosticMetadata(connection),
+            checkpoint = ReadCheckpoint(connection),
+            integrity = ReadIntegrity(connection),
+            note = "The supplied SQLite index was opened in read-only mode. No metadata or index state was changed."
+        });
+        return 0;
+    }
+
+    private static object ReadDiagnosticMetadata(SqliteConnection connection)
+    {
+        string? Value(string key) => ScalarString(connection, $"SELECT value FROM metadata WHERE key='{key}';");
+        return new
+        {
+            buildState = Value("build_state"),
+            rebuildReason = Value("rebuild_reason"),
+            recordCount = Value("record_count"),
+            completedUtc = Value("completed_utc"),
+            lastRefreshedUtc = Value("last_refreshed_utc"),
+            volumeIdentity = Value("volume_identity"),
+            mountPoint = Value("mount_point"),
+            journalId = Value("journal_id"),
+            nextUsn = Value("next_usn"),
+            journalFirstUsn = Value("journal_first_usn"),
+            journalLowestValidUsn = Value("journal_lowest_valid_usn"),
+            namespaceGeneration = Value("namespace_generation"),
+            shortQueryGeneration = Value("short_query_generation"),
+            shortQueryFormat = Value("short_query_format")
+        };
+    }
+
+    private static IncrementalCheckpoint ReadCheckpoint(SqliteConnection connection)
+    {
+        var journalId = ScalarString(connection, "SELECT value FROM metadata WHERE key='journal_id';");
+        var nextUsn = ScalarString(connection, "SELECT value FROM metadata WHERE key='next_usn';");
+        var firstUsn = ScalarString(connection, "SELECT value FROM metadata WHERE key='journal_first_usn';");
+        var lowestUsn = ScalarString(connection, "SELECT value FROM metadata WHERE key='journal_lowest_valid_usn';");
+        if (!ulong.TryParse(journalId, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var id) ||
+            !long.TryParse(nextUsn, out var next) ||
+            !long.TryParse(firstUsn, out var first) ||
+            !long.TryParse(lowestUsn, out var lowest))
+        {
+            throw new InvalidDataException("Index checkpoint metadata is invalid.");
+        }
+
+        return new IncrementalCheckpoint(id, next, first, lowest);
+    }
+
+    private static IndexIntegrity ReadIntegrity(SqliteConnection connection)
+    {
+        var namespaceEntries = new List<IntegrityNamespaceEntry>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT rowid,file_id,parent_file_id,name,attributes,usn,record_version FROM namespace_entries;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                namespaceEntries.Add(new IntegrityNamespaceEntry(
+                    reader.GetInt64(0),
+                    Convert.ToHexString((byte[])reader[1]),
+                    Convert.ToHexString((byte[])reader[2]),
+                    reader.GetString(3),
+                    $"0x{checked((uint)reader.GetInt64(4)):X8}",
+                    reader.GetInt64(5),
+                    checked((ushort)reader.GetInt64(6))));
+            }
+        }
+
+        var ranks = new List<IntegrityRankEntry>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks ORDER BY first_label;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                if (payload.Length != count * 28) throw new InvalidDataException("Rank chunk payload is invalid.");
+                for (var index = 0; index < count; index++)
+                {
+                    var offset = index * 28;
+                    ranks.Add(new IntegrityRankEntry(
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 16, 8))));
+                }
+            }
+        }
+
+        var namespaceById = namespaceEntries.ToDictionary(entry => entry.FileId, StringComparer.Ordinal);
+        var namespaceRowIds = namespaceEntries.Select(entry => entry.RowId).ToHashSet();
+        var rankByRowId = ranks.ToDictionary(entry => entry.RowId);
+        var rankLabels = ranks.Select(entry => entry.Label).ToHashSet();
+        bool IsRooted(IntegrityNamespaceEntry entry)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var current = entry;
+            while (seen.Add(current.FileId))
+            {
+                if (current.FileId == current.ParentFileId) return true;
+                if (!namespaceById.TryGetValue(current.ParentFileId, out current)) return false;
+            }
+
+            return false;
+        }
+
+        var unrootedNamespaceEntries = namespaceEntries.Where(entry => !IsRooted(entry)).ToArray();
+        var namespaceOrphans = namespaceEntries
+            .Where(entry => entry.FileId != entry.ParentFileId && !namespaceById.ContainsKey(entry.ParentFileId))
+            .Select(entry => new IntegrityOrphanEntry(
+                entry.FileId,
+                entry.ParentFileId,
+                entry.Name,
+                entry.Attributes,
+                entry.Usn,
+                entry.RecordVersion,
+                rankByRowId.TryGetValue(entry.RowId, out var rank) ? rank.Label : null,
+                rankByRowId.TryGetValue(entry.RowId, out rank) ? rank.ParentLabel : null,
+                namespaceEntries
+                    .Where(candidate => candidate.FileId[..12] == entry.ParentFileId[..12])
+                    .Select(candidate => new IntegrityParentCandidate(
+                        candidate.FileId,
+                        candidate.ParentFileId,
+                        candidate.Name,
+                        candidate.Attributes,
+                        candidate.Usn,
+                        candidate.RecordVersion))
+                    .ToArray()))
+            .ToArray();
+        var namespaceRowsMissingRanks = namespaceEntries
+            .Where(entry => !rankByRowId.ContainsKey(entry.RowId))
+            .Select(entry => entry.FileId)
+            .ToArray();
+        var rankRowsMissingNamespace = ranks
+            .Where(entry => !namespaceRowIds.Contains(entry.RowId))
+            .Select(entry => entry.RowId)
+            .ToArray();
+        var missingParentRankLabels = ranks
+            .Where(entry => entry.ParentLabel != entry.Label && !rankLabels.Contains(entry.ParentLabel))
+            .Select(entry => entry.Label)
+            .ToArray();
+        var parentLabelMismatches = namespaceEntries
+            .Where(entry => entry.FileId != entry.ParentFileId && namespaceById.ContainsKey(entry.ParentFileId) && rankByRowId.ContainsKey(entry.RowId))
+            .Where(entry =>
+            {
+                var parent = namespaceById[entry.ParentFileId];
+                return !rankByRowId.TryGetValue(parent.RowId, out var parentRank) ||
+                    rankByRowId[entry.RowId].ParentLabel != parentRank.Label;
+            })
+            .Select(entry => entry.FileId)
+            .ToArray();
+
+        var orderLabels = new List<long>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks ORDER BY first_sort_key;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                if (payload.Length != count * sizeof(long)) throw new InvalidDataException("Rank-order chunk payload is invalid.");
+                for (var index = 0; index < count; index++)
+                {
+                    orderLabels.Add(BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long))));
+                }
+            }
+        }
+
+        long postingLabels = 0;
+        long danglingPostingLabels = 0;
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT posting_count,payload FROM short_query_posting_chunks;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var expected = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                var offset = 0;
+                long label = 0;
+                var decoded = 0;
+                while (offset < payload.Length)
+                {
+                    var delta = ReadVarint(payload, ref offset);
+                    label = checked(label + (long)delta);
+                    decoded++;
+                    postingLabels++;
+                    if (!rankLabels.Contains(label)) danglingPostingLabels++;
+                }
+
+                if (decoded != expected) throw new InvalidDataException("Posting chunk count is invalid.");
+            }
+        }
+
+        return new IndexIntegrity(
+            namespaceEntries.Count,
+            ranks.Count,
+            unrootedNamespaceEntries.Length,
+            unrootedNamespaceEntries
+                .Select(entry => new IntegrityParentCandidate(
+                    entry.FileId,
+                    entry.ParentFileId,
+                    entry.Name,
+                    entry.Attributes,
+                    entry.Usn,
+                    entry.RecordVersion))
+                .Take(50)
+                .ToArray(),
+            namespaceOrphans.Length,
+            namespaceOrphans.Take(20).ToArray(),
+            namespaceRowsMissingRanks.Length,
+            namespaceRowsMissingRanks.Take(20).ToArray(),
+            rankRowsMissingNamespace.Length,
+            rankRowsMissingNamespace.Take(20).ToArray(),
+            missingParentRankLabels.Length,
+            missingParentRankLabels.Take(20).ToArray(),
+            parentLabelMismatches.Length,
+            parentLabelMismatches.Take(20).ToArray(),
+            orderLabels.Count,
+            orderLabels.Count - orderLabels.Distinct().Count(),
+            rankLabels.Except(orderLabels).Count(),
+            orderLabels.Except(rankLabels).Count(),
+            postingLabels,
+            danglingPostingLabels);
+    }
+
     private static void ClearDerivedState(SqliteConnection connection)
     {
         DropDerivedSchema(connection);
         ShortQueryIndex.CreateSchema(connection);
+        IndexStore.RemoveUnrootedNamespaceEntries(connection);
     }
 
     private static PayloadLoad MeasurePayloadLoad(SqliteConnection connection, string sql)
@@ -1015,6 +1252,53 @@ internal static class Program
     private sealed record LabelSpacingImpact(IReadOnlyList<VarintWidthCount> CurrentVarintWidthCounts, IReadOnlyList<SpacingProjection> Projections);
     private sealed record VarintWidthCount(int Width, long Count);
     private sealed record SpacingProjection(long Spacing, long PostingPayloadBytes, double BytesPerPosting);
+    private sealed record IntegrityNamespaceEntry(
+        long RowId,
+        string FileId,
+        string ParentFileId,
+        string Name,
+        string Attributes,
+        long Usn,
+        ushort RecordVersion);
+    private sealed record IntegrityOrphanEntry(
+        string FileId,
+        string ParentFileId,
+        string Name,
+        string Attributes,
+        long Usn,
+        ushort RecordVersion,
+        long? RankLabel,
+        long? ParentLabel,
+        IReadOnlyList<IntegrityParentCandidate> ParentRecordNumberCandidates);
+    private sealed record IntegrityParentCandidate(
+        string FileId,
+        string ParentFileId,
+        string Name,
+        string Attributes,
+        long Usn,
+        ushort RecordVersion);
+    private sealed record IntegrityRankEntry(long Label, long RowId, long ParentLabel);
+    private sealed record IndexIntegrity(
+        int NamespaceEntries,
+        int RankEntries,
+        int UnrootedNamespaceCount,
+        IReadOnlyList<IntegrityParentCandidate> UnrootedNamespaceEntries,
+        int NamespaceOrphanCount,
+        IReadOnlyList<IntegrityOrphanEntry> NamespaceOrphans,
+        int NamespaceRowsMissingRankCount,
+        IReadOnlyList<string> NamespaceRowsMissingRankFileIds,
+        int RankRowsMissingNamespaceCount,
+        IReadOnlyList<long> RankRowsMissingNamespaceRowIds,
+        int MissingParentRankLabelCount,
+        IReadOnlyList<long> MissingParentRankLabels,
+        int ParentLabelMismatchCount,
+        IReadOnlyList<string> ParentLabelMismatchFileIds,
+        int OrderLabels,
+        int DuplicateOrderLabels,
+        int RankLabelsMissingFromOrder,
+        int OrderLabelsMissingFromRanks,
+        long PostingLabels,
+        long DanglingPostingLabels);
     private sealed record ProfilePostingPayload(int MatchClass, int PostingCount, byte[] Payload);
     private readonly record struct ProfileRankEntry(
         long Label,
