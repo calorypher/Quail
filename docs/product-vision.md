@@ -194,6 +194,24 @@ This does not require a runtime loader today. During early development, `Quail.A
 
 Dynamic loading should be introduced only when a concrete product/deployment need exists. Physical optionality of first-party modules does not by itself commit Quail to third-party plugins or a public SDK.
 
+## Frontend and interface boundaries
+
+The long-term architecture also requires **frontend interchangeability**.
+
+`Quail.App` should eventually contain primarily frontend-specific responsibilities: WinUI rendering/presentation, input and window/focus handling, UI-specific debounce/timing policy, Windows desktop integration, and composition-root work. Source-neutral application/search orchestration that another frontend or search surface would need must not remain permanently owned by `Quail.App`.
+
+Responsibilities such as latest-request/supersession coordination, stale-result protection, duplicate-query coalescing, and source-neutral scheduling/execution coordination should live in `Quail.Core` or an equally narrow source-neutral application layer before a second frontend or shared search surface would otherwise need to duplicate them. UI-specific policy such as `QuickSearchInputPolicy` may remain frontend-local.
+
+The intended architectural test is simple: replacing WinUI must not require reimplementing Quail's source-neutral search-session semantics.
+
+The current post-M15 split is acceptable through Quail 0.3. This is a post-0.3 direction and must not broaden the active 0.3 scope merely to move existing coordinator code.
+
+`Quail.Cli` should likewise be a first-class interface to the same Core/application behavior, not a diagnostic sidecar with separate search semantics. Non-visual product capabilities should be exposed through the CLI wherever they are meaningful and safe to script, including the same search/ranking semantics, supported filters, source-neutral actions, status/diagnostics, and intentionally exposed administrative/source operations. GUI-only presentation behavior does not require a CLI equivalent.
+
+Both GUI and CLI should invoke the same shared application/search layer. The CLI must not grow a second independent search engine. Automation-friendly behavior such as deterministic exit semantics and machine-readable output should be preferred where useful.
+
+The detailed approved direction is recorded in `docs/post-0.3-interface-direction.md`.
+
 ## Platform direction
 
 Quail remains Windows-first. The current NTFS/MFT/USN engine and WinUI 3 desktop application are intentionally optimized for Windows rather than constrained by speculative cross-platform requirements.
@@ -218,6 +236,8 @@ Stable NTFS file identity/history is the preferred deeper filesystem direction a
 
 After the filesystem experience and identity/history foundation are mature enough, a genuinely different source should validate and refine the shared model. Browser history/bookmarks remain a plausible low-friction first candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization, OAuth/account handling, credential storage, and retention semantics.
 
+Before introducing another frontend or shared search surface, move source-neutral search-session orchestration out of the WinUI-specific application layer so the new interface can reuse the same semantics. Preserve CLI/Core parity incrementally as non-visual capabilities are added instead of accumulating GUI-only product behavior and planning a later parity rewrite.
+
 Only after multiple real source implementations exist should Quail generalize broader source/provider contracts from demonstrated common requirements. The M15 dependency-inversion seam is intentionally much narrower than that future work.
 
 ## Relationship to launcher features
@@ -237,5 +257,7 @@ Quail is not intended to replace NTFS, become an operating-system storage platfo
 This document records the strategic north star, not a committed implementation sequence for all future versions.
 
 Quail 0.2 is the current public baseline. Quail 0.3 has an approved M15-M24 release plan focused on a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. M15 additionally establishes the source-neutral dependency direction needed for future heterogeneous and physically optional first-party sources without implementing a runtime plugin/loading framework.
+
+Frontend interchangeability and CLI/Core parity are approved post-0.3 architectural directions. They do not add scope to Quail 0.3, but the first suitable post-0.3 planning cycle should schedule source-neutral orchestration extraction before a second frontend/shared search surface would otherwise duplicate it.
 
 File identity/history is directional work after the 0.3 filesystem-usability foundation. Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases. Later sequencing should continue to change when measured behavior and real usage provide better evidence.
