@@ -106,9 +106,44 @@ public sealed class IncrementalIndexStoreTests : IDisposable
             Journal(100),
             [Batch(200, records)]);
 
+        AssertShortQueryIntegrity();
         var names = Store.ReadAllForDiagnostics().Select(record => record.Name).ToHashSet();
         Assert.All(records, record => Assert.Contains(record.NamespaceRecord.Name, names));
         Assert.Equal("mmmm", Assert.Single(Store.Search(new FileSearchQuery("m", Limit: 1))).Name);
+
+        var renamed = records.Single(record => record.NamespaceRecord.Name == "mmmm").NamespaceRecord.FileId;
+        var deleted = records.Single(record => record.NamespaceRecord.Name == "llll").NamespaceRecord.FileId;
+        var inserted = Id("0000000000000040");
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(renamed, _root, "mmmm-renamed", 0, 30, 2),
+                UsnReason.RenameNewName))]);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [Batch(400, new JournalRecord(
+                new NamespaceRecord(deleted, _root, "llll", 0, 31, 2),
+                UsnReason.FileDelete))]);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(400),
+            [Batch(500, new JournalRecord(
+                new NamespaceRecord(inserted, _root, "mmmm-middle", 0, 32, 2),
+                UsnReason.FileCreate))]);
+
+        AssertShortQueryIntegrity();
+        Assert.Equal(
+            ["mmmm-middle", "mmmm-renamed"],
+            Store.Search(new FileSearchQuery("mm", Limit: 10))
+                .Where(result => result.Name.StartsWith("mmmm", StringComparison.Ordinal))
+                .Select(result => result.Name));
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.Name == "llll");
         Assert.Equal(IndexState.Complete, Store.GetStatus().State);
     }
 
@@ -167,6 +202,121 @@ public sealed class IncrementalIndexStoreTests : IDisposable
 
         Assert.Empty(Store.Search(new FileSearchQuery("ren", Limit: 50)));
         Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+    }
+
+    [Fact]
+    public void Short_query_coalescing_preserves_interleaved_child_before_parent_delete_order()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 121, 2),
+                    UsnReason.FileDelete),
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 122, 2),
+                    UsnReason.FileDelete))]);
+
+        Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.False(Store.ReconstructPath(_directoryId).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("f", Limit: 50)));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_coalescing_keeps_interleaved_parent_create_before_child()
+    {
+        var parent = Id("0000000000000051");
+        var child = Id("0000000000000052");
+        Store.BuildFromRecords(
+            Volume,
+            sink => sink(new NamespaceRecord(_root, _root, "", 16, 0, 2)),
+            checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 120, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 121, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(parent, _root, "parent", 16, 122, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(child, parent, "child.txt", 0, 123, 2),
+                    UsnReason.DataExtend))]);
+
+        Assert.Equal("X:\\parent\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("ch", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_coalescing_preserves_interleaved_directory_rename_and_subtree_updates()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(
+                200,
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                    UsnReason.RenameOldName),
+                new JournalRecord(
+                    new NamespaceRecord(_file, _directoryId, "file.txt", 0, 121, 2),
+                    UsnReason.BasicInfoChange),
+                new JournalRecord(
+                    new NamespaceRecord(_directoryId, _root, "renamed-alpha", 16, 122, 2),
+                    UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_rename_across_batches_preserves_parent_topology()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "alpha", 16, 120, 2),
+                UsnReason.RenameOldName))]);
+
+        Assert.Equal("X:\\alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        AssertShortQueryIntegrity();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(200),
+            [Batch(300, new JournalRecord(
+                new NamespaceRecord(_directoryId, _root, "renamed-alpha", 16, 220, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\renamed-alpha\\file.txt", Store.ReconstructPath(_file).Path);
+        Assert.Equal("file.txt", Assert.Single(Store.Search(new FileSearchQuery("fi", Limit: 1))).Name);
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        AssertShortQueryIntegrity();
     }
 
     [Fact]
@@ -467,6 +617,126 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         }
 
         throw new InvalidOperationException("Short-query rank label is missing.");
+    }
+
+    private void AssertShortQueryIntegrity()
+    {
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        connection.Open();
+
+        var ranksByRowId = new Dictionary<long, (long Label, long ParentLabel)>();
+        var rankLabels = new HashSet<long>();
+        using (var ranks = connection.CreateCommand())
+        {
+            ranks.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks ORDER BY first_label;";
+            using var reader = ranks.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                Assert.Equal(count * 28, payload.Length);
+                for (var index = 0; index < count; index++)
+                {
+                    var offset = index * 28;
+                    var label = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8));
+                    var rowId = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8));
+                    var parentLabel = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 16, 8));
+                    Assert.True(rankLabels.Add(label), $"Duplicate rank label {label}.");
+                    Assert.True(ranksByRowId.TryAdd(rowId, (label, parentLabel)), $"Duplicate rank rowid {rowId}.");
+                }
+            }
+        }
+
+        var namespaceEntries = new List<(long RowId, string FileId, string ParentFileId)>();
+        using (var entries = connection.CreateCommand())
+        {
+            entries.CommandText = "SELECT rowid,file_id,parent_file_id FROM namespace_entries;";
+            using var reader = entries.ExecuteReader();
+            while (reader.Read())
+            {
+                namespaceEntries.Add((
+                    reader.GetInt64(0),
+                    Convert.ToHexString((byte[])reader[1]),
+                    Convert.ToHexString((byte[])reader[2])));
+            }
+        }
+
+        Assert.Equal(namespaceEntries.Count, ranksByRowId.Count);
+        var rowIdsByFileId = namespaceEntries.ToDictionary(entry => entry.FileId, entry => entry.RowId, StringComparer.Ordinal);
+        foreach (var entry in namespaceEntries)
+        {
+            var rank = ranksByRowId[entry.RowId];
+            if (entry.FileId == entry.ParentFileId)
+            {
+                Assert.Equal(rank.Label, rank.ParentLabel);
+            }
+            else
+            {
+                Assert.True(rowIdsByFileId.TryGetValue(entry.ParentFileId, out var parentRowId), $"Missing namespace parent for rowid {entry.RowId}.");
+                Assert.Equal(ranksByRowId[parentRowId].Label, rank.ParentLabel);
+            }
+        }
+
+        var orderLabels = new List<long>();
+        using (var order = connection.CreateCommand())
+        {
+            order.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks ORDER BY first_sort_key;";
+            using var reader = order.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                Assert.Equal(count * sizeof(long), payload.Length);
+                for (var index = 0; index < count; index++)
+                {
+                    orderLabels.Add(BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long))));
+                }
+            }
+        }
+
+        Assert.Equal(rankLabels.Count, orderLabels.Count);
+        Assert.Equal(rankLabels.Order(), orderLabels.Order());
+        Assert.Equal(orderLabels.Count, orderLabels.Distinct().Count());
+        Assert.True(orderLabels.Zip(orderLabels.Skip(1), (left, right) => left < right).All(value => value));
+
+        using var postings = connection.CreateCommand();
+        postings.CommandText = "SELECT first_label,last_label,posting_count,payload FROM short_query_posting_chunks;";
+        using var postingReader = postings.ExecuteReader();
+        while (postingReader.Read())
+        {
+            var labels = DecodePostingLabels((byte[])postingReader[3]);
+            Assert.Equal(postingReader.GetInt32(2), labels.Count);
+            Assert.Equal(postingReader.GetInt64(0), labels[0]);
+            Assert.Equal(postingReader.GetInt64(1), labels[^1]);
+            Assert.All(labels, label => Assert.Contains(label, rankLabels));
+            Assert.True(labels.Zip(labels.Skip(1), (left, right) => left < right).All(value => value));
+        }
+    }
+
+    private static List<long> DecodePostingLabels(byte[] payload)
+    {
+        var labels = new List<long>();
+        long previous = 0;
+        var offset = 0;
+        while (offset < payload.Length)
+        {
+            ulong delta = 0;
+            var shift = 0;
+            while (true)
+            {
+                Assert.True(offset < payload.Length && shift <= 63, "Invalid posting varint.");
+                var next = payload[offset++];
+                delta |= (ulong)(next & 0x7f) << shift;
+                if ((next & 0x80) == 0) break;
+                shift += 7;
+            }
+
+            Assert.True(delta <= long.MaxValue && previous <= long.MaxValue - (long)delta, "Posting label overflow.");
+            previous += (long)delta;
+            labels.Add(previous);
+        }
+
+        return labels;
     }
     public void Dispose()
     {

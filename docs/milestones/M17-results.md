@@ -2,8 +2,8 @@
 
 ## Status
 
-**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a bounded
-incremental-maintenance correction awaits independent QA; final physical-host
+**IMPLEMENTATION CANDIDATE — runtime ranking is solved and a second bounded
+incremental-ordering correction awaits independent QA; final physical-host
 acceptance remains pending.**
 PR #10 remains open and must not be merged. The M17 performance campaign below remains valid
 only as a measurement of commit `fa66270461f8f4461fd574c490a82ad214dcad39`;
@@ -217,6 +217,72 @@ warnings and zero errors. The measurement helper and frozen-C direct-search
 evidence are unchanged because neither helper nor production search execution
 changed.
 
+## Second interrupted physical acceptance on `0b8c28b` (not acceptance evidence)
+
+Independent delta QA passed the first bounded maintenance correction at
+`0b8c28b9d74bac5585edc88b70fa32261777b0ff`. The user then rebuilt the current
+D: production index exactly once through **Quail Indexes**; the rebuild
+completed with 20,544 records and CLI state `complete`. The first physical
+CREATE Refresh for `D:\quail-m17-0b8c28b-probe.txt` passed and left the index
+complete. The next Refresh, after renaming that probe to
+`D:\quail-m17-0b8c28b-probe-renamed.txt`, failed with:
+
+`journal-read-or-parse-failed: Short-query mutation found a missing parent.`
+
+The DELETE stage was not executed. D: was deliberately left rebuild-required,
+and neither the frozen-C preparation nor the final M16 8x3 campaign was
+started. The create-only result is not full mutation acceptance. Non-sensitive
+snapshots and comparisons from the interrupted run are preserved in the
+ignored `artifacts/m17/failure-0b8c28b-physical-d-rename/` directory. The
+rename comparison reports zero changed posting chunks because the failed batch
+did not commit; this is rollback evidence, not a successful rename result.
+
+The deterministic root cause was cross-`FileId` reordering inside one journal
+batch. `ApplyBatch` grouped records by `FileId`; LINQ `GroupBy` ordered each
+group by that identifier's first occurrence, while `CoalesceJournalRecords`
+selected the final actionable state. In the focused reproduction, the source
+order was parent metadata, child delete, parent delete. Coalescing moved the
+parent's final delete into its first-occurrence position, removed the parent
+before the child transition, and then `ShortQueryIndex.RemoveCurrentEntry`
+failed in `ResolveNodePath` with the exact physical error. The new regression
+failed with that exception before the correction.
+
+The bounded correction annotates canonical records with their source position.
+After per-file coalescing, delete/rename/update transitions execute at the
+position of the selected final actionable record. A group containing
+`FileCreate` is deliberately anchored at its first actionable position so an
+interleaved new child cannot execute before its new parent. This retains one
+effective transition per `FileId`, the metadata-only compact-index bypass, and
+the protection against artificial sparse-gap consumption without introducing
+a generic scheduler or changing transaction/generation behavior.
+
+The leaf-gap recovery from `0b8c28b` is not the source of this failure. A test
+now forces the fourteen-create local recovery, validates all namespace/rank
+parent relations plus rank-order and posting-label references, then renames a
+recovered leaf, deletes another, and inserts nearby with the same integrity
+checks after every batch. Directories remain excluded from recovery, so no
+external child `ParentLabel` is invalidated. The persistent representation
+remains `compact-short-query-v3`; production Search is unchanged.
+
+Final automated evidence for this second correction:
+
+- the exact interleaved parent-delete regression: FAIL before correction with
+  `Short-query mutation found a missing parent`, PASS after correction;
+- focused `IncrementalIndexStoreTests`, `MetadataIndexTests`,
+  `FileSearchTests`, and `FileSearchRankingTests`: 53 PASS, including
+  interleaved parent create/delete, interleaved directory rename/subtree,
+  cross-batch rename, metadata-only label preservation, fourteen-create local
+  recovery plus later mutations, runtime-location-map coverage, and permanent
+  late-exact `a` / `ks` guards;
+- full `Quail.Core.Tests` Release: 210 PASS. The first full invocation had one
+  timeout in the unchanged M13B scheduling test after 209 passes; that test
+  passed in isolation and the complete suite then passed 210/210;
+- `Quail.App` Release build: PASS, zero warnings and zero errors;
+- `git diff --check`: PASS.
+
+The measurement helper, persistent footprint, and frozen-C direct Search
+evidence remain unchanged and were not rerun.
+
 ### User-owned physical-host final run pending
 
 The final run must start from the final clean production commit. Schema v4 with
@@ -238,8 +304,8 @@ a normal user index and never modify its source file:
    mutation attempt and does not require a rebuild merely for this v3
    maintenance correction. Through **Quail Indexes**, select **Rebuild** for
    the current D: index exactly once; it is currently rebuild-required because
-   of the failed `1f53faa` Refresh. Accept the existing UAC prompt and wait for
-   success. This is the established privileged workflow: the elevated worker
+   of the failed `0b8c28b` rename-stage Refresh. Accept the existing UAC prompt
+   and wait for success. This is the established privileged workflow: the elevated worker
    validates the catalog and protected storage, builds in staging, then
    publishes the completed index. Do not call the worker command line directly.
 2. Confirm current C: and the once-rebuilt D: are complete with the existing

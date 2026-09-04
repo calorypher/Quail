@@ -721,10 +721,20 @@ public sealed class IndexStore
         bool failBeforeCommit,
         Func<NamespaceRecord, FileMetadata> acquireMetadata)
     {
-        var canonicalRecords = batch.Records.Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason)).ToArray();
+        var canonicalRecords = batch.Records
+            .Select((record, position) => new PositionedJournalRecord(
+                new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason),
+                position))
+            .ToArray();
+        // Coalescing must not move a final delete/rename/update to the FileId's
+        // first occurrence relative to other entries. Creation flows are the
+        // exception: expose their final state at the first actionable record so
+        // an interleaved child cannot be inserted before its new parent.
         var effectiveRecords = canonicalRecords
-            .GroupBy(record => record.NamespaceRecord.FileId)
+            .GroupBy(record => record.Record.NamespaceRecord.FileId)
             .Select(CoalesceJournalRecords)
+            .OrderBy(record => record.Position)
+            .Select(record => record.Record)
             .ToArray();
         var metadata = new Dictionary<NativeFileId, FileMetadata>();
         foreach (var record in effectiveRecords)
@@ -820,24 +830,32 @@ public sealed class IndexStore
         }
     }
 
-    private static JournalRecord CoalesceJournalRecords(IGrouping<NativeFileId, JournalRecord> group)
+    private static PositionedJournalRecord CoalesceJournalRecords(
+        IGrouping<NativeFileId, PositionedJournalRecord> group)
     {
         var records = group.ToArray();
-        if (records.All(record => UsnReason.IsRenameOldName(record.Reason)))
+        if (records.All(record => UsnReason.IsRenameOldName(record.Record.Reason)))
         {
             return records[^1];
         }
 
-        var final = records.Last(record => !UsnReason.IsRenameOldName(record.Reason));
-        if (UsnReason.IsFileDelete(final.Reason))
+        var final = records.Last(record => !UsnReason.IsRenameOldName(record.Record.Reason));
+        if (UsnReason.IsFileDelete(final.Record.Reason))
         {
-            return new JournalRecord(final.NamespaceRecord, UsnReason.FileDelete);
+            return new PositionedJournalRecord(
+                new JournalRecord(final.Record.NamespaceRecord, UsnReason.FileDelete),
+                final.Position);
         }
 
-        var reasons = records.Aggregate(0U, (current, record) => current | record.Reason);
-        return new JournalRecord(
-            final.NamespaceRecord,
-            reasons & ~(UsnReason.FileDelete | UsnReason.RenameOldName));
+        var reasons = records.Aggregate(0U, (current, record) => current | record.Record.Reason);
+        var isCreateFlow = records.Any(record => UsnReason.IsFileCreate(record.Record.Reason));
+        var firstActionable = records.First(record => !UsnReason.IsRenameOldName(record.Record.Reason));
+        var position = isCreateFlow ? firstActionable.Position : final.Position;
+        return new PositionedJournalRecord(
+            new JournalRecord(
+                final.Record.NamespaceRecord,
+                reasons & ~(UsnReason.FileDelete | UsnReason.RenameOldName)),
+            position);
     }
 
     private static void Upsert(
@@ -1563,4 +1581,5 @@ public sealed class IndexStore
     }
 
     private readonly record struct ShortQueryEntry(NativeFileId ParentFileId, string Name, uint Attributes);
+    private readonly record struct PositionedJournalRecord(JournalRecord Record, int Position);
 }

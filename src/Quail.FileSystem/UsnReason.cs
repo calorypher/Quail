@@ -23,6 +23,7 @@ public static class UsnReason
         FileCreate | BasicInfoChange | ReparsePointChange | StreamChange | TransactedChange;
 
     public static bool RequiresMetadataRefresh(uint reason) => (reason & MetadataRefreshMask) != 0;
+    public static bool IsFileCreate(uint reason) => (reason & FileCreate) != 0;
     public static bool IsFileDelete(uint reason) => (reason & FileDelete) != 0;
     public static bool IsRenameOldName(uint reason) => (reason & RenameOldName) != 0;
     public static bool IsRenameNewName(uint reason) => (reason & RenameNewName) != 0;
