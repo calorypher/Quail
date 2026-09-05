@@ -69,7 +69,8 @@ public sealed class FileSearchTests : IDisposable
         var first = Store.Search(new FileSearchQuery("report", Limit: 1));
         var second = Store.Search(new FileSearchQuery("report", Limit: 1));
 
-        Assert.Equal(new[] { "Quarterly Report.PDF" }, first.Select(result => result.Name));
+        Assert.Equal(new[] { "report-archive" }, first.Select(result => result.Name));
+        Assert.Equal(Store.Search(new FileSearchQuery("report")).Take(1), first);
         Assert.Equal(first.Select(result => result.FileId), second.Select(result => result.FileId));
         Assert.Throws<ArgumentOutOfRangeException>(() => Store.Search(new FileSearchQuery("report", Limit: 0)));
         Assert.Throws<ArgumentException>(() => Store.Search(new FileSearchQuery("report", Extension: ".")));

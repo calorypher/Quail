@@ -181,19 +181,74 @@ internal static class ShortQueryIndex
         }
 
         var results = new List<FileSearchResult>(limit);
-        for (var location = 0; location < 7 && results.Count < limit; location++)
+        foreach (var (location, match) in PolicyBuckets)
         {
-            for (var match = 0; match < 4 && results.Count < limit; match++)
+            foreach (var label in selected[location, match])
             {
-                foreach (var label in selected[location, match])
-                {
-                    results.Add(ReadResult(connection, ranks.Get(label).RowId));
-                    if (results.Count == limit) break;
-                }
+                results.Add(ReadResult(connection, ranks.Get(label).RowId));
+                if (results.Count == limit) return results;
             }
         }
 
         return results;
+    }
+
+    private static readonly (int Location, int Match)[] PolicyBuckets =
+        (from location in Enumerable.Range(0, 7)
+         from match in Enumerable.Range(0, 4)
+         orderby FileSearchRanking.PolicyKey((FileSearchLocation)location, (FileSearchTextMatch)match)
+         select (location, match)).ToArray();
+
+    internal static IReadOnlyList<FileSearchResult> RankCandidates(
+        SqliteConnection connection,
+        IEnumerable<(long RowId, string Name)> candidates,
+        string query,
+        int limit,
+        FileSearchRankingContext context)
+    {
+        using var iterator = candidates.GetEnumerator();
+        var initial = new List<(long RowId, string Name)>(limit + 1);
+        while (initial.Count <= limit && iterator.MoveNext()) initial.Add(iterator.Current);
+        if (initial.Count <= limit)
+        {
+            // Exhaustion proves completeness; narrow queries need no full rank
+            // map, and materialize at most the requested number of paths.
+            return initial.Select(candidate => ReadResult(connection, candidate.RowId))
+                .Order(Comparer<FileSearchResult>.Create((left, right) => FileSearchRanking.Compare(left, right, query, context)))
+                .ToArray();
+        }
+
+        var ranks = ReadRanks(connection);
+        var locations = BuildLocationMap(ranks, ResolveContext(connection, ranks, context));
+        var indicesByRowId = new Dictionary<long, int>(ranks.Count);
+        for (var index = 0; index < ranks.Count; index++) indicesByRowId.Add(ranks[index].RowId, index);
+
+        // The priority queue keeps the worst selected key at its root. Every
+        // matching row is visited; only N keys survive. Existing v3 labels
+        // encode depth/length/name/path/file-id order, so no hit paths or full
+        // result list need to be constructed or sorted before selection.
+        var selected = new PriorityQueue<long, (int, FileSearchTextMatch, FileSearchLocation, long)>(
+            Comparer<(int, FileSearchTextMatch, FileSearchLocation, long)>.Create((left, right) => right.CompareTo(left)));
+        foreach (var candidate in initial) Consider(candidate);
+        while (iterator.MoveNext()) Consider(iterator.Current);
+        return selected.UnorderedItems.OrderBy(item => item.Priority)
+            .Select(item => ReadResult(connection, item.Element)).ToArray();
+
+        void Consider((long RowId, string Name) candidate)
+        {
+            if (!indicesByRowId.TryGetValue(candidate.RowId, out var index))
+            {
+                throw new InvalidOperationException("Search candidate is missing from the current rank map; rebuild is required.");
+            }
+
+            var policy = FileSearchRanking.PolicyKey((FileSearchLocation)locations[index], FileSearchRanking.ClassifyTextMatch(candidate.Name, query));
+            var key = (policy.Visibility, policy.Text, policy.Location, ranks[index].Label);
+            if (selected.Count < limit) selected.Enqueue(candidate.RowId, key);
+            else if (selected.TryPeek(out _, out var worst) && key.CompareTo(worst) < 0)
+            {
+                selected.DequeueEnqueue(candidate.RowId, key);
+            }
+        }
     }
 
 
@@ -1224,6 +1279,10 @@ internal static class ShortQueryIndex
     private static ContextInfo ResolveContext(SqliteConnection connection, RankMap ranks, FileSearchRankingContext context)
     {
         var currentUserRowId = ResolvePathRowId(connection, ranks, context.CurrentUserProfilePath);
+        var userSegments = FileSearchRankingContext.GetSegments(context.CurrentUserProfilePath);
+        var userParentRowId = userSegments.Count >= 2
+            ? ResolvePathRowId(connection, ranks, string.Join('\\', userSegments.Take(userSegments.Count - 1)))
+            : null;
         var systemRootRowIds = context.SystemRootPaths
             .Select(path => ResolvePathRowId(connection, ranks, path))
             .Where(rowId => rowId is not null)
@@ -1231,11 +1290,14 @@ internal static class ShortQueryIndex
             .ToHashSet();
         var requestedRowIds = systemRootRowIds.ToHashSet();
         if (currentUserRowId is long userRowId) requestedRowIds.Add(userRowId);
+        if (userParentRowId is long parentRowId) requestedRowIds.Add(parentRowId);
         var labelsByRowId = ranks.FindLabels(requestedRowIds);
         return new ContextInfo(
             currentUserRowId is long currentRowId && labelsByRowId.TryGetValue(currentRowId, out var currentLabel)
                 ? currentLabel
                 : null,
+            userParentRowId is long parentId && labelsByRowId.TryGetValue(parentId, out var parentLabel) ? parentLabel : null,
+            checked((ushort)userSegments.Count),
             systemRootRowIds.Where(labelsByRowId.ContainsKey).Select(rowId => labelsByRowId[rowId]).ToHashSet());
     }
 
@@ -1295,10 +1357,8 @@ internal static class ShortQueryIndex
         var appDataSubtree = new bool[ranks.Count];
         var systemRootIndices = context.SystemRootLabels.Select(ranks.IndexOf).ToHashSet();
         var currentUserIndex = context.CurrentUserLabel is long currentUserLabel ? ranks.IndexOf(currentUserLabel) : -1;
-        var currentUserDepth = currentUserIndex >= 0 ? ranks[currentUserIndex].Depth : (ushort)0;
-        var userParentIndex = currentUserIndex >= 0 && currentUserDepth >= 2
-            ? ranks.IndexOf(ranks[currentUserIndex].ParentLabel)
-            : -1;
+        var currentUserDepth = context.CurrentUserDepth;
+        var userParentIndex = context.UserParentLabel is long parentLabel ? ranks.IndexOf(parentLabel) : -1;
 
         for (var index = 0; index < ranks.Count; index++) Resolve(index);
         return locations;
@@ -1372,12 +1432,13 @@ internal static class ShortQueryIndex
                     : FileSearchLocation.CurrentUserVisible;
             }
 
-            if (currentUser.Depth >= 2 && IsUnder(entry, ranks, currentUser.ParentLabel))
-            {
-                return IsInternal(entry, ranks, currentUser.Depth)
-                    ? FileSearchLocation.OtherUserInternal
-                    : FileSearchLocation.OtherUserVisible;
-            }
+        }
+
+        if (context.UserParentLabel is long parentLabel && IsUnder(entry, ranks, parentLabel))
+        {
+            return IsInternal(entry, ranks, context.CurrentUserDepth)
+                ? FileSearchLocation.OtherUserInternal
+                : FileSearchLocation.OtherUserVisible;
         }
 
         return (entry.Attributes & InternalAttributes) != 0
@@ -1507,7 +1568,7 @@ internal static class ShortQueryIndex
     private sealed record RankChunk(long ChunkId, int EntryCount, byte[] Payload);
     private sealed record OrderChunk(long ChunkId, byte[] FirstSortKey, byte[] LastSortKey, int EntryCount, byte[] Payload);
     private sealed record PostingChunk(long ChunkId, string Term, int MatchClass, byte[] Payload);
-    private sealed record ContextInfo(long? CurrentUserLabel, IReadOnlySet<long> SystemRootLabels);
+    private sealed record ContextInfo(long? CurrentUserLabel, long? UserParentLabel, ushort CurrentUserDepth, IReadOnlySet<long> SystemRootLabels);
 
     private sealed class RankMap
     {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Filesystem search now preserves the best-ranked results when many names match, including duplicate names across indexes. Exact and prefix matches in ordinary visible locations rank above weaker matches in the current profile, while internal and system-heavy results remain deprioritized.
+
 ## 0.2.0 — release-ready
 
 ### Changed

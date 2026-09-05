@@ -305,6 +305,107 @@ public sealed class FileSearchRankingTests : IDisposable
 
     private IndexStore Build(string fileName, Action<Action<NamespaceRecord>> produce) => Build(fileName, "X:\\", produce);
 
+    [Fact]
+    public void File_id_is_the_final_tie_break_when_name_and_path_are_identical()
+    {
+        var first = new FileSearchResult(Id(1), "quartz", @"X:\Work\quartz", false, null, null, null);
+        var second = first with { FileId = Id(2) };
+        Assert.True(FileSearchRanking.Compare(first, second, "quartz", Context) < 0);
+        Assert.True(FileSearchRanking.Compare(second, first, "quartz", Context) > 0);
+    }
+
+    [Fact]
+    public void Long_query_late_same_tier_candidate_survives_more_than_the_maximum_result_limit()
+    {
+        var store = Build("m18-large-recall.db", sink =>
+        {
+            var deep = AddDirectory(sink, Root, 2, "Deep");
+            for (var index = 0; index < 1_100; index++)
+            {
+                AddFile(sink, deep, index + 10, $"quartz-{index:D4}");
+            }
+            AddFile(sink, Root, 2_000, "quartz-zzz");
+        });
+        var results = store.Search(new FileSearchQuery("quartz", Limit: 1000), Context);
+        Assert.Equal(1000, results.Count);
+        Assert.Equal("quartz-zzz", results[0].Name);
+        Assert.Equal("quartz-0998", results[^1].Name);
+    }
+
+    [Theory]
+    [InlineData("q")]
+    [InlineData("qx")]
+    [InlineData("quartz")]
+    public void Every_limit_matches_complete_final_ranking_with_filters_and_context_changes(string query)
+    {
+        var store = Build("m18-completeness-" + query + ".db", sink =>
+        {
+            var users = AddDirectory(sink, Root, 2, "Users");
+            var alice = AddDirectory(sink, users, 3, "Alice");
+            var bob = AddDirectory(sink, users, 4, "Bob");
+            var appData = AddDirectory(sink, bob, 5, "AppData");
+            var work = AddDirectory(sink, Root, 6, "Work");
+            var windows = AddDirectory(sink, Root, 7, "Windows");
+            NativeFileId[] parents = [alice, bob, appData, work, windows];
+            for (var index = 0; index < 100; index++)
+            {
+                var name = (index % 4) switch
+                {
+                    0 => query + $"-{index:D3}.txt",
+                    1 => "item-" + query + $"{index:D3}.txt",
+                    2 => "sub" + query + $"{index:D3}.txt",
+                    _ => query
+                };
+                sink(new NamespaceRecord(Id(index + 100), parents[index % parents.Length], name,
+                    index % 11 == 0 ? 2u : 0, 0, 2));
+            }
+        });
+        FileSearchRankingContext[] contexts =
+        [
+            Context,
+            new(@"X:\Users\Bob"),
+            new(@"X:\Users\Absent"),
+            new(null, [@"X:\Work"])
+        ];
+        foreach (var context in contexts)
+        {
+            foreach (var filter in new[] { new FileSearchQuery(query), new FileSearchQuery(query, Extension: "txt"), new FileSearchQuery(query, Hidden: true) })
+            {
+                var complete = store.Search(filter with { Limit = 1000 }, context)
+                    .Order(Comparer<FileSearchResult>.Create((left, right) => FileSearchRanking.Compare(left, right, query, context))).ToArray();
+                foreach (var limit in new[] { 1, 5, 50 })
+                {
+                    var actual = store.Search(filter with { Limit = limit }, context);
+                    Assert.Equal(complete.Take(limit).Select(result => result.FileId), actual.Select(result => result.FileId));
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Long_query_top_n_uses_current_sparse_ranks_after_rename_and_delete()
+    {
+        const string fileName = "m18-rank-mutation.db";
+        var store = Build(fileName, sink =>
+        {
+            for (var index = 0; index < 75; index++)
+            {
+                AddFile(sink, Root, index + 10, $"quartz-{index:D3}");
+            }
+        });
+        var volume = new VolumeDescriptor(fileName, "X:\\", "NTFS", "Search ranking test");
+        var journal = new UsnJournalState(1, 0, 2, 0, 2, 3);
+        var renamed = new NamespaceRecord(Id(84), Root, "quartz", 0, 3, 2);
+        store.ApplyParsedBatchesForTesting(volume, journal,
+            [new JournalBatch(4, [new JournalRecord(renamed, UsnReason.RenameNewName)])]);
+        Assert.Equal("quartz", Assert.Single(store.Search(new FileSearchQuery("quartz", Limit: 1), Context)).Name);
+        store.ApplyParsedBatchesForTesting(volume, journal,
+            [new JournalBatch(6, [new JournalRecord(renamed with { Usn = 5 }, UsnReason.FileDelete)])]);
+        var actual = store.Search(new FileSearchQuery("quartz", Limit: 5), Context);
+        Assert.DoesNotContain(actual, result => result.Name == "quartz");
+        Assert.Equal(Enumerable.Range(0, 5).Select(index => $"quartz-{index:D3}"), actual.Select(result => result.Name));
+    }
+
     private IndexStore Build(string fileName, string volumeRoot, Action<Action<NamespaceRecord>> produce)
     {
         var store = new IndexStore(Path.Combine(_directory, fileName));

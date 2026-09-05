@@ -167,6 +167,7 @@ internal static class Program
 
     private static int MeasureSearch(Options options)
     {
+        var fullSearch = options.Values.GetValueOrDefault("mode") == "full";
         var indexPath = Require(options, "index");
         var outputPath = Require(options, "output");
         var queries = Require(options, "queries")
@@ -175,12 +176,13 @@ internal static class Program
             ? int.Parse(repetitionsValue, System.Globalization.CultureInfo.InvariantCulture)
             : 1;
         if (repetitions < 1) throw new ArgumentException("--repetitions must be at least one.");
-        if (queries.Length == 0 || queries.Any(query => query.Length is < 1 or > 2))
+        if (queries.Length == 0 || (!fullSearch && queries.Any(query => query.Length is < 1 or > 2)))
         {
             throw new ArgumentException("--queries must contain one- or two-character values.");
         }
 
         using var connection = OpenReadOnly(indexPath);
+        var store = new IndexStore(indexPath);
         var context = FileSearchRankingContext.ForCurrentMachine();
         var samples = new List<object>();
         foreach (var query in queries)
@@ -188,14 +190,18 @@ internal static class Program
             for (var iteration = 1; iteration <= repetitions; iteration++)
             {
                 var stopwatch = Stopwatch.StartNew();
-                var results = ShortQueryIndex.Search(connection, query, 50, context);
+                var allocationStart = GC.GetAllocatedBytesForCurrentThread();
+                var results = fullSearch
+                    ? store.Search(new FileSearchQuery(query), context)
+                    : ShortQueryIndex.Search(connection, query, 50, context);
                 stopwatch.Stop();
                 samples.Add(new
                 {
                     queryLength = query.Length,
                     iteration,
                     resultCount = results.Count,
-                    searchMilliseconds = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 3)
+                    searchMilliseconds = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 3),
+                    allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart
                 });
             }
         }
@@ -203,11 +209,13 @@ internal static class Program
         Write(outputPath, new
         {
             schemaVersion = 1,
-            kind = "m17-production-short-query-search",
+            kind = fullSearch ? "production-index-store-search" : "m17-production-short-query-search",
             indexPath = Path.GetFullPath(indexPath),
             repetitions,
             samples,
-            note = "This is the production ShortQueryIndex.Search path on the supplied SQLite copy. It includes rank-map loading, runtime location classification, posting decode, and result reconstruction, but excludes App/Core/UI scheduling and rendering."
+            note = fullSearch
+                ? "Production IndexStore.Search, including open/readiness, retrieval, ranking and selected paths. Excludes App/Core/UI scheduling and rendering."
+                : "This is the production ShortQueryIndex.Search path on the supplied SQLite copy. It includes rank-map loading, runtime location classification, posting decode, and result reconstruction, but excludes App/Core/UI scheduling and rendering."
         });
         return 0;
     }

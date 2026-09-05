@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "productionBaseline": false,
+  "caseCount": 20,
+  "top1Success": 20,
+  "top5Success": 20,
+  "top1Rate": 1,
+  "top5Rate": 1,
+  "mrr": 1,
+  "mandatoryFailures": [],
+  "cases": [
+    {
+      "id": "text-q",
+      "query": "q",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\q",
+        "X:\\Users\\Aster\\Work\\q-draft",
+        "X:\\Users\\Aster\\Work\\item-q",
+        "X:\\Users\\Aster\\Work\\subq"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\q",
+        "X:\\Users\\Aster\\Work\\q-draft",
+        "X:\\Users\\Aster\\Work\\item-q",
+        "X:\\Users\\Aster\\Work\\subq"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "late-same-tier-q",
+      "query": "q",
+      "limit": 5,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\q-zzz",
+        "X:\\q-000",
+        "X:\\q-001",
+        "X:\\q-002",
+        "X:\\q-003"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\q-zzz",
+        "X:\\q-000",
+        "X:\\q-001",
+        "X:\\q-002",
+        "X:\\q-003"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-exact-over-user-substring-q",
+      "query": "q",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\q",
+        "X:\\Users\\Aster\\Work\\subq0",
+        "X:\\Users\\Aster\\Work\\subq1",
+        "X:\\Users\\Aster\\Work\\subq2",
+        "X:\\Users\\Aster\\Work\\subq3",
+        "X:\\Users\\Aster\\Work\\subq4",
+        "X:\\Users\\Aster\\Work\\subq5"
+      ],
+      "actualOrder": [
+        "X:\\q",
+        "X:\\Users\\Aster\\Work\\subq0",
+        "X:\\Users\\Aster\\Work\\subq1",
+        "X:\\Users\\Aster\\Work\\subq2",
+        "X:\\Users\\Aster\\Work\\subq3",
+        "X:\\Users\\Aster\\Work\\subq4",
+        "X:\\Users\\Aster\\Work\\subq5"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-prefix-over-user-substring-q",
+      "query": "q",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\Work\\q-draft",
+        "X:\\Users\\Aster\\Work\\subq"
+      ],
+      "actualOrder": [
+        "Y:\\Work\\q-draft",
+        "X:\\Users\\Aster\\Work\\subq"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "text-qx",
+      "query": "qx",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\qx",
+        "X:\\Users\\Aster\\Work\\qx-draft",
+        "X:\\Users\\Aster\\Work\\item-qx",
+        "X:\\Users\\Aster\\Work\\subqx"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\qx",
+        "X:\\Users\\Aster\\Work\\qx-draft",
+        "X:\\Users\\Aster\\Work\\item-qx",
+        "X:\\Users\\Aster\\Work\\subqx"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "late-same-tier-qx",
+      "query": "qx",
+      "limit": 5,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\qx-zzz",
+        "X:\\qx-000",
+        "X:\\qx-001",
+        "X:\\qx-002",
+        "X:\\qx-003"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\qx-zzz",
+        "X:\\qx-000",
+        "X:\\qx-001",
+        "X:\\qx-002",
+        "X:\\qx-003"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-exact-over-user-substring-qx",
+      "query": "qx",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\qx",
+        "X:\\Users\\Aster\\Work\\subqx0",
+        "X:\\Users\\Aster\\Work\\subqx1",
+        "X:\\Users\\Aster\\Work\\subqx2",
+        "X:\\Users\\Aster\\Work\\subqx3",
+        "X:\\Users\\Aster\\Work\\subqx4",
+        "X:\\Users\\Aster\\Work\\subqx5"
+      ],
+      "actualOrder": [
+        "X:\\qx",
+        "X:\\Users\\Aster\\Work\\subqx0",
+        "X:\\Users\\Aster\\Work\\subqx1",
+        "X:\\Users\\Aster\\Work\\subqx2",
+        "X:\\Users\\Aster\\Work\\subqx3",
+        "X:\\Users\\Aster\\Work\\subqx4",
+        "X:\\Users\\Aster\\Work\\subqx5"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-prefix-over-user-substring-qx",
+      "query": "qx",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\Work\\qx-draft",
+        "X:\\Users\\Aster\\Work\\subqx"
+      ],
+      "actualOrder": [
+        "Y:\\Work\\qx-draft",
+        "X:\\Users\\Aster\\Work\\subqx"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "text-quartz",
+      "query": "quartz",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\quartz",
+        "X:\\Users\\Aster\\Work\\quartz-draft",
+        "X:\\Users\\Aster\\Work\\item-quartz",
+        "X:\\Users\\Aster\\Work\\subquartz"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\quartz",
+        "X:\\Users\\Aster\\Work\\quartz-draft",
+        "X:\\Users\\Aster\\Work\\item-quartz",
+        "X:\\Users\\Aster\\Work\\subquartz"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "late-same-tier-quartz",
+      "query": "quartz",
+      "limit": 5,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\quartz-zzz",
+        "X:\\quartz-000",
+        "X:\\quartz-001",
+        "X:\\quartz-002",
+        "X:\\quartz-003"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\quartz-zzz",
+        "X:\\quartz-000",
+        "X:\\quartz-001",
+        "X:\\quartz-002",
+        "X:\\quartz-003"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-exact-over-user-substring-quartz",
+      "query": "quartz",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\quartz",
+        "X:\\Users\\Aster\\Work\\subquartz0",
+        "X:\\Users\\Aster\\Work\\subquartz1",
+        "X:\\Users\\Aster\\Work\\subquartz2",
+        "X:\\Users\\Aster\\Work\\subquartz3",
+        "X:\\Users\\Aster\\Work\\subquartz4",
+        "X:\\Users\\Aster\\Work\\subquartz5"
+      ],
+      "actualOrder": [
+        "X:\\quartz",
+        "X:\\Users\\Aster\\Work\\subquartz0",
+        "X:\\Users\\Aster\\Work\\subquartz1",
+        "X:\\Users\\Aster\\Work\\subquartz2",
+        "X:\\Users\\Aster\\Work\\subquartz3",
+        "X:\\Users\\Aster\\Work\\subquartz4",
+        "X:\\Users\\Aster\\Work\\subquartz5"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-prefix-over-user-substring-quartz",
+      "query": "quartz",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\Work\\quartz-draft",
+        "X:\\Users\\Aster\\Work\\subquartz"
+      ],
+      "actualOrder": [
+        "Y:\\Work\\quartz-draft",
+        "X:\\Users\\Aster\\Work\\subquartz"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "duplicate-location-bands",
+      "query": "config.json",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\config.json",
+        "X:\\Users\\Birch\\Work\\config.json",
+        "Y:\\Work\\config.json",
+        "X:\\Users\\Aster\\AppData\\Cache\\config.json",
+        "X:\\Users\\Birch\\AppData\\Cache\\config.json",
+        "Y:\\Cache\\config.json",
+        "X:\\Windows\\Cache\\config.json"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\config.json",
+        "X:\\Users\\Birch\\Work\\config.json",
+        "Y:\\Work\\config.json",
+        "X:\\Users\\Aster\\AppData\\Cache\\config.json",
+        "X:\\Users\\Birch\\AppData\\Cache\\config.json",
+        "Y:\\Cache\\config.json",
+        "X:\\Windows\\Cache\\config.json"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "visible-substring-over-internal-exact",
+      "query": "quartz",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\Work\\subquartz",
+        "X:\\Users\\Aster\\AppData\\quartz",
+        "Y:\\Cache\\quartz",
+        "X:\\ProgramData\\quartz"
+      ],
+      "actualOrder": [
+        "Y:\\Work\\subquartz",
+        "X:\\Users\\Aster\\AppData\\quartz",
+        "Y:\\Cache\\quartz",
+        "X:\\ProgramData\\quartz"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "near-duplicates",
+      "query": "config.json",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\Work\\config.json",
+        "Y:\\Work\\config.json.bak",
+        "Y:\\Work\\old-config.json",
+        "Y:\\Work\\subconfig.json"
+      ],
+      "actualOrder": [
+        "Y:\\Work\\config.json",
+        "Y:\\Work\\config.json.bak",
+        "Y:\\Work\\old-config.json",
+        "Y:\\Work\\subconfig.json"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "duplicate-depth-and-length",
+      "query": "README.md",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\A\\README.md",
+        "Y:\\B\\README.md",
+        "Y:\\Longer\\README.md",
+        "Y:\\B\\Deep\\README.md"
+      ],
+      "actualOrder": [
+        "Y:\\A\\README.md",
+        "Y:\\B\\README.md",
+        "Y:\\Longer\\README.md",
+        "Y:\\B\\Deep\\README.md"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "late-depth-other-volume",
+      "query": "quartz",
+      "limit": 1,
+      "expectedOrder": [
+        "Y:\\quartz-zzz"
+      ],
+      "actualOrder": [
+        "Y:\\quartz-zzz"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "multi-index-local-truncation",
+      "query": "quartz",
+      "limit": 1,
+      "expectedOrder": [
+        "X:\\Users\\Aster\\Work\\quartz-zzz"
+      ],
+      "actualOrder": [
+        "X:\\Users\\Aster\\Work\\quartz-zzz"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "multi-index-identical-names",
+      "query": "README.md",
+      "limit": 50,
+      "expectedOrder": [
+        "X:\\Work\\README.md",
+        "Y:\\Work\\README.md"
+      ],
+      "actualOrder": [
+        "X:\\Work\\README.md",
+        "Y:\\Work\\README.md"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    },
+    {
+      "id": "final-name-and-path-tie",
+      "query": ".txt",
+      "limit": 50,
+      "expectedOrder": [
+        "Y:\\A\\A.txt",
+        "Y:\\A\\a.txt",
+        "Y:\\B\\a.txt"
+      ],
+      "actualOrder": [
+        "Y:\\A\\A.txt",
+        "Y:\\A\\a.txt",
+        "Y:\\B\\a.txt"
+      ],
+      "preferredRank": 1,
+      "expectedOrderPass": true,
+      "deterministicPass": true
+    }
+  ]
+}
