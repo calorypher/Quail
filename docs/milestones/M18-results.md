@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — implementation and focused verification passed; physical acceptance pending.**
+**ACTIVE — corrected implementation and focused verification passed; final physical acceptance pending.**
 
 ## Deterministic baseline
 
@@ -79,7 +79,7 @@ snapshot. Generation checks and mutation/build formats remain unchanged.
 Each store supplies its correct local top N. A result outside that set already
 has N results ahead of it from the same store under the global comparator;
 therefore it cannot be globally top N. The source-identity tie-break is constant
-inside a store. MultiIndexSearch consequently needs no production change.
+inside a store. MultiIndexSearch consequently retains the existing global merge.
 
 ## Focused results
 
@@ -134,7 +134,68 @@ short-query policy, context classification, filters or global top-N composition.
 The reviewer did not rerun the implementer's tests. Final physical acceptance
 remains a required gate; this review does not replace independent project QA.
 
+## Initial physical campaign failure and focused correction
+
+The first complete canonical M16 8x3 campaign ran at clean commit `7a4f8df`.
+It contains all 24 input samples, three rapid-burst samples, 24 trace files and
+24 diagnostics files. Every trace has one scenario start, no scenario failure,
+and a rendered final result. Metadata records .NET 10.0.400, Windows
+10.0.26200.0, two indexes, 873,327 reported records, 420,327,424 database
+bytes, exact HEAD `7a4f8dffe1c3ff6a29acf13e2cffd61f4ec237d9`, and `sourceDirty=false`.
+
+The campaign is valid FAIL evidence and was not rerun for a better result:
+
+| Scenario | Samples ms | Median | Target | Worst | Guardrail | Result |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| ordinary-name | 2499.046, 2118.629, 2123.230 | 2123.230 | 50 | 2499.046 | 100 | FAIL |
+| strong-prefix | 2123.095, 2130.778, 2122.669 | 2123.095 | 50 | 2130.778 | 100 | FAIL |
+| broad-result | 2210.684, 2197.960, 2191.044 | 2197.960 | 150 | 2210.684 | 250 | FAIL |
+| one-character | 2253.644, 2191.499, 2191.495 | 2191.499 | 150 | 2253.644 | 250 | FAIL |
+| two-character | 2185.548, 2177.937, 2166.409 | 2177.937 | 150 | 2185.548 | 250 | FAIL |
+| warm-repeated | 2185.505, 2177.842, 2185.508 | 2185.505 | 100 | 2185.508 | 150 | FAIL |
+| fresh-process-first-search | 2187.319, 2187.676, 2191.594 | 2187.676 | 125 | 2191.594 | 150 | FAIL |
+| rapid-typing final | 6067.848, 5980.826, 5961.052 | 5980.826 | 75 | 6067.848 | 125 | FAIL |
+| rapid-typing burst | 6558.595, 6470.702, 6451.544 | 6470.702 | 600 | 6558.595 | 700 | FAIL |
+
+Nearly all time was inside Core search and every query shape paid the same
+roughly 2.1-second floor. The cause was not M18 candidate ranking. M17.6 made
+`EnsureSearchReady` execute writable FTS5 `integrity-check rank=1`, while
+`MultiIndexSearch` still invoked that full validation for every configured
+index on every interactive request. With two indexes, each query performed two
+full content-integrity scans before searching. The M17.6 builder already runs
+this check before publication, and explicit `EnsureSearchReady` retains it for
+diagnostics and lifecycle verification.
+
+The bounded correction removes only the redundant per-query calls from
+`MultiIndexSearch`. Each `IndexStore.Search` still opens a read transaction and
+calls `EnsureSearchable`, which checks complete build state, schema and format
+versions, current short-query generation, and checkpoint presence. Full FTS
+content, trigger and coverage validation remains in build/publication and
+explicit `EnsureSearchReady`; no schema, persistent format, mutation, ranking,
+or recovery behavior changed.
+
+Focused affected tests passed 98/98. Four one-repetition UI samples on the same
+two-index corpus then passed their relevant target and guardrail: ordinary
+12.263 ms, broad 91.082 ms, one-character 78.733 ms, rapid final 65.428 ms and
+rapid burst 556.364 ms. The earlier intermediate correction that retained
+per-query full-table coverage counts passed 100 tests but still measured
+62.944, 274.060, 130.992, 82.626 and 574.388 ms respectively; it was rejected
+before commit because ordinary, broad and rapid medians were not within target.
+The final corrected candidate then passed the full `Quail.Core.Tests` Release
+suite **237/237** and `dotnet build Quail.sln -c Release` with zero warnings or
+errors.
+Raw evidence remains under `artifacts/m18/final-7a4f8df/`,
+`artifacts/m18/focused-preflight-fix/`, and
+`artifacts/m18/focused-preflight-fix-final/`.
+
+Because this correction changes a measured hot path and moves full content
+integrity out of interactive dispatch, independent QA must specifically review
+the validation boundary and rerun or inspect the existing corruption/lifecycle
+tests. Another general implementation subagent review was not run after this
+small correction.
+
 ## Pending acceptance
 
-The canonical M16 8x3 campaign, short manual smoke, and independent project QA
+One final canonical M16 8x3 campaign on a clean corrected commit, short manual
+smoke, and independent project QA
 remain pending. M18 is not complete and no merge is authorized.

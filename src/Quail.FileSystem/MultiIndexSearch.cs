@@ -19,8 +19,6 @@ public static class MultiIndexSearch
         if (indexes.Length == 0) throw new ArgumentException("Search requires at least one index.", nameof(stores));
         if (query.Limit is < 1 or > IndexStore.MaximumSearchResultLimit)
             throw new ArgumentOutOfRangeException(nameof(query), $"Search limit must be between 1 and {IndexStore.MaximumSearchResultLimit}.");
-        foreach (var index in indexes) index.EnsureSearchReady();
-
         var candidates = indexes.SelectMany(store => store.Search(query, context)
             .Select(result => new IndexedFileSearchResult(store.DatabasePath, result)));
         return candidates
