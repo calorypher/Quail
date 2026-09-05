@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — corrected implementation and focused verification passed; final physical acceptance pending.**
+**READY FOR INDEPENDENT QA — deterministic relevance and physical performance acceptance passed.**
 
 ## Deterministic baseline
 
@@ -194,8 +194,52 @@ the validation boundary and rerun or inspect the existing corruption/lifecycle
 tests. Another general implementation subagent review was not run after this
 small correction.
 
-## Pending acceptance
+## Final physical acceptance
 
-One final canonical M16 8x3 campaign on a clean corrected commit, short manual
-smoke, and independent project QA
-remain pending. M18 is not complete and no merge is authorized.
+After the focused correction, one final canonical M16 8x3 campaign ran on clean
+commit `de615db03d064e0487ff6a62fb09c3eb39e9fdcf`. It used the same disposable
+frozen pre-reinstall C final-v3 index as M17 plus the current D index: two
+indexes, 873,327 reported records, 420,327,424 database bytes, .NET 10.0.400,
+and Windows 10.0.26200.0. The evidence contains 24 input samples, three rapid
+burst samples, 24 valid traces, and 24 diagnostic logs. `sourceDirty=false`.
+
+| Scenario | Samples ms | Median | Target | Worst | Guardrail | M17 median | Delta | Result |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| ordinary-name | 15.481, 15.438, 13.706 | 15.438 | 50 | 15.481 | 100 | 16.675 | -1.237 | PASS |
+| strong-prefix | 54.085, 12.162, 16.227 | 16.227 | 50 | 54.085 | 100 | 17.658 | -1.431 | PASS |
+| broad-result | 84.387, 85.848, 88.985 | 85.848 | 150 | 88.985 | 250 | 124.152 | -38.304 | PASS |
+| one-character | 86.683, 84.340, 86.349 | 86.349 | 150 | 86.683 | 250 | 97.766 | -11.417 | PASS |
+| two-character | 87.372, 71.527, 73.587 | 73.587 | 150 | 87.372 | 250 | 91.568 | -17.981 | PASS |
+| warm-repeated | 72.939, 71.430, 74.546 | 72.939 | 100 | 74.546 | 150 | 60.174 | +12.765 | PASS |
+| fresh-process-first-search | 101.708, 81.795, 88.587 | 88.587 | 125 | 101.708 | 150 | 81.134 | +7.453 | PASS |
+| rapid-typing final | 64.436, 65.811, 66.848 | 65.811 | 75 | 66.848 | 125 | 49.501 | +16.310 | PASS |
+| rapid-typing burst | 548.262, 550.770, 549.978 | 549.978 | 600 | 550.770 | 700 | 550.434 | -0.456 | PASS |
+
+All median targets and all 27 per-sample guardrails pass. Broad-result improved
+by 38.304 ms against M17 and retains substantial target margin. Warm, fresh and
+rapid final are slower than M17 but remain within their explicit targets and
+guardrails; no further optimization is justified after acceptance. Raw evidence:
+`artifacts/m18/final-de615db/`.
+
+## Acceptance assessment and remaining QA
+
+| Area | Result |
+| --- | --- |
+| Known same-text-tier late-candidate failure | PASS; reproduced in baseline and fixed for arbitrary hit counts |
+| Deterministic relevance | PASS; top-1 55% to 100%, top-5 70% to 100%, MRR 0.6464285714 to 1.0 |
+| Mandatory explicit orders | PASS; 20/20 including duplicates, near-duplicates, locations, depth, short queries, multi-index and final ties |
+| Short-query policy | PASS; same visibility/text/location policy, unchanged compact-short-query-v3 |
+| Multi-index global top N | PASS; complete local top N plus deterministic global merge |
+| Focused/full tests and Release build | PASS; final 237/237 and full solution zero warnings/errors |
+| Final M16 8x3 | PASS; every target and guardrail |
+| Manual Quick Search smoke | Pending user/independent QA: representative visual order and Enter-to-open |
+| Independent project QA | Pending |
+
+The final campaign itself provides real Quick Search input-to-render evidence for
+ordinary, broad, short, warm, fresh and rapid workflows. The repository
+verification playbook assigns the remaining brief visual/Enter-to-open check to
+the user or independent QA when native desktop control is unavailable. No new
+desktop automation was built for this observation.
+
+M18 is ready for independent QA. It is not complete, no merge has occurred,
+and no merge, branch deletion, tag or release is authorized.

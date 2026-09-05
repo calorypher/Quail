@@ -281,7 +281,7 @@ The M17.5 canonical median is 82.161 seconds for the current physical C: corpus.
 
 Scope is limited to the FTS bulk-build hypothesis, focused integrity/lifecycle verification, and one final production-like campaign. Do not weaken durability, change Search/ranking semantics, introduce concurrent SQLite writers, add a generic scheduler, or absorb metadata-pipeline, M19, or M20 work unless fresh M17.6 evidence requires a separately approved decision.
 
-### M18 — Ranking / Relevance v2 — ACTIVE
+### M18 — Ranking / Relevance v2 — READY FOR INDEPENDENT QA
 
 **Goal:** make the intended result appear high enough that fast search is also useful search.
 
