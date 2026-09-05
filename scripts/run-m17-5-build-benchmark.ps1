@@ -2,6 +2,7 @@
 param(
     [string] $OutputDirectory,
     [string] $BenchmarkRoot = (Join-Path $env:ProgramData 'Quail\Benchmarks\M17.5'),
+    [switch] $DiagnosticNoFts,
     [switch] $NoBuild
 )
 
@@ -43,23 +44,32 @@ try {
     $gitHead = (& git rev-parse HEAD).Trim()
     $sourceDirty = [bool](@(& git status --porcelain=v1).Count -gt 0)
     $dotnetVersion = (& dotnet --version).Trim()
-    $runs = @(
-        [ordered]@{ kind = 'warmup'; number = 0 },
-        [ordered]@{ kind = 'measured'; number = 1 },
-        [ordered]@{ kind = 'measured'; number = 2 },
-        [ordered]@{ kind = 'measured'; number = 3 })
+    $runs = if ($DiagnosticNoFts) {
+        @([ordered]@{ kind = 'diagnostic-no-fts'; number = 1 })
+    }
+    else {
+        @(
+            [ordered]@{ kind = 'warmup'; number = 0 },
+            [ordered]@{ kind = 'measured'; number = 1 },
+            [ordered]@{ kind = 'measured'; number = 2 },
+            [ordered]@{ kind = 'measured'; number = 3 })
+    }
 
     $runFiles = [System.Collections.Generic.List[string]]::new()
     foreach ($run in $runs) {
-        & dotnet $dllPath `
-            --database-path $databasePath `
-            --output-directory $outputRoot `
-            --mount-point 'C:\' `
-            --run-number $run.number `
-            --run-kind $run.kind `
-            --git-head $gitHead `
-            --source-dirty $sourceDirty `
-            --dotnet-version $dotnetVersion
+        $benchmarkArguments = @(
+            '--database-path', $databasePath,
+            '--output-directory', $outputRoot,
+            '--mount-point', 'C:\',
+            '--run-number', $run.number,
+            '--run-kind', $run.kind,
+            '--git-head', $gitHead,
+            '--source-dirty', $sourceDirty,
+            '--dotnet-version', $dotnetVersion)
+        if ($DiagnosticNoFts) {
+            $benchmarkArguments += '--diagnostic-no-fts'
+        }
+        & dotnet $dllPath $benchmarkArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Benchmark $($run.kind)-$($run.number) failed with exit code $LASTEXITCODE."
         }
@@ -70,7 +80,8 @@ try {
     [ordered]@{
         schemaVersion = 1
         capturedAtUtc = (Get-Date).ToUniversalTime().ToString('O')
-        canonicalCampaign = $true
+        canonicalCampaign = -not $DiagnosticNoFts
+        diagnosticMode = if ($DiagnosticNoFts) { 'no-fts' } else { $null }
         databaseLocation = 'ProgramData/Quail/Benchmarks/M17.5/<run>/c-index.db'
         runFiles = @($runFiles)
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $outputRoot 'manifest.json') -Encoding utf8

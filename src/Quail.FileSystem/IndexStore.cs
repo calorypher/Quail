@@ -68,6 +68,14 @@ public sealed class IndexStore
     }
 
     public BuildMetrics Build(string mountPoint, int? failAfterRecords = null)
+        => BuildCore(mountPoint, failAfterRecords, includeSearchIndex: true);
+
+    // This diagnostic-only seam omits FTS schema/triggers to isolate their build contribution.
+    // Its output is intentionally not a searchable production index.
+    internal BuildMetrics BuildWithoutFtsForBenchmark(string mountPoint)
+        => BuildCore(mountPoint, null, includeSearchIndex: false);
+
+    private BuildMetrics BuildCore(string mountPoint, int? failAfterRecords, bool includeSearchIndex)
     {
         var process = Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
@@ -85,7 +93,7 @@ public sealed class IndexStore
             {
                 sink(root);
             }
-        }, startingJournal, failAfterRecords, metadata.VolumeHandle, metadata.Acquire, () => metadata.Metrics, timing) with
+        }, startingJournal, failAfterRecords, metadata.VolumeHandle, metadata.Acquire, () => metadata.Metrics, timing, includeSearchIndex) with
         {
             ParseErrors = enumeration?.ParseErrors ?? 0,
             UnsupportedRecords = enumeration?.UnsupportedRecords ?? 0,
@@ -123,7 +131,26 @@ public sealed class IndexStore
             connection => CompleteBuild(connection, finalCheckpoint, timing),
             acquireMetadata ?? UnavailableMetadata,
             null,
-            timing);
+            timing,
+            includeSearchIndex: true);
+    }
+
+    internal BuildMetrics BuildFromRecordsWithoutFtsForTesting(
+        VolumeDescriptor volume,
+        Action<Action<NamespaceRecord>> produce,
+        Func<NamespaceRecord, FileMetadata>? acquireMetadata = null)
+    {
+        var finalCheckpoint = new IncrementalCheckpoint(0x515541494CUL, 0, 0, 0);
+        var timing = new BuildTiming();
+        return BuildStaging(
+            volume,
+            produce,
+            null,
+            connection => CompleteBuild(connection, finalCheckpoint, timing),
+            acquireMetadata ?? UnavailableMetadata,
+            null,
+            timing,
+            includeSearchIndex: false);
     }
 
     internal BuildMetrics BuildFromRecordsWithHandoffForTesting(
@@ -154,7 +181,7 @@ public sealed class IndexStore
                 checkpoint = checkpoint with { NextUsn = batch.NextUsn };
             }
             CompleteBuild(connection, checkpoint, timing);
-        }, acquire, null, timing);
+        }, acquire, null, timing, includeSearchIndex: true);
     }
 
     public SyncResult Sync(string mountPoint)
@@ -612,7 +639,8 @@ public sealed class IndexStore
         SafeFileHandle volumeHandle,
         Func<NamespaceRecord, FileMetadata> acquireMetadata,
         Func<MetadataAcquisitionMetrics>? metadataMetrics,
-        BuildTiming timing)
+        BuildTiming timing,
+        bool includeSearchIndex)
     {
         return BuildStaging(volume, produce, failAfterRecords, connection =>
         {
@@ -641,7 +669,7 @@ public sealed class IndexStore
             }
             timing.JournalHandoff += Stopwatch.GetElapsedTime(handoffStart);
             CompleteBuild(connection, finalCheckpoint, timing);
-        }, acquireMetadata, metadataMetrics, timing);
+        }, acquireMetadata, metadataMetrics, timing, includeSearchIndex);
     }
 
     private BuildMetrics BuildStaging(
@@ -651,7 +679,8 @@ public sealed class IndexStore
         Action<SqliteConnection> finish,
         Func<NamespaceRecord, FileMetadata> acquireMetadata,
         Func<MetadataAcquisitionMetrics>? metadataMetrics,
-        BuildTiming timing)
+        BuildTiming timing,
+        bool includeSearchIndex)
     {
         var process = Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
@@ -666,7 +695,7 @@ public sealed class IndexStore
             {
                 try
                 {
-                    CreateSchema(connection);
+                    CreateSchema(connection, includeSearchIndex);
                     SetMeta(connection, "build_state", "building");
                     SetMeta(connection, "volume_identity", volume.StableIdentity);
                     SetMeta(connection, "mount_point", volume.MountPoint);
@@ -1465,13 +1494,18 @@ public sealed class IndexStore
         }
     }
 
-    private static void CreateSchema(SqliteConnection connection)
+    private static void CreateSchema(SqliteConnection connection, bool includeSearchIndex)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS namespace_entries(file_id BLOB PRIMARY KEY NOT NULL,parent_file_id BLOB NOT NULL,name TEXT NOT NULL,attributes INTEGER NOT NULL,usn INTEGER NOT NULL,record_version INTEGER NOT NULL,logical_size INTEGER NULL,last_write_time_utc INTEGER NULL);
             CREATE INDEX IF NOT EXISTS ix_namespace_parent_name ON namespace_entries(parent_file_id,name);
+            """;
+        command.ExecuteNonQuery();
+        if (includeSearchIndex)
+        {
+            command.CommandText = """
             CREATE VIRTUAL TABLE IF NOT EXISTS search_entries USING fts5(name, content='namespace_entries', content_rowid='rowid', tokenize='trigram case_sensitive 0');
             CREATE TRIGGER IF NOT EXISTS namespace_entries_search_insert AFTER INSERT ON namespace_entries BEGIN
                 INSERT INTO search_entries(rowid,name) VALUES (new.rowid,new.name);
@@ -1484,10 +1518,11 @@ public sealed class IndexStore
                 INSERT INTO search_entries(rowid,name) VALUES (new.rowid,new.name);
             END;
             """;
-        command.ExecuteNonQuery();
+            command.ExecuteNonQuery();
+        }
         ShortQueryIndex.CreateSchema(connection);
         SetMeta(connection, "schema_version", SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        SetMeta(connection, "search_index_format", SearchIndexFormat);
+        SetMeta(connection, "search_index_format", includeSearchIndex ? SearchIndexFormat : "diagnostic-no-fts");
         SetMeta(connection, "metadata_format", MetadataFormat);
     }
 

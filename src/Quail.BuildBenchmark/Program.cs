@@ -14,7 +14,7 @@ VolumeDescriptor volume;
 if (options.Fixture)
 {
     volume = new VolumeDescriptor("m17-5-fixture", "X:\\", "NTFS", "fixture");
-    metrics = store.BuildFromRecords(volume, sink =>
+    Action<Action<NamespaceRecord>> fixtureRecords = sink =>
     {
         var root = Id(1);
         var folder = Id(2);
@@ -24,16 +24,24 @@ if (options.Fixture)
         {
             sink(new NamespaceRecord(Id((ulong)index), folder, $"fixture-{index:D2}.txt", 0, index, 2));
         }
-    }, acquireMetadata: _ => new FileMetadata(64, 1));
+    };
+    metrics = options.DiagnosticNoFts
+        ? store.BuildFromRecordsWithoutFtsForTesting(volume, fixtureRecords, _ => new FileMetadata(64, 1))
+        : store.BuildFromRecords(volume, fixtureRecords, acquireMetadata: _ => new FileMetadata(64, 1));
 }
 else
 {
     volume = NtfsVolume.Validate(options.MountPoint);
-    metrics = store.Build(volume.MountPoint);
+    metrics = options.DiagnosticNoFts
+        ? store.BuildWithoutFtsForBenchmark(volume.MountPoint)
+        : store.Build(volume.MountPoint);
 }
 
 var status = store.GetStatus();
-store.EnsureSearchReady();
+if (!options.DiagnosticNoFts)
+{
+    store.EnsureSearchReady();
+}
 var databaseBytes = new FileInfo(options.DatabasePath).Length;
 var phases = metrics.Phases ?? throw new InvalidOperationException("Build did not provide phase metrics.");
 var result = new
@@ -47,6 +55,7 @@ var result = new
     runNumber = options.RunNumber,
     runKind = options.RunKind,
     fixture = options.Fixture,
+    diagnosticMode = options.DiagnosticNoFts ? "no-fts" : null,
     volume = new
     {
         mountPoint = volume.MountPoint,
@@ -92,7 +101,7 @@ var result = new
     integrity = new
     {
         status = status.State.ToString(),
-        searchReady = true
+        searchReady = options.DiagnosticNoFts ? null : (bool?)true
     }
 };
 
@@ -115,17 +124,25 @@ sealed record BenchmarkOptions(
     string GitHead,
     bool SourceDirty,
     string DotnetVersion,
-    bool Fixture)
+    bool Fixture,
+    bool DiagnosticNoFts)
 {
     public static BenchmarkOptions Parse(string[] args)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var fixture = false;
+        var diagnosticNoFts = false;
         for (var index = 0; index < args.Length; index++)
         {
             if (args[index] == "--fixture")
             {
                 fixture = true;
+                continue;
+            }
+
+            if (args[index] == "--diagnostic-no-fts")
+            {
+                diagnosticNoFts = true;
                 continue;
             }
 
@@ -146,7 +163,8 @@ sealed record BenchmarkOptions(
             Required(values, "--git-head"),
             bool.Parse(Required(values, "--source-dirty")),
             Required(values, "--dotnet-version"),
-            fixture);
+            fixture,
+            diagnosticNoFts);
     }
 
     private static string Required(IReadOnlyDictionary<string, string> values, string name) =>

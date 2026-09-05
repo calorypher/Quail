@@ -71,6 +71,16 @@ public sealed class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Diagnostic_no_fts_build_is_explicitly_not_a_searchable_index()
+    {
+        var metrics = Store.BuildFromRecordsWithoutFtsForTesting(Volume, Produce);
+
+        Assert.Equal(3, metrics.RecordCount);
+        Assert.Equal(IndexState.RebuildRequired, Store.GetStatus().State);
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
+    }
+
+    [Fact]
     public void Eight_and_sixteen_byte_identifiers_round_trip_without_truncation()
     {
         var wide = Id("0123456789ABCDEF0011223344556677");
