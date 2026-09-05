@@ -103,9 +103,8 @@ public static class FileSearchRanking
         var leftRank = Classify(left, query, context);
         var rightRank = Classify(right, query, context);
 
-        var comparison = leftRank.Location.CompareTo(rightRank.Location);
-        if (comparison != 0) return comparison;
-        comparison = leftRank.TextMatch.CompareTo(rightRank.TextMatch);
+        var comparison = PolicyKey(leftRank.Location, leftRank.TextMatch)
+            .CompareTo(PolicyKey(rightRank.Location, rightRank.TextMatch));
         if (comparison != 0) return comparison;
         comparison = leftRank.PathDepth.CompareTo(rightRank.PathDepth);
         if (comparison != 0) return comparison;
@@ -133,6 +132,14 @@ public static class FileSearchRanking
 
         return FileSearchTextMatch.Substring;
     }
+
+    // Visibility protects ordinary results from infrastructure noise. Text
+    // quality wins within each band; user location breaks equal-text ties.
+    // Keep this tuple shared by full results and compact candidate selection.
+    internal static (int Visibility, FileSearchTextMatch Text, FileSearchLocation Location) PolicyKey(
+        FileSearchLocation location, FileSearchTextMatch text) =>
+        (location <= FileSearchLocation.OtherVisible ? 0 : location < FileSearchLocation.SystemHeavy ? 1 : 2,
+            text, location);
 
     private static FileSearchLocation ClassifyLocation(
         FileSearchResult result,

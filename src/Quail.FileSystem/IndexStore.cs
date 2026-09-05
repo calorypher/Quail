@@ -415,6 +415,7 @@ public sealed class IndexStore
         }
 
         using var connection = OpenReadOnly(_databasePath);
+        using var snapshot = connection.BeginTransaction(deferred: true);
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
         if (nameQuery.Length <= 2 && IsUnfiltered(query))
@@ -422,114 +423,33 @@ public sealed class IndexStore
             return ShortQueryIndex.Search(connection, nameQuery, query.Limit, context);
         }
 
-        var usesTrigramIndex = nameQuery.Length >= 3;
-        var candidateLimit = query.Limit;
-        var results = ReadSearchCandidates(
-            connection,
-            query,
-            nameQuery,
-            extension,
-            usesTrigramIndex,
-            candidateLimit,
-            null);
-        var canExpandForCurrentUser = CanExpandForCurrentUser(results, context);
-        var hasCurrentUserVisible = results.Any(result =>
-            FileSearchRanking.Classify(result, nameQuery, context).Location == FileSearchLocation.CurrentUserVisible);
-        if (canExpandForCurrentUser && (results.Count == candidateLimit || !hasCurrentUserVisible))
+        using var command = CreateSearchCandidateCommand(connection, query, nameQuery, extension);
+        using var reader = command.ExecuteReader();
+        return ShortQueryIndex.RankCandidates(connection, ReadCandidates(), nameQuery, query.Limit, context);
+
+        IEnumerable<(long RowId, string Name)> ReadCandidates()
         {
-            var seen = results.Select(result => result.FileId).ToHashSet();
-            foreach (var textClass in Enum.GetValues<SearchTextCandidateClass>())
+            while (reader.Read())
             {
-                foreach (var result in ReadSearchCandidates(
-                             connection,
-                             query,
-                             nameQuery,
-                             extension,
-                             usesTrigramIndex,
-                             candidateLimit,
-                             textClass))
-                {
-                    if (seen.Add(result.FileId)) results.Add(result);
-                }
+                yield return (reader.GetInt64(0), reader.GetString(1));
             }
         }
-
-        return results
-            .OrderBy(result => result, new FileSearchResultComparer(nameQuery, context))
-            .Take(query.Limit)
-            .ToArray();
-    }
-
-    private static List<FileSearchResult> ReadSearchCandidates(
-        SqliteConnection connection,
-        FileSearchQuery query,
-        string nameQuery,
-        string? extension,
-        bool usesTrigramIndex,
-        int candidateLimit,
-        SearchTextCandidateClass? textClass)
-    {
-        var results = new List<FileSearchResult>();
-        using var command = CreateSearchCandidateCommand(
-            connection,
-            query,
-            nameQuery,
-            extension,
-            usesTrigramIndex,
-            candidateLimit,
-            textClass);
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            var fileId = new NativeFileId((byte[])reader[0]);
-            var name = reader.GetString(2);
-            var attributes = checked((uint)reader.GetInt64(3));
-            var isDirectory = (attributes & FileAttributeDirectory) != 0;
-            results.Add(new FileSearchResult(
-                fileId,
-                name,
-                ReconstructPath(connection, fileId).Path,
-                isDirectory,
-                isDirectory ? null : GetExtension(name),
-                reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                reader.IsDBNull(5) ? null : reader.GetInt64(5),
-                attributes));
-        }
-
-        return results;
-    }
-
-    private static bool CanExpandForCurrentUser(IReadOnlyList<FileSearchResult> candidates, FileSearchRankingContext context)
-    {
-        var currentUserSegments = FileSearchRankingContext.GetSegments(context.CurrentUserProfilePath);
-        return currentUserSegments.Count > 0 && candidates.Any(candidate =>
-        {
-            var pathSegments = FileSearchRankingContext.GetSegments(candidate.FullPath);
-            return pathSegments.Count > 0 && string.Equals(pathSegments[0], currentUserSegments[0], StringComparison.OrdinalIgnoreCase);
-        });
     }
 
     private static SqliteCommand CreateSearchCandidateCommand(
         SqliteConnection connection,
         FileSearchQuery query,
         string nameQuery,
-        string? extension,
-        bool usesTrigramIndex,
-        int candidateLimit,
-        SearchTextCandidateClass? textClass)
+        string? extension)
     {
         var command = connection.CreateCommand();
         var entry = "namespace_entries";
-        var textPredicate = textClass is null ? null : GetTextCandidatePredicate(textClass.Value);
-        var textClassClause = textPredicate is null ? string.Empty : $"AND {textPredicate}";
-        var ordering = $"{entry}.name COLLATE NOCASE ASC, {entry}.name COLLATE BINARY ASC, {entry}.file_id ASC";
-        command.CommandText = usesTrigramIndex
+        command.CommandText = nameQuery.Length >= 3
             ? $"""
-                SELECT {entry}.file_id, {entry}.parent_file_id, {entry}.name, {entry}.attributes, {entry}.logical_size, {entry}.last_write_time_utc
+                SELECT {entry}.rowid, {entry}.name
                 FROM search_entries
                 JOIN namespace_entries ON {entry}.rowid = search_entries.rowid
                 WHERE search_entries MATCH $match
-                  {textClassClause}
                   AND ($type = 0 OR ($type = 1 AND ({entry}.attributes & $directoryAttribute) = 0) OR ($type = 2 AND ({entry}.attributes & $directoryAttribute) != 0))
                   AND ($extension IS NULL OR (({entry}.attributes & $directoryAttribute) = 0 AND lower({entry}.name) LIKE '%.' || $extension))
                   AND ($minimumSize IS NULL OR {entry}.logical_size >= $minimumSize)
@@ -539,14 +459,12 @@ public sealed class IndexStore
                   AND ($hidden = 0 OR ({entry}.attributes & $hiddenAttribute) != 0)
                   AND ($readOnly = 0 OR ({entry}.attributes & $readOnlyAttribute) != 0)
                   AND ($system = 0 OR ({entry}.attributes & $systemAttribute) != 0)
-                ORDER BY {ordering}
-                LIMIT $limit;
+                ;
                 """
             : $"""
-                SELECT {entry}.file_id, {entry}.parent_file_id, {entry}.name, {entry}.attributes, {entry}.logical_size, {entry}.last_write_time_utc
+                SELECT {entry}.rowid, {entry}.name
                 FROM namespace_entries
                 WHERE instr(lower({entry}.name), lower($query)) > 0
-                  {textClassClause}
                   AND ($type = 0 OR ($type = 1 AND ({entry}.attributes & $directoryAttribute) = 0) OR ($type = 2 AND ({entry}.attributes & $directoryAttribute) != 0))
                   AND ($extension IS NULL OR (({entry}.attributes & $directoryAttribute) = 0 AND lower({entry}.name) LIKE '%.' || $extension))
                   AND ($minimumSize IS NULL OR {entry}.logical_size >= $minimumSize)
@@ -556,12 +474,10 @@ public sealed class IndexStore
                   AND ($hidden = 0 OR ({entry}.attributes & $hiddenAttribute) != 0)
                   AND ($readOnly = 0 OR ({entry}.attributes & $readOnlyAttribute) != 0)
                   AND ($system = 0 OR ({entry}.attributes & $systemAttribute) != 0)
-                ORDER BY {ordering}
-                LIMIT $limit;
+                ;
                 """;
         command.Parameters.AddWithValue("$match", ToFtsPhrase(nameQuery));
         command.Parameters.AddWithValue("$query", nameQuery);
-        command.Parameters.AddWithValue("$likeQuery", EscapeLike(nameQuery));
         command.Parameters.AddWithValue("$type", (int)query.EntryType);
         command.Parameters.AddWithValue("$directoryAttribute", (long)FileAttributeDirectory);
         command.Parameters.AddWithValue("$extension", (object?)extension ?? DBNull.Value);
@@ -575,30 +491,8 @@ public sealed class IndexStore
         command.Parameters.AddWithValue("$hiddenAttribute", (long)FileAttributeHidden);
         command.Parameters.AddWithValue("$readOnlyAttribute", (long)FileAttributeReadOnly);
         command.Parameters.AddWithValue("$systemAttribute", (long)FileAttributeSystem);
-        command.Parameters.AddWithValue("$limit", candidateLimit);
         return command;
     }
-
-    private static string GetTextCandidatePredicate(SearchTextCandidateClass textClass)
-    {
-        const string exact = "lower(namespace_entries.name) = lower($query)";
-        const string prefix = "lower(namespace_entries.name) LIKE lower($likeQuery) || '%' ESCAPE '\\'";
-        var tokenPrefix = string.Join(
-            " OR ",
-            FileSearchRanking.TokenSeparators
-                .Select(separator => $"lower(namespace_entries.name) LIKE '%' || '{EscapeSqlLiteral(EscapeLike(separator.ToString()))}' || lower($likeQuery) || '%' ESCAPE '\\'"));
-
-        return textClass switch
-        {
-            SearchTextCandidateClass.Exact => exact,
-            SearchTextCandidateClass.Prefix => $"NOT ({exact}) AND ({prefix})",
-            SearchTextCandidateClass.TokenPrefix => $"NOT ({exact}) AND NOT ({prefix}) AND ({tokenPrefix})",
-            SearchTextCandidateClass.Substring => $"NOT ({exact}) AND NOT ({prefix}) AND NOT ({tokenPrefix})",
-            _ => throw new ArgumentOutOfRangeException(nameof(textClass))
-        };
-    }
-
-    private static string EscapeLike(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     private static bool IsUnfiltered(FileSearchQuery query) =>
         query.EntryType == SearchEntryType.Any &&
@@ -610,27 +504,6 @@ public sealed class IndexStore
         !query.Hidden &&
         !query.ReadOnly &&
         !query.System;
-
-    private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
-
-    private enum SearchTextCandidateClass
-    {
-        Exact,
-        Prefix,
-        TokenPrefix,
-        Substring
-    }
-
-    private sealed class FileSearchResultComparer(string query, FileSearchRankingContext context) : IComparer<FileSearchResult>
-    {
-        public int Compare(FileSearchResult? left, FileSearchResult? right)
-        {
-            if (ReferenceEquals(left, right)) return 0;
-            if (left is null) return -1;
-            if (right is null) return 1;
-            return FileSearchRanking.Compare(left, right, query, context);
-        }
-    }
 
     public void EnsureSearchReady()
     {

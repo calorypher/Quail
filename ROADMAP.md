@@ -271,7 +271,9 @@ Acceptance boundary:
 
 If the evidence recommends a production optimization that remains inside the approved 0.3 release goal and boundary, the Quail 0.3 execution thread may add/split/reorder the required milestone work and continue. Return to the parent roadmap thread only if the evidence requires changing the release boundary, moving substantial scope between versions, or changing a major cross-version architecture/product direction.
 
-### M17.6 — FTS Bulk-Build Optimization — READY FOR INDEPENDENT QA
+### M17.6 — FTS Bulk-Build Optimization — COMPLETE
+
+PR #16 merged to `main` as `9b1f9fa22ec8cd3c1fdff5b8ed320db28a3342a6` after independent QA.
 
 **Goal:** reduce the measured full rebuild cost by replacing per-row FTS trigger maintenance with a correctness-preserving bulk construction of the same final FTS state.
 
@@ -279,7 +281,7 @@ The M17.5 canonical median is 82.161 seconds for the current physical C: corpus.
 
 Scope is limited to the FTS bulk-build hypothesis, focused integrity/lifecycle verification, and one final production-like campaign. Do not weaken durability, change Search/ranking semantics, introduce concurrent SQLite writers, add a generic scheduler, or absorb metadata-pipeline, M19, or M20 work unless fresh M17.6 evidence requires a separately approved decision.
 
-### M18 — Ranking / Relevance v2
+### M18 — Ranking / Relevance v2 — READY FOR INDEPENDENT QA
 
 **Goal:** make the intended result appear high enough that fast search is also useful search.
 
