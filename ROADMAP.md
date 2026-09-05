@@ -232,7 +232,7 @@ If every credible bounded option requires a broad storage redesign, unacceptable
 
 ### M17.5 — Index Build/Rebuild Performance Investigation & Target
 
-**Status: ACTIVE — investigation in progress.**
+**Status: READY FOR INDEPENDENT QA — Decision A recorded; merge pending.**
 
 **Goal:** determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
 
@@ -270,6 +270,14 @@ Acceptance boundary:
 - the milestone ends with an explicit Quail 0.3 execution decision: add a bounded production optimization before M18/M19, or continue to M18 with rebuild optimization deferred.
 
 If the evidence recommends a production optimization that remains inside the approved 0.3 release goal and boundary, the Quail 0.3 execution thread may add/split/reorder the required milestone work and continue. Return to the parent roadmap thread only if the evidence requires changing the release boundary, moving substantial scope between versions, or changing a major cross-version architecture/product direction.
+
+### M17.6 — FTS Bulk-Build Optimization — PROPOSED
+
+**Goal:** reduce the measured full rebuild cost by replacing per-row FTS trigger maintenance with a correctness-preserving bulk construction of the same final FTS state.
+
+The M17.5 canonical median is 82.161 seconds for the current physical C: corpus. Its FTS-omitted diagnostic was 51.876 seconds, but is explicitly non-production-comparable because it is not search-ready. M17.6 should target a 60–70-second production-like median while retaining full metadata, `compact-short-query-v3`, `synchronous=FULL`, WAL/checkpoint, staging publication, and lifecycle/integrity behavior.
+
+Scope is limited to the FTS bulk-build hypothesis, focused integrity/lifecycle verification, and one final production-like campaign. Do not weaken durability, change Search/ranking semantics, introduce concurrent SQLite writers, add a generic scheduler, or absorb metadata-pipeline, M19, or M20 work unless fresh M17.6 evidence requires a separately approved decision.
 
 ### M18 — Ranking / Relevance v2
 
