@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Microsoft.Data.Sqlite;
@@ -61,6 +62,12 @@ public sealed class IndexStoreTests : IDisposable
         Assert.True(phases.MetadataAcquisition >= TimeSpan.Zero);
         Assert.True(phases.Residual >= TimeSpan.Zero);
         Assert.True(measured <= metrics.Elapsed);
+    }
+
+    [Fact]
+    public void Stopwatch_tick_duration_is_converted_without_treating_ticks_as_a_start_timestamp()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(1), NtfsEnumerator.ElapsedFromStopwatchTicks(Stopwatch.Frequency));
     }
 
     [Fact]

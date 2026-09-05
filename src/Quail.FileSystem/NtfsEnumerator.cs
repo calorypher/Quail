@@ -69,8 +69,11 @@ public static class NtfsEnumerator
             stopwatch.Elapsed,
             process.TotalProcessorTime - cpu,
             process.PeakWorkingSet64,
-            SinkElapsed: Stopwatch.GetElapsedTime(callbackTicks));
+            SinkElapsed: ElapsedFromStopwatchTicks(callbackTicks));
     }
+
+    internal static TimeSpan ElapsedFromStopwatchTicks(long ticks) =>
+        TimeSpan.FromSeconds((double)ticks / Stopwatch.Frequency);
 
     internal static int ParseRecords(byte[] buffer, int offset, int end, Action<NamespaceRecord> onRecord)
     {
