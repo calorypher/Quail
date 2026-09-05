@@ -1570,7 +1570,7 @@ public sealed class IndexStore
         }
 
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO search_entries(search_entries) VALUES('integrity-check');";
+        command.CommandText = "INSERT INTO search_entries(search_entries,rank) VALUES('integrity-check',1);";
         command.ExecuteNonQuery();
     }
 

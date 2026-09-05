@@ -73,6 +73,38 @@ public sealed class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Writable_fts_integrity_rejects_same_count_content_mismatch()
+    {
+        Store.BuildFromRecords(Volume, Produce);
+
+        using (var connection = new SqliteConnection($"Data Source={Path};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO search_entries(search_entries,rowid,name)
+                SELECT 'delete', rowid, name
+                FROM namespace_entries
+                WHERE name='file.txt';
+                INSERT INTO search_entries(rowid,name)
+                SELECT rowid, 'different.txt'
+                FROM namespace_entries
+                WHERE name='file.txt';
+                """;
+            command.ExecuteNonQuery();
+
+            command.CommandText = """
+                SELECT
+                    (SELECT COUNT(*) FROM namespace_entries) =
+                    (SELECT COUNT(*) FROM search_entries_docsize);
+                """;
+            Assert.Equal(1, Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
+    }
+
+    [Fact]
     public void Fts_bulk_failure_does_not_publish_a_trusted_index_or_replace_a_complete_one()
     {
         Assert.Throws<InvalidOperationException>(() => Store.BuildFromRecordsWithFtsBulkFailureForTesting(Volume, Produce));
