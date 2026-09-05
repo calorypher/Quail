@@ -59,6 +59,17 @@ public sealed class IndexStoreTests : IDisposable
         }
 
         Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
+
+        Store.BuildFromRecords(Volume, Produce);
+        using (var connection = new SqliteConnection($"Data Source={Path};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO search_entries(rowid,name) VALUES(999999, 'extra-entry.txt');";
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
     }
 
     [Fact]

@@ -271,7 +271,7 @@ Acceptance boundary:
 
 If the evidence recommends a production optimization that remains inside the approved 0.3 release goal and boundary, the Quail 0.3 execution thread may add/split/reorder the required milestone work and continue. Return to the parent roadmap thread only if the evidence requires changing the release boundary, moving substantial scope between versions, or changing a major cross-version architecture/product direction.
 
-### M17.6 — FTS Bulk-Build Optimization — ACTIVE
+### M17.6 — FTS Bulk-Build Optimization — READY FOR INDEPENDENT QA
 
 **Goal:** reduce the measured full rebuild cost by replacing per-row FTS trigger maintenance with a correctness-preserving bulk construction of the same final FTS state.
 
