@@ -37,6 +37,73 @@ public sealed class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Bulk_built_fts_is_complete_searchable_and_integrity_checked()
+    {
+        Store.BuildFromRecords(Volume, Produce);
+
+        Store.EnsureSearchReady();
+        Assert.Equal(new[] { "alpha" }, Store.Search(new FileSearchQuery("alp")).Select(result => result.Name));
+        Assert.Equal(new[] { "file.txt" }, Store.Search(new FileSearchQuery("fil")).Select(result => result.Name));
+
+        using (var connection = new SqliteConnection($"Data Source={Path};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO search_entries(search_entries,rowid,name)
+                SELECT 'delete', rowid, name
+                FROM namespace_entries
+                WHERE name='file.txt';
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
+    }
+
+    [Fact]
+    public void Fts_bulk_failure_does_not_publish_a_trusted_index_or_replace_a_complete_one()
+    {
+        Assert.Throws<InvalidOperationException>(() => Store.BuildFromRecordsWithFtsBulkFailureForTesting(Volume, Produce));
+        Assert.Equal(IndexState.Incomplete, Store.GetStatus().State);
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
+
+        Store.BuildFromRecords(Volume, Produce);
+        Assert.Throws<InvalidOperationException>(() => Store.BuildFromRecordsWithFtsBulkFailureForTesting(Volume, Produce));
+        Assert.Equal(IndexState.Complete, Store.GetStatus().State);
+        Assert.Contains(Store.Search(new FileSearchQuery("fil")), result => result.Name == "file.txt");
+    }
+
+    [Fact]
+    public void Bulk_built_fts_is_maintained_by_incremental_create_rename_and_delete()
+    {
+        const ulong journalId = 0x1234567890ABCDEF;
+        Store.BuildFromRecords(Volume, Produce, checkpoint: new IncrementalCheckpoint(journalId, 100, 10, 5));
+        var journal = new UsnJournalState(journalId, 10, 100, 5, 2, 3);
+        var created = Id("0000000000000004");
+
+        Store.ApplyParsedBatchesForTesting(Volume, journal,
+        [new JournalBatch(200, [new JournalRecord(
+            new NamespaceRecord(created, _alpha, "created.txt", 0, 150, 2),
+            UsnReason.FileCreate)])]);
+        Assert.Contains(Store.Search(new FileSearchQuery("cre")), result => result.Name == "created.txt");
+
+        Store.ApplyParsedBatchesForTesting(Volume, journal,
+        [new JournalBatch(300, [new JournalRecord(
+            new NamespaceRecord(created, _alpha, "renamed.txt", 0, 250, 2),
+            UsnReason.RenameNewName)])]);
+        Assert.Empty(Store.Search(new FileSearchQuery("cre")));
+        Assert.Contains(Store.Search(new FileSearchQuery("ren")), result => result.Name == "renamed.txt");
+
+        Store.ApplyParsedBatchesForTesting(Volume, journal,
+        [new JournalBatch(400, [new JournalRecord(
+            new NamespaceRecord(created, _alpha, "renamed.txt", 0, 350, 2),
+            UsnReason.FileDelete)])]);
+        Assert.Empty(Store.Search(new FileSearchQuery("ren")));
+        Store.EnsureSearchReady();
+    }
+
+    [Fact]
     public void Build_metrics_expose_non_overlapping_phase_attribution()
     {
         var metrics = Store.BuildFromRecords(
@@ -52,12 +119,14 @@ public sealed class IndexStoreTests : IDisposable
                        phases.BulkTransactionCommits +
                        phases.JournalHandoff +
                        phases.NamespaceNormalization +
+                       phases.BulkFtsBuild +
                        phases.ShortQueryBuild +
                        phases.CheckpointFinalization +
                        phases.StagingPromotion +
                        phases.Residual;
 
         Assert.True(phases.ShortQueryBuild > TimeSpan.Zero);
+        Assert.True(phases.BulkFtsBuild > TimeSpan.Zero);
         Assert.True(phases.NamespaceAndFtsWrites > TimeSpan.Zero);
         Assert.True(phases.MetadataAcquisition >= TimeSpan.Zero);
         Assert.True(phases.Residual >= TimeSpan.Zero);

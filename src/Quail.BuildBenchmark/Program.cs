@@ -86,6 +86,7 @@ var result = new
         bulkTransactionCommits = phases.BulkTransactionCommits.TotalMilliseconds,
         journalHandoff = phases.JournalHandoff.TotalMilliseconds,
         namespaceNormalization = phases.NamespaceNormalization.TotalMilliseconds,
+        bulkFtsBuild = phases.BulkFtsBuild.TotalMilliseconds,
         shortQueryBuild = phases.ShortQueryBuild.TotalMilliseconds,
         checkpointFinalization = phases.CheckpointFinalization.TotalMilliseconds,
         stagingPromotion = phases.StagingPromotion.TotalMilliseconds,

@@ -72,6 +72,7 @@ public sealed record BuildPhaseMetrics(
     TimeSpan BulkTransactionCommits,
     TimeSpan JournalHandoff,
     TimeSpan NamespaceNormalization,
+    TimeSpan BulkFtsBuild,
     TimeSpan ShortQueryBuild,
     TimeSpan CheckpointFinalization,
     TimeSpan StagingPromotion,

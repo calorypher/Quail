@@ -641,6 +641,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
                     UsnReason.RenameNewName))]);
 
         Assert.Equal("X:\\beta\\moved.txt", Store.ReconstructPath(_file).Path);
+        Assert.Contains(Store.Search(new FileSearchQuery("moved")), result => result.Name == "moved.txt");
         Assert.Equal("X:\\unrelated.txt", Store.ReconstructPath(unrelated).Path);
         Assert.Equal("moved.txt", Assert.Single(Store.Search(new FileSearchQuery("mo", Limit: 1))).Name);
         Assert.Equal(IndexState.Complete, Store.GetStatus().State);
@@ -837,6 +838,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         Assert.Equal(V3(movedParent), descendant.ParentFileId);
         Store.ApplyParsedBatchesForTesting(Volume, Journal(100), batches.Skip(3));
         Assert.False(Store.ReconstructPath(_file).Success);
+        Assert.Empty(Store.Search(new FileSearchQuery("moved")));
         Assert.Equal(500, Store.GetStatus().Checkpoint!.NextUsn);
     }
 
@@ -853,6 +855,7 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         Assert.Equal(IndexState.Complete, rebuilt.GetStatus().State);
         Assert.Equal(200, rebuilt.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("X:\\alpha\\during-enumeration.txt", rebuilt.ReconstructPath(createdDuringEnumeration).Path);
+        Assert.Contains(rebuilt.Search(new FileSearchQuery("during")), result => result.Name == "during-enumeration.txt");
     }
 
     [Fact]

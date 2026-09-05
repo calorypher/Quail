@@ -232,7 +232,7 @@ If every credible bounded option requires a broad storage redesign, unacceptable
 
 ### M17.5 — Index Build/Rebuild Performance Investigation & Target
 
-**Status: READY FOR INDEPENDENT QA — Decision A recorded; merge pending.**
+**Status: COMPLETE — PR #15 merged to `main` as `1439c3e67e206a5f1e4279073802a7696786ea11`.**
 
 **Goal:** determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
 
@@ -271,7 +271,7 @@ Acceptance boundary:
 
 If the evidence recommends a production optimization that remains inside the approved 0.3 release goal and boundary, the Quail 0.3 execution thread may add/split/reorder the required milestone work and continue. Return to the parent roadmap thread only if the evidence requires changing the release boundary, moving substantial scope between versions, or changing a major cross-version architecture/product direction.
 
-### M17.6 — FTS Bulk-Build Optimization — PROPOSED
+### M17.6 — FTS Bulk-Build Optimization — ACTIVE
 
 **Goal:** reduce the measured full rebuild cost by replacing per-row FTS trigger maintenance with a correctness-preserving bulk construction of the same final FTS state.
 
