@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M17.6",
+  "status": "ready-for-independent-qa",
+  "canonicalCampaign": {
+    "gitHead": "be76a2cfe990140727a678d61db930761cac0c76",
+    "sourceDirty": false,
+    "dotnetVersion": "10.0.400",
+    "osVersion": "Microsoft Windows NT 10.0.26200.0",
+    "volume": { "mountPoint": "C:\\", "fileSystem": "NTFS" },
+    "runShape": {
+      "warmups": 1,
+      "measuredRuns": 3,
+      "lifecycle": "DeleteWhenQuiescent",
+      "synchronous": "FULL",
+      "stagingPublication": true,
+      "fts": "fts5-trigram-v1 bulk rebuild plus production triggers",
+      "shortQueryFormat": "compact-short-query-v3"
+    },
+    "warmup": {
+      "capturedAtUtc": "2026-09-05T08:41:58.2053888+00:00",
+      "recordCount": 479480,
+      "databaseBytes": 244416512,
+      "elapsedMilliseconds": 61333.6453,
+      "cpuTimeMilliseconds": 58781.25,
+      "peakWorkingSetBytes": 630411264,
+      "integrity": { "status": "Complete", "searchReady": true }
+    },
+    "measuredRuns": [
+      {
+        "runNumber": 1,
+        "capturedAtUtc": "2026-09-05T08:43:00.2498008+00:00",
+        "recordCount": 479481,
+        "databaseBytes": 244473856,
+        "elapsedMilliseconds": 60983.8065,
+        "cpuTimeMilliseconds": 58421.875,
+        "cpuWallRatio": 0.9579899706654094,
+        "peakWorkingSetBytes": 630583296,
+        "metadata": { "attempts": 479505, "succeeded": 479321, "failed": 184, "failureCodes": "5:177,32:4,87:3" },
+        "phaseMilliseconds": { "setupSchema": 63.1943, "mftEnumerationReadParse": 736.3822, "metadataAcquisition": 20321.413, "namespaceAndFtsWrites": 11721.7625, "bulkTransactionCommits": 5724.2778, "journalHandoff": 17.465, "namespaceNormalization": 5140.2229, "bulkFtsBuild": 8928.3787, "shortQueryBuild": 8170.425, "checkpointFinalization": 22.932, "stagingPromotion": 22.7337, "residual": 114.6194 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      },
+      {
+        "runNumber": 2,
+        "capturedAtUtc": "2026-09-05T08:44:01.9479509+00:00",
+        "recordCount": 479481,
+        "databaseBytes": 245084160,
+        "elapsedMilliseconds": 60394.9124,
+        "cpuTimeMilliseconds": 57937.5,
+        "cpuWallRatio": 0.9593109369258725,
+        "peakWorkingSetBytes": 630509568,
+        "metadata": { "attempts": 479509, "succeeded": 479323, "failed": 186, "failureCodes": "5:177,32:4,87:5" },
+        "phaseMilliseconds": { "setupSchema": 65.4032, "mftEnumerationReadParse": 730.0453, "metadataAcquisition": 20012.8722, "namespaceAndFtsWrites": 11570.2288, "bulkTransactionCommits": 5745.6969, "journalHandoff": 17.7655, "namespaceNormalization": 4986.1995, "bulkFtsBuild": 8936.003, "shortQueryBuild": 8166.0551, "checkpointFinalization": 22.4492, "stagingPromotion": 21.4002, "residual": 120.7935 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      },
+      {
+        "runNumber": 3,
+        "capturedAtUtc": "2026-09-05T08:45:03.0898827+00:00",
+        "recordCount": 479482,
+        "databaseBytes": 244465664,
+        "elapsedMilliseconds": 60456.0765,
+        "cpuTimeMilliseconds": 58109.375,
+        "cpuWallRatio": 0.9611833642561968,
+        "peakWorkingSetBytes": 630693888,
+        "metadata": { "attempts": 479510, "succeeded": 479320, "failed": 190, "failureCodes": "5:177,32:4,87:9" },
+        "phaseMilliseconds": { "setupSchema": 63.5343, "mftEnumerationReadParse": 740.8843, "metadataAcquisition": 20039.4004, "namespaceAndFtsWrites": 11570.1894, "bulkTransactionCommits": 5658.1948, "journalHandoff": 18.3656, "namespaceNormalization": 5105.8262, "bulkFtsBuild": 8907.0166, "shortQueryBuild": 8211.071, "checkpointFinalization": 21.9508, "stagingPromotion": 22.2081, "residual": 97.435 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      }
+    ],
+    "median": {
+      "recordCount": 479481,
+      "databaseBytes": 244473856,
+      "bytesPerObject": 509.87183225195577,
+      "elapsedMilliseconds": 60456.0765,
+      "cpuTimeMilliseconds": 58109.375,
+      "cpuWallRatio": 0.9593109369258725,
+      "peakWorkingSetBytes": 630583296,
+      "phaseMilliseconds": { "setupSchema": 63.5343, "mftEnumerationReadParse": 736.3822, "metadataAcquisition": 20039.4004, "namespaceAndFtsWrites": 11570.2288, "bulkTransactionCommits": 5724.2778, "journalHandoff": 17.7655, "namespaceNormalization": 5105.8262, "bulkFtsBuild": 8928.3787, "shortQueryBuild": 8170.425, "checkpointFinalization": 22.4492, "stagingPromotion": 22.2081, "residual": 114.6194 },
+      "storageBreakdown": null
+    }
+  },
+  "comparisonToM17_5": {
+    "baselineGitHead": "9f502b24a432c3a257f5aea67ee0db409f6453bf",
+    "baselineMedianElapsedMilliseconds": 82161.0758,
+    "elapsedDeltaMilliseconds": -21704.9993,
+    "elapsedDeltaPercent": -26.41761818313484,
+    "baselineNamespaceAndFtsWritesMilliseconds": 36738.3681,
+    "bulkFtsPathMilliseconds": 20498.6075,
+    "bulkFtsPathDeltaMilliseconds": -16239.7606
+  },
+  "target": { "rangeSeconds": [60, 70], "medianSeconds": 60.4560765, "passed": true },
+  "rawEvidenceDirectory": "artifacts/m17.6/physical-20260905"
+}

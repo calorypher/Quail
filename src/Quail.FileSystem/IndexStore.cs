@@ -146,11 +146,30 @@ public sealed class IndexStore
             volume,
             produce,
             null,
-            connection => CompleteBuild(connection, finalCheckpoint, timing),
+            connection => CompleteBuild(connection, finalCheckpoint, timing, includeSearchIndex: false),
             acquireMetadata ?? UnavailableMetadata,
             null,
             timing,
             includeSearchIndex: false);
+    }
+
+    // Used by focused staging tests to prove that a failure after authoritative
+    // namespace construction cannot publish a replacement without final FTS.
+    internal BuildMetrics BuildFromRecordsWithFtsBulkFailureForTesting(
+        VolumeDescriptor volume,
+        Action<Action<NamespaceRecord>> produce)
+    {
+        var finalCheckpoint = new IncrementalCheckpoint(0x515541494CUL, 0, 0, 0);
+        var timing = new BuildTiming();
+        return BuildStaging(
+            volume,
+            produce,
+            null,
+            connection => CompleteBuild(connection, finalCheckpoint, timing, failBeforeFtsBulkBuild: true),
+            UnavailableMetadata,
+            null,
+            timing,
+            includeSearchIndex: true);
     }
 
     internal BuildMetrics BuildFromRecordsWithHandoffForTesting(
@@ -622,8 +641,21 @@ public sealed class IndexStore
         }
         try
         {
+            using var connection = OpenForIntegrityCheck(_databasePath);
+            EnsureSearchable(connection);
+            EnsureSearchIndexReady(connection);
+        }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 8)
+        {
+            // Normal search callers may only have read access to protected
+            // storage. The builder validates full FTS content before promotion;
+            // retain a no-write readiness check for those callers.
             using var connection = OpenReadOnly(_databasePath);
             EnsureSearchable(connection);
+            if (!HasSearchMaintenanceTriggers(connection) || !HasExactSearchEntryCount(connection))
+            {
+                throw new InvalidOperationException("Search index structure is incomplete.");
+            }
         }
         catch (SqliteException exception)
         {
@@ -668,7 +700,7 @@ public sealed class IndexStore
                 finalCheckpoint = finalCheckpoint with { NextUsn = finalCursor };
             }
             timing.JournalHandoff += Stopwatch.GetElapsedTime(handoffStart);
-            CompleteBuild(connection, finalCheckpoint, timing);
+            CompleteBuild(connection, finalCheckpoint, timing, includeSearchIndex: includeSearchIndex);
         }, acquireMetadata, metadataMetrics, timing, includeSearchIndex);
     }
 
@@ -695,7 +727,7 @@ public sealed class IndexStore
             {
                 try
                 {
-                    CreateSchema(connection, includeSearchIndex);
+                    CreateSchema(connection, includeSearchIndex, createSearchTriggers: false);
                     SetMeta(connection, "build_state", "building");
                     SetMeta(connection, "volume_identity", volume.StableIdentity);
                     SetMeta(connection, "mount_point", volume.MountPoint);
@@ -1178,13 +1210,31 @@ public sealed class IndexStore
     private static void CompleteBuild(
         SqliteConnection connection,
         IncrementalCheckpoint checkpoint,
-        BuildTiming? timing = null)
+        BuildTiming? timing = null,
+        bool includeSearchIndex = true,
+        bool failBeforeFtsBulkBuild = false)
     {
         var normalizationStart = Stopwatch.GetTimestamp();
         RemoveUnrootedNamespaceEntries(connection);
         if (timing is not null)
         {
             timing.NamespaceNormalization += Stopwatch.GetElapsedTime(normalizationStart);
+        }
+
+        if (failBeforeFtsBulkBuild)
+        {
+            throw new InvalidOperationException("Test fault injection interrupted FTS bulk construction.");
+        }
+
+        if (includeSearchIndex)
+        {
+            var ftsStart = Stopwatch.GetTimestamp();
+            BuildSearchIndex(connection);
+            EnsureSearchIndexReady(connection);
+            if (timing is not null)
+            {
+                timing.BulkFtsBuild += Stopwatch.GetElapsedTime(ftsStart);
+            }
         }
 
         var shortQueryStart = Stopwatch.GetTimestamp();
@@ -1480,6 +1530,19 @@ public sealed class IndexStore
         return connection;
     }
 
+    private static SqliteConnection OpenForIntegrityCheck(string path)
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Mode = SqliteOpenMode.ReadWrite,
+                Pooling = false
+            }.ToString());
+        connection.Open();
+        return connection;
+    }
+
     private static void EnsureSearchable(SqliteConnection connection)
     {
         if (GetMeta(connection, "build_state") != "complete" ||
@@ -1494,7 +1557,50 @@ public sealed class IndexStore
         }
     }
 
-    private static void CreateSchema(SqliteConnection connection, bool includeSearchIndex)
+    private static void EnsureSearchIndexReady(SqliteConnection connection)
+    {
+        if (!HasSearchMaintenanceTriggers(connection))
+        {
+            throw new InvalidOperationException("Search index maintenance triggers are missing.");
+        }
+
+        if (!HasExactSearchEntryCount(connection))
+        {
+            throw new InvalidOperationException("Search index coverage does not match the authoritative namespace.");
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO search_entries(search_entries,rank) VALUES('integrity-check',1);";
+        command.ExecuteNonQuery();
+    }
+
+    private static bool HasSearchMaintenanceTriggers(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type='trigger'
+              AND name IN (
+                  'namespace_entries_search_insert',
+                  'namespace_entries_search_delete',
+                  'namespace_entries_search_update');
+            """;
+        return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 3;
+    }
+
+    private static bool HasExactSearchEntryCount(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                (SELECT COUNT(*) FROM namespace_entries) =
+                (SELECT COUNT(*) FROM search_entries_docsize);
+            """;
+        return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
+
+    private static void CreateSchema(SqliteConnection connection, bool includeSearchIndex, bool createSearchTriggers)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1507,6 +1613,31 @@ public sealed class IndexStore
         {
             command.CommandText = """
             CREATE VIRTUAL TABLE IF NOT EXISTS search_entries USING fts5(name, content='namespace_entries', content_rowid='rowid', tokenize='trigram case_sensitive 0');
+            """;
+            command.ExecuteNonQuery();
+            if (createSearchTriggers)
+            {
+                CreateSearchMaintenanceTriggers(connection);
+            }
+        }
+        ShortQueryIndex.CreateSchema(connection);
+        SetMeta(connection, "schema_version", SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        SetMeta(connection, "search_index_format", includeSearchIndex ? SearchIndexFormat : "diagnostic-no-fts");
+        SetMeta(connection, "metadata_format", MetadataFormat);
+    }
+
+    private static void BuildSearchIndex(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO search_entries(search_entries) VALUES('rebuild');";
+        command.ExecuteNonQuery();
+        CreateSearchMaintenanceTriggers(connection);
+    }
+
+    private static void CreateSearchMaintenanceTriggers(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
             CREATE TRIGGER IF NOT EXISTS namespace_entries_search_insert AFTER INSERT ON namespace_entries BEGIN
                 INSERT INTO search_entries(rowid,name) VALUES (new.rowid,new.name);
             END;
@@ -1518,12 +1649,7 @@ public sealed class IndexStore
                 INSERT INTO search_entries(rowid,name) VALUES (new.rowid,new.name);
             END;
             """;
-            command.ExecuteNonQuery();
-        }
-        ShortQueryIndex.CreateSchema(connection);
-        SetMeta(connection, "schema_version", SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        SetMeta(connection, "search_index_format", includeSearchIndex ? SearchIndexFormat : "diagnostic-no-fts");
-        SetMeta(connection, "metadata_format", MetadataFormat);
+        command.ExecuteNonQuery();
     }
 
     private static void SetMeta(SqliteConnection connection, string key, string value)
@@ -1732,6 +1858,7 @@ public sealed class IndexStore
         public TimeSpan BulkTransactionCommits { get; set; }
         public TimeSpan JournalHandoff { get; set; }
         public TimeSpan NamespaceNormalization { get; set; }
+        public TimeSpan BulkFtsBuild { get; set; }
         public TimeSpan ShortQueryBuild { get; set; }
         public TimeSpan CheckpointFinalization { get; set; }
         public TimeSpan StagingPromotion { get; set; }
@@ -1745,6 +1872,7 @@ public sealed class IndexStore
                            BulkTransactionCommits +
                            JournalHandoff +
                            NamespaceNormalization +
+                           BulkFtsBuild +
                            ShortQueryBuild +
                            CheckpointFinalization +
                            StagingPromotion;
@@ -1756,6 +1884,7 @@ public sealed class IndexStore
                 BulkTransactionCommits,
                 JournalHandoff,
                 NamespaceNormalization,
+                BulkFtsBuild,
                 ShortQueryBuild,
                 CheckpointFinalization,
                 StagingPromotion,
