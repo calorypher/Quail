@@ -29,6 +29,7 @@ public static class NtfsEnumerator
         var process = Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
         long records = 0;
+        long callbackTicks = 0;
 
         while (true)
         {
@@ -52,7 +53,12 @@ public static class NtfsEnumerator
             {
                 StartFileReferenceNumber = BitConverter.ToUInt64(buffer, 0)
             };
-            records += ParseRecords(buffer, sizeof(long), checked((int)returned), onRecord);
+            records += ParseRecords(buffer, sizeof(long), checked((int)returned), record =>
+            {
+                var callbackStart = Stopwatch.GetTimestamp();
+                onRecord(record);
+                callbackTicks += Stopwatch.GetTimestamp() - callbackStart;
+            });
         }
 
         stopwatch.Stop();
@@ -62,8 +68,12 @@ public static class NtfsEnumerator
             0,
             stopwatch.Elapsed,
             process.TotalProcessorTime - cpu,
-            process.PeakWorkingSet64);
+            process.PeakWorkingSet64,
+            SinkElapsed: ElapsedFromStopwatchTicks(callbackTicks));
     }
+
+    internal static TimeSpan ElapsedFromStopwatchTicks(long ticks) =>
+        TimeSpan.FromSeconds((double)ticks / Stopwatch.Frequency);
 
     internal static int ParseRecords(byte[] buffer, int offset, int end, Action<NamespaceRecord> onRecord)
     {

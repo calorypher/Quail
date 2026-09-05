@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M17.5",
+  "status": "ready-for-independent-qa",
+  "canonicalCampaign": {
+    "gitHead": "9f502b24a432c3a257f5aea67ee0db409f6453bf",
+    "sourceDirty": false,
+    "dotnetVersion": "10.0.400",
+    "osVersion": "Microsoft Windows NT 10.0.26200.0",
+    "volume": {
+      "mountPoint": "C:\\",
+      "fileSystem": "NTFS"
+    },
+    "runShape": {
+      "warmups": 1,
+      "measuredRuns": 3,
+      "lifecycle": "DeleteWhenQuiescent",
+      "synchronous": "FULL",
+      "stagingPublication": true,
+      "shortQueryFormat": "compact-short-query-v3"
+    },
+    "warmup": {
+      "capturedAtUtc": "2026-09-05T06:43:23.7996013+00:00",
+      "recordCount": 479303,
+      "elapsedMilliseconds": 82091.7341,
+      "integrity": { "status": "Complete", "searchReady": true }
+    },
+    "measuredRuns": [
+      {
+        "runNumber": 1,
+        "capturedAtUtc": "2026-09-05T06:44:46.0092521+00:00",
+        "recordCount": 479304,
+        "databaseBytes": 243666944,
+        "elapsedMilliseconds": 82161.0758,
+        "cpuTimeMilliseconds": 78765.625,
+        "cpuWallRatio": 0.9586732431758153,
+        "peakWorkingSetBytes": 634470400,
+        "metadata": { "attempts": 479537, "succeeded": 479144, "failed": 393, "failureCodes": "5:174,32:4,87:215" },
+        "phaseMilliseconds": { "setupSchema": 64.4931, "mftEnumerationReadParse": 760.7773, "metadataAcquisition": 23619.5767, "namespaceAndFtsWrites": 36738.3681, "bulkTransactionCommits": 7375.2555, "journalHandoff": 43.3063, "namespaceNormalization": 5222.5297, "shortQueryBuild": 8156.8871, "checkpointFinalization": 22.3531, "stagingPromotion": 20.7525, "residual": 136.7764 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      },
+      {
+        "runNumber": 2,
+        "capturedAtUtc": "2026-09-05T06:46:08.2872608+00:00",
+        "recordCount": 479305,
+        "databaseBytes": 243617792,
+        "elapsedMilliseconds": 82684.2378,
+        "cpuTimeMilliseconds": 79078.125,
+        "cpuWallRatio": 0.9563869378741494,
+        "peakWorkingSetBytes": 633896960,
+        "metadata": { "attempts": 479657, "succeeded": 479261, "failed": 396, "failureCodes": "5:179,32:4,87:213" },
+        "phaseMilliseconds": { "setupSchema": 64.8508, "mftEnumerationReadParse": 788.945, "metadataAcquisition": 23530.6354, "namespaceAndFtsWrites": 36995.8117, "bulkTransactionCommits": 7523.3728, "journalHandoff": 171.3411, "namespaceNormalization": 5101.5718, "shortQueryBuild": 8332.4444, "checkpointFinalization": 22.5565, "stagingPromotion": 21.332, "residual": 131.3763 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      },
+      {
+        "runNumber": 3,
+        "capturedAtUtc": "2026-09-05T06:47:31.0896398+00:00",
+        "recordCount": 479306,
+        "databaseBytes": 243634176,
+        "elapsedMilliseconds": 81909.3701,
+        "cpuTimeMilliseconds": 78656.25,
+        "cpuWallRatio": 0.9602839077381697,
+        "peakWorkingSetBytes": 634646528,
+        "metadata": { "attempts": 479554, "succeeded": 479162, "failed": 392, "failureCodes": "5:174,32:4,87:214" },
+        "phaseMilliseconds": { "setupSchema": 65.1845, "mftEnumerationReadParse": 774.3285, "metadataAcquisition": 23553.7452, "namespaceAndFtsWrites": 36523.7549, "bulkTransactionCommits": 7483.9153, "journalHandoff": 44.6382, "namespaceNormalization": 5104.7677, "shortQueryBuild": 8185.9258, "checkpointFinalization": 22.4483, "stagingPromotion": 21.0042, "residual": 129.6575 },
+        "integrity": { "status": "Complete", "searchReady": true }
+      }
+    ],
+    "median": {
+      "recordCount": 479305,
+      "databaseBytes": 243634176,
+      "bytesPerObject": 508.3061259404222,
+      "elapsedMilliseconds": 82161.0758,
+      "cpuTimeMilliseconds": 78765.625,
+      "cpuWallRatio": 0.9586732431758153,
+      "peakWorkingSetBytes": 634470400,
+      "phaseMilliseconds": { "setupSchema": 64.8508, "mftEnumerationReadParse": 774.3285, "metadataAcquisition": 23553.7452, "namespaceAndFtsWrites": 36738.3681, "bulkTransactionCommits": 7483.9153, "journalHandoff": 44.6382, "namespaceNormalization": 5104.7677, "shortQueryBuild": 8185.9258, "checkpointFinalization": 22.4483, "stagingPromotion": 21.0042, "residual": 131.3763 },
+      "storageBreakdown": null
+    }
+  },
+  "diagnosticOnly": {
+    "mode": "no-fts",
+    "gitHead": "56c7321cb7d15097bb4e6cc525fb8ffd0b41ccfc",
+    "productionComparable": false,
+    "reason": "FTS schema and triggers were deliberately omitted; the resulting database is RebuildRequired and not search-ready.",
+    "recordCount": 479329,
+    "databaseBytes": 192204800,
+    "elapsedMilliseconds": 51876.4577,
+    "namespaceAndFtsWritesMilliseconds": 11549.6832,
+    "deltaFromCanonicalMedianMilliseconds": -30284.6181
+  },
+  "invalidatedAttempt": {
+    "rawEvidenceDirectory": "artifacts/m17.5/physical-20260905",
+    "reason": "The initial callback-tick conversion treated an accumulated duration as a stopwatch start timestamp, producing negative MFT timing. It is retained as failed evidence and excluded from all conclusions."
+  }
+}

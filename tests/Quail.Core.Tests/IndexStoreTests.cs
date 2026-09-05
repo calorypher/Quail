@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Microsoft.Data.Sqlite;
@@ -33,6 +34,50 @@ public sealed class IndexStoreTests : IDisposable
         Assert.Equal(IndexState.Complete, status.State);
         Assert.Equal(3, status.RecordCount);
         Assert.Equal(Volume.StableIdentity, status.VolumeIdentity);
+    }
+
+    [Fact]
+    public void Build_metrics_expose_non_overlapping_phase_attribution()
+    {
+        var metrics = Store.BuildFromRecords(
+            Volume,
+            Produce,
+            acquireMetadata: _ => new FileMetadata(42, 123));
+
+        var phases = Assert.IsType<BuildPhaseMetrics>(metrics.Phases);
+        var measured = phases.SetupSchema +
+                       phases.MftEnumerationReadParse +
+                       phases.MetadataAcquisition +
+                       phases.NamespaceAndFtsWrites +
+                       phases.BulkTransactionCommits +
+                       phases.JournalHandoff +
+                       phases.NamespaceNormalization +
+                       phases.ShortQueryBuild +
+                       phases.CheckpointFinalization +
+                       phases.StagingPromotion +
+                       phases.Residual;
+
+        Assert.True(phases.ShortQueryBuild > TimeSpan.Zero);
+        Assert.True(phases.NamespaceAndFtsWrites > TimeSpan.Zero);
+        Assert.True(phases.MetadataAcquisition >= TimeSpan.Zero);
+        Assert.True(phases.Residual >= TimeSpan.Zero);
+        Assert.True(measured <= metrics.Elapsed);
+    }
+
+    [Fact]
+    public void Stopwatch_tick_duration_is_converted_without_treating_ticks_as_a_start_timestamp()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(1), NtfsEnumerator.ElapsedFromStopwatchTicks(Stopwatch.Frequency));
+    }
+
+    [Fact]
+    public void Diagnostic_no_fts_build_is_explicitly_not_a_searchable_index()
+    {
+        var metrics = Store.BuildFromRecordsWithoutFtsForTesting(Volume, Produce);
+
+        Assert.Equal(3, metrics.RecordCount);
+        Assert.Equal(IndexState.RebuildRequired, Store.GetStatus().State);
+        Assert.Throws<InvalidOperationException>(Store.EnsureSearchReady);
     }
 
     [Fact]
