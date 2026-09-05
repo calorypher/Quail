@@ -64,6 +64,19 @@ public sealed record JournalBatch(long NextUsn, IReadOnlyList<JournalRecord> Rec
 public sealed record FileMetadata(long? LogicalSize, long? LastWriteTimeUtcFileTime);
 public sealed record MetadataAcquisitionMetrics(long Attempts, long Succeeded, long Failed, string FailureCodes);
 
+public sealed record BuildPhaseMetrics(
+    TimeSpan SetupSchema,
+    TimeSpan MftEnumerationReadParse,
+    TimeSpan MetadataAcquisition,
+    TimeSpan NamespaceAndFtsWrites,
+    TimeSpan BulkTransactionCommits,
+    TimeSpan JournalHandoff,
+    TimeSpan NamespaceNormalization,
+    TimeSpan ShortQueryBuild,
+    TimeSpan CheckpointFinalization,
+    TimeSpan StagingPromotion,
+    TimeSpan Residual);
+
 public enum IndexState
 {
     Absent,
@@ -89,7 +102,9 @@ public sealed record BuildMetrics(
     TimeSpan Elapsed,
     TimeSpan CpuTime,
     long PeakWorkingSetBytes,
-    MetadataAcquisitionMetrics? Metadata = null);
+    MetadataAcquisitionMetrics? Metadata = null,
+    BuildPhaseMetrics? Phases = null,
+    TimeSpan? SinkElapsed = null);
 
 public sealed record SyncResult(
     bool RebuildRequired,

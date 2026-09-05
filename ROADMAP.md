@@ -232,7 +232,7 @@ If every credible bounded option requires a broad storage redesign, unacceptable
 
 ### M17.5 — Index Build/Rebuild Performance Investigation & Target
 
-**Status: NEXT — not started.**
+**Status: ACTIVE — investigation in progress.**
 
 **Goal:** determine why a full Quail filesystem index build/rebuild takes on the order of minutes at the current corpus scale, quantify the dominant costs, and decide whether a separate bounded production optimization belongs in 0.3 before ranking and continuous-maintenance work proceed.
 

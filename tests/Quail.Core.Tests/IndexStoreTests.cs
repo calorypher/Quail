@@ -36,6 +36,34 @@ public sealed class IndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Build_metrics_expose_non_overlapping_phase_attribution()
+    {
+        var metrics = Store.BuildFromRecords(
+            Volume,
+            Produce,
+            acquireMetadata: _ => new FileMetadata(42, 123));
+
+        var phases = Assert.IsType<BuildPhaseMetrics>(metrics.Phases);
+        var measured = phases.SetupSchema +
+                       phases.MftEnumerationReadParse +
+                       phases.MetadataAcquisition +
+                       phases.NamespaceAndFtsWrites +
+                       phases.BulkTransactionCommits +
+                       phases.JournalHandoff +
+                       phases.NamespaceNormalization +
+                       phases.ShortQueryBuild +
+                       phases.CheckpointFinalization +
+                       phases.StagingPromotion +
+                       phases.Residual;
+
+        Assert.True(phases.ShortQueryBuild > TimeSpan.Zero);
+        Assert.True(phases.NamespaceAndFtsWrites > TimeSpan.Zero);
+        Assert.True(phases.MetadataAcquisition >= TimeSpan.Zero);
+        Assert.True(phases.Residual >= TimeSpan.Zero);
+        Assert.True(measured <= metrics.Elapsed);
+    }
+
+    [Fact]
     public void Eight_and_sixteen_byte_identifiers_round_trip_without_truncation()
     {
         var wide = Id("0123456789ABCDEF0011223344556677");

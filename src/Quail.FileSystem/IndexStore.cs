@@ -69,21 +69,40 @@ public sealed class IndexStore
 
     public BuildMetrics Build(string mountPoint, int? failAfterRecords = null)
     {
+        var process = Process.GetCurrentProcess();
+        var cpu = process.TotalProcessorTime;
+        var stopwatch = Stopwatch.StartNew();
         var volume = NtfsVolume.Validate(mountPoint);
         using var metadata = new NtfsMetadataAcquirer(volume);
         var startingJournal = NtfsJournal.Query(metadata.VolumeHandle);
+        var timing = new BuildTiming();
         BuildMetrics? enumeration = null;
-        return BuildWithHandoff(volume, sink =>
+        var metrics = BuildWithHandoff(volume, sink =>
         {
             enumeration = NtfsEnumerator.Enumerate(volume, metadata.VolumeHandle, sink);
+            timing.MftEnumerationReadParse += enumeration.Elapsed - (enumeration.SinkElapsed ?? TimeSpan.Zero);
             foreach (var root in NtfsVolume.GetRootRecords(volume))
             {
                 sink(root);
             }
-        }, startingJournal, failAfterRecords, metadata.VolumeHandle, metadata.Acquire, () => metadata.Metrics) with
+        }, startingJournal, failAfterRecords, metadata.VolumeHandle, metadata.Acquire, () => metadata.Metrics, timing) with
         {
             ParseErrors = enumeration?.ParseErrors ?? 0,
             UnsupportedRecords = enumeration?.UnsupportedRecords ?? 0,
+        };
+        stopwatch.Stop();
+        var outerElapsed = stopwatch.Elapsed;
+        var additionalResidual = outerElapsed >= metrics.Elapsed
+            ? outerElapsed - metrics.Elapsed
+            : TimeSpan.Zero;
+        return metrics with
+        {
+            Elapsed = outerElapsed,
+            CpuTime = process.TotalProcessorTime - cpu,
+            PeakWorkingSetBytes = process.PeakWorkingSet64,
+            Phases = metrics.Phases is null
+                ? null
+                : metrics.Phases with { Residual = metrics.Phases.Residual + additionalResidual }
         };
     }
 
@@ -96,13 +115,15 @@ public sealed class IndexStore
         Func<NamespaceRecord, FileMetadata>? acquireMetadata = null)
     {
         var finalCheckpoint = checkpoint ?? new IncrementalCheckpoint(0x515541494CUL, 0, 0, 0);
+        var timing = new BuildTiming();
         return BuildStaging(
             volume,
             produce,
             failAfterRecords,
-            connection => CompleteBuild(connection, finalCheckpoint),
+            connection => CompleteBuild(connection, finalCheckpoint, timing),
             acquireMetadata ?? UnavailableMetadata,
-            null);
+            null,
+            timing);
     }
 
     internal BuildMetrics BuildFromRecordsWithHandoffForTesting(
@@ -114,6 +135,7 @@ public sealed class IndexStore
         Func<NamespaceRecord, FileMetadata>? acquireMetadata = null)
     {
         var acquire = acquireMetadata ?? UnavailableMetadata;
+        var timing = new BuildTiming();
         return BuildStaging(volume, produce, null, connection =>
         {
             var checkpoint = new IncrementalCheckpoint(
@@ -131,8 +153,8 @@ public sealed class IndexStore
                 ApplyBatch(connection, batch, endingJournal, false, acquire);
                 checkpoint = checkpoint with { NextUsn = batch.NextUsn };
             }
-            CompleteBuild(connection, checkpoint);
-        }, acquire, null);
+            CompleteBuild(connection, checkpoint, timing);
+        }, acquire, null, timing);
     }
 
     public SyncResult Sync(string mountPoint)
@@ -589,10 +611,12 @@ public sealed class IndexStore
         int? failAfterRecords,
         SafeFileHandle volumeHandle,
         Func<NamespaceRecord, FileMetadata> acquireMetadata,
-        Func<MetadataAcquisitionMetrics>? metadataMetrics)
+        Func<MetadataAcquisitionMetrics>? metadataMetrics,
+        BuildTiming timing)
     {
         return BuildStaging(volume, produce, failAfterRecords, connection =>
         {
+            var handoffStart = Stopwatch.GetTimestamp();
             var afterEnumeration = NtfsJournal.Query(volumeHandle);
             var initialCheckpoint = new IncrementalCheckpoint(
                 startingJournal.JournalId,
@@ -615,8 +639,9 @@ public sealed class IndexStore
             {
                 finalCheckpoint = finalCheckpoint with { NextUsn = finalCursor };
             }
-            CompleteBuild(connection, finalCheckpoint);
-        }, acquireMetadata, metadataMetrics);
+            timing.JournalHandoff += Stopwatch.GetElapsedTime(handoffStart);
+            CompleteBuild(connection, finalCheckpoint, timing);
+        }, acquireMetadata, metadataMetrics, timing);
     }
 
     private BuildMetrics BuildStaging(
@@ -625,14 +650,15 @@ public sealed class IndexStore
         int? failAfterRecords,
         Action<SqliteConnection> finish,
         Func<NamespaceRecord, FileMetadata> acquireMetadata,
-        Func<MetadataAcquisitionMetrics>? metadataMetrics)
+        Func<MetadataAcquisitionMetrics>? metadataMetrics,
+        BuildTiming timing)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_databasePath)!);
-        DeleteDatabaseAndSidecars(StagingPath);
-
         var process = Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
         var stopwatch = Stopwatch.StartNew();
+        var setupStart = Stopwatch.GetTimestamp();
+        Directory.CreateDirectory(Path.GetDirectoryName(_databasePath)!);
+        DeleteDatabaseAndSidecars(StagingPath);
         long count = 0;
         try
         {
@@ -648,18 +674,25 @@ public sealed class IndexStore
                     SetMeta(connection, "volume_label", volume.Label);
                     SetMeta(connection, "namespace_identity_format", NamespaceIdentityFormat);
                     SetMeta(connection, "started_utc", DateTimeOffset.UtcNow.ToString("O"));
-                    count = WriteProducedRecords(connection, produce, failAfterRecords, acquireMetadata);
+                    timing.SetupSchema += Stopwatch.GetElapsedTime(setupStart);
+                    count = WriteProducedRecords(connection, produce, failAfterRecords, acquireMetadata, timing);
                     finish(connection);
+                    var checkpointStart = Stopwatch.GetTimestamp();
                     using var checkpoint = connection.CreateCommand();
                     checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
                     checkpoint.ExecuteNonQuery();
+                    timing.CheckpointFinalization += Stopwatch.GetElapsedTime(checkpointStart);
                 }
                 finally
                 {
+                    var finalizationStart = Stopwatch.GetTimestamp();
                     FinalizeJournal(connection);
+                    timing.CheckpointFinalization += Stopwatch.GetElapsedTime(finalizationStart);
                 }
             }
+            var promotionStart = Stopwatch.GetTimestamp();
             PromoteStaging();
+            timing.StagingPromotion += Stopwatch.GetElapsedTime(promotionStart);
             stopwatch.Stop();
             return new BuildMetrics(
                 count,
@@ -668,7 +701,8 @@ public sealed class IndexStore
                 stopwatch.Elapsed,
                 process.TotalProcessorTime - cpu,
                 process.PeakWorkingSet64,
-                metadataMetrics?.Invoke());
+                metadataMetrics?.Invoke(),
+                timing.ToMetrics(stopwatch.Elapsed));
         }
         catch
         {
@@ -681,7 +715,8 @@ public sealed class IndexStore
         SqliteConnection connection,
         Action<Action<NamespaceRecord>> produce,
         int? failAfterRecords,
-        Func<NamespaceRecord, FileMetadata> acquireMetadata)
+        Func<NamespaceRecord, FileMetadata> acquireMetadata,
+        BuildTiming timing)
     {
         long count = 0;
         var transaction = connection.BeginTransaction();
@@ -696,16 +731,25 @@ public sealed class IndexStore
                 }
 
                 var canonical = CanonicalizeInitialRecord(record);
-                Upsert(connection, transaction, canonical, acquireMetadata(canonical));
+                var metadataStart = Stopwatch.GetTimestamp();
+                var metadata = acquireMetadata(canonical);
+                timing.MetadataAcquisition += Stopwatch.GetElapsedTime(metadataStart);
+                var writeStart = Stopwatch.GetTimestamp();
+                Upsert(connection, transaction, canonical, metadata);
+                timing.NamespaceAndFtsWrites += Stopwatch.GetElapsedTime(writeStart);
                 count++;
                 if (count % 2048 == 0)
                 {
+                    var commitStart = Stopwatch.GetTimestamp();
                     transaction.Commit();
+                    timing.BulkTransactionCommits += Stopwatch.GetElapsedTime(commitStart);
                     transaction.Dispose();
                     transaction = connection.BeginTransaction();
                 }
             });
+            var commitStart = Stopwatch.GetTimestamp();
             transaction.Commit();
+            timing.BulkTransactionCommits += Stopwatch.GetElapsedTime(commitStart);
             return count;
         }
         finally
@@ -1102,10 +1146,26 @@ public sealed class IndexStore
         return true;
     }
 
-    private static void CompleteBuild(SqliteConnection connection, IncrementalCheckpoint checkpoint)
+    private static void CompleteBuild(
+        SqliteConnection connection,
+        IncrementalCheckpoint checkpoint,
+        BuildTiming? timing = null)
     {
+        var normalizationStart = Stopwatch.GetTimestamp();
         RemoveUnrootedNamespaceEntries(connection);
+        if (timing is not null)
+        {
+            timing.NamespaceNormalization += Stopwatch.GetElapsedTime(normalizationStart);
+        }
+
+        var shortQueryStart = Stopwatch.GetTimestamp();
         ShortQueryIndex.Build(connection);
+        if (timing is not null)
+        {
+            timing.ShortQueryBuild += Stopwatch.GetElapsedTime(shortQueryStart);
+        }
+
+        var finalizationStart = Stopwatch.GetTimestamp();
         using var transaction = connection.BeginTransaction();
         SetCheckpoint(connection, transaction, checkpoint);
         SetMeta(connection, transaction, "record_count", CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1113,6 +1173,10 @@ public sealed class IndexStore
         SetMeta(connection, transaction, "last_refreshed_utc", DateTimeOffset.UtcNow.ToString("O"));
         SetMeta(connection, transaction, "build_state", "complete");
         transaction.Commit();
+        if (timing is not null)
+        {
+            timing.CheckpointFinalization += Stopwatch.GetElapsedTime(finalizationStart);
+        }
     }
 
     internal static void RemoveUnrootedNamespaceEntries(SqliteConnection connection)
@@ -1621,6 +1685,46 @@ public sealed class IndexStore
         catch (SqliteException exception)
         {
             return new IndexStatus(IndexState.Incomplete, null, null, 0, null, null, exception.Message);
+        }
+    }
+
+    private sealed class BuildTiming
+    {
+        public TimeSpan SetupSchema { get; set; }
+        public TimeSpan MftEnumerationReadParse { get; set; }
+        public TimeSpan MetadataAcquisition { get; set; }
+        public TimeSpan NamespaceAndFtsWrites { get; set; }
+        public TimeSpan BulkTransactionCommits { get; set; }
+        public TimeSpan JournalHandoff { get; set; }
+        public TimeSpan NamespaceNormalization { get; set; }
+        public TimeSpan ShortQueryBuild { get; set; }
+        public TimeSpan CheckpointFinalization { get; set; }
+        public TimeSpan StagingPromotion { get; set; }
+
+        public BuildPhaseMetrics ToMetrics(TimeSpan elapsed)
+        {
+            var measured = SetupSchema +
+                           MftEnumerationReadParse +
+                           MetadataAcquisition +
+                           NamespaceAndFtsWrites +
+                           BulkTransactionCommits +
+                           JournalHandoff +
+                           NamespaceNormalization +
+                           ShortQueryBuild +
+                           CheckpointFinalization +
+                           StagingPromotion;
+            return new BuildPhaseMetrics(
+                SetupSchema,
+                MftEnumerationReadParse,
+                MetadataAcquisition,
+                NamespaceAndFtsWrites,
+                BulkTransactionCommits,
+                JournalHandoff,
+                NamespaceNormalization,
+                ShortQueryBuild,
+                CheckpointFinalization,
+                StagingPromotion,
+                elapsed >= measured ? elapsed - measured : TimeSpan.Zero);
         }
     }
 
