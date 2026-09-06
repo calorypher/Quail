@@ -281,7 +281,10 @@ The M17.5 canonical median is 82.161 seconds for the current physical C: corpus.
 
 Scope is limited to the FTS bulk-build hypothesis, focused integrity/lifecycle verification, and one final production-like campaign. Do not weaken durability, change Search/ranking semantics, introduce concurrent SQLite writers, add a generic scheduler, or absorb metadata-pipeline, M19, or M20 work unless fresh M17.6 evidence requires a separately approved decision.
 
-### M18 — Ranking / Relevance v2 — READY FOR INDEPENDENT QA
+### M18 — Ranking / Relevance v2 — COMPLETE
+
+Independent QA and the manual Quick Search smoke passed. PR #17 was merged to
+`main` as `c62b59cfd56315e09daffc347f6d8e568ebedad0`.
 
 **Goal:** make the intended result appear high enough that fast search is also useful search.
 
@@ -309,7 +312,7 @@ Acceptance boundary:
 - ordering remains deterministic;
 - performance remains within the accepted search budget.
 
-### M19 — Continuous Maintenance Boundary Spike
+### M19 — Continuous Maintenance Boundary Spike — ACTIVE
 
 **Goal:** determine the smallest safe architecture that can maintain NTFS indexes automatically without routine manual UAC/Refresh.
 
@@ -476,6 +479,11 @@ Scope:
 - final performance comparison against M16 baseline and Everything;
 - relevance regression set;
 - resource/idle CPU checks;
+- determine whether the observed post-first-search memory plateau is normal
+  .NET/GC reservation or retained search state: Quail started around 38 MB
+  working set, rose to roughly 180 MB after the first search, and remained near
+  that level without an observed functional failure; compare Working Set,
+  Private Bytes, managed heap/LOH, and repeated-search plateau behavior;
 - final focused security review of the privileged boundaries actually present;
 - representative upgrade from the normal supported 0.2 deployment, without building exhaustive compatibility machinery for unusual development-install variants;
 - release notes, changelog, known limitations, and durable QA evidence.
