@@ -214,9 +214,11 @@ internal static class UsnJournalWait
             {
                 operation.Cancel();
             }
-            catch (Exception exception)
+            catch (Exception)
             {
-                Fail(exception);
+                // The kernel may still own the OVERLAPPED request when cancellation
+                // itself fails. Its completion remains the only safe point at which
+                // the operation can release native buffers and the OVERLAPPED block.
             }
         }
 

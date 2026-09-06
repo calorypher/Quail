@@ -74,7 +74,7 @@ internal static class AdminIndexWorker
                 request.VolumeIdentity,
                 null)).GetAwaiter().GetResult();
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException or OperationCanceledException)
         {
             return IndexOperationFailedExitCode;
         }
@@ -99,7 +99,7 @@ internal static class AdminIndexWorker
                     null,
                     response.OperationId)).GetAwaiter().GetResult();
             }
-            catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException or OperationCanceledException)
             {
                 return IndexOperationFailedExitCode;
             }

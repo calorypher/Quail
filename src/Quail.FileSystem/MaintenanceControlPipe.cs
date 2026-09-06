@@ -22,7 +22,7 @@ public sealed class MaintenanceControlClient
             PipeName,
             PipeDirection.InOut,
             PipeOptions.Asynchronous,
-            TokenImpersonationLevel.Identification);
+            TokenImpersonationLevel.Impersonation);
         await pipe.ConnectAsync(deadline.Token).ConfigureAwait(false);
         await MaintenanceControlFraming.WriteRequestAsync(pipe, request, deadline.Token).ConfigureAwait(false);
         var response = await MaintenanceControlFraming.ReadResponseAsync(pipe, deadline.Token).ConfigureAwait(false);
@@ -75,8 +75,10 @@ public sealed class MaintenanceControlServer
             var now = _utcNow();
             var validationError = MaintenanceControlValidation.Validate(request, now);
             MaintenanceControlResponse response;
-            var authorized = MaintenancePipeAuthorization.IsAuthorized(pipe);
-            _diagnostic?.Invoke(authorized ? "control-authorized" : "control-unauthorized");
+            var authorized = MaintenancePipeAuthorization.IsAuthorized(pipe, out var authorizationDiagnostic);
+            _diagnostic?.Invoke(authorized
+                ? $"control-authorized {authorizationDiagnostic}"
+                : $"control-unauthorized {authorizationDiagnostic}");
             if (!authorized)
             {
                 response = Rejected(request, "unauthorized-caller");
@@ -119,37 +121,94 @@ public sealed class MaintenanceControlServer
 
 internal static class MaintenancePipeAuthorization
 {
-    private static readonly SecurityIdentifier SystemSid = new(WellKnownSidType.LocalSystemSid, null);
-    private static readonly SecurityIdentifier AdministratorsSid = new(WellKnownSidType.BuiltinAdministratorsSid, null);
-    private static readonly SecurityIdentifier NetworkSid = new(WellKnownSidType.NetworkSid, null);
+    private const int NetworkSidType = 9;
+    private const int LocalSystemSidType = 22;
+    private const int BuiltinAdministratorsSidType = 26;
+    private const int MaximumSidBytes = 68;
 
-    public static bool IsAuthorized(NamedPipeServerStream pipe)
+    public static bool IsAuthorized(NamedPipeServerStream pipe, out string diagnostic)
     {
+        var authorizationDiagnostic = "before-impersonation";
         try
         {
             var authorized = false;
             pipe.RunAsClient(() =>
             {
-                using var identity = WindowsIdentity.GetCurrent(true);
-                authorized = identity is not null && IsAuthorized(identity);
+                authorizationDiagnostic = "before-membership-check";
+                (authorized, authorizationDiagnostic) = AuthorizeCurrentToken();
             });
+            diagnostic = authorizationDiagnostic;
             return authorized;
         }
-        catch
+        catch (Exception exception)
         {
+            var nativeError = exception is Win32Exception win32
+                ? $"-native-{win32.NativeErrorCode}"
+                : string.Empty;
+            diagnostic = $"{authorizationDiagnostic}-error-{exception.GetType().Name}{nativeError}";
             return false;
         }
     }
 
-    internal static bool IsAuthorized(WindowsIdentity identity)
+    internal static (bool Authorized, string Diagnostic) AuthorizeMembership(
+        bool isSystem,
+        bool isNetwork,
+        bool isAdministrator)
     {
-        if (identity.User is null || identity.Groups?.Contains(NetworkSid) == true)
+        if (isSystem)
         {
-            return false;
+            return (true, "system");
         }
 
-        return identity.User.Equals(SystemSid) || new WindowsPrincipal(identity).IsInRole(AdministratorsSid);
+        if (isNetwork)
+        {
+            return (false, "network-token");
+        }
+
+        return isAdministrator
+            ? (true, "administrator")
+            : (false, "not-administrator");
     }
+
+    private static (bool Authorized, string Diagnostic) AuthorizeCurrentToken()
+    {
+        return AuthorizeMembership(
+            IsCurrentTokenMember(LocalSystemSidType),
+            IsCurrentTokenMember(NetworkSidType),
+            IsCurrentTokenMember(BuiltinAdministratorsSidType));
+    }
+
+    private static bool IsCurrentTokenMember(int wellKnownSidType)
+    {
+        var sid = new byte[MaximumSidBytes];
+        var sidBytes = (uint)sid.Length;
+        if (!CreateWellKnownSid(wellKnownSidType, nint.Zero, sid, ref sidBytes))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create a well-known SID for control authorization.");
+        }
+
+        if (!CheckTokenMembership(nint.Zero, sid, out var isMember))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not inspect the control client token.");
+        }
+
+        return isMember;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateWellKnownSid(
+        int wellKnownSidType,
+        nint domainSid,
+        byte[] sid,
+        ref uint sidBytes);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CheckTokenMembership(
+        nint tokenHandle,
+        byte[] sidToCheck,
+        [MarshalAs(UnmanagedType.Bool)] out bool isMember);
 }
 
 internal static class MaintenancePipeFactory

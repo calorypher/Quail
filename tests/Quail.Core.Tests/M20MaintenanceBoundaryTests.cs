@@ -53,6 +53,13 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
     {
         var stale = new MaintenanceControlRequest(1, Guid.NewGuid(), DateTimeOffset.UtcNow.AddHours(-1), MaintenanceControlCommand.Rebuild, Volume, null);
         Assert.Equal("stale-request", MaintenanceControlValidation.Validate(stale, DateTimeOffset.UtcNow));
+        var arbitraryPath = stale with { RequestId = Guid.NewGuid(), IssuedUtc = DateTimeOffset.UtcNow, VolumeIdentity = @"C:\attacker.db" };
+        Assert.Equal("invalid-volume-identity", MaintenanceControlValidation.Validate(arbitraryPath, DateTimeOffset.UtcNow));
+
+        var replayGuard = new MaintenanceRequestReplayGuard();
+        var requestId = Guid.NewGuid();
+        Assert.True(replayGuard.TryAccept(requestId, DateTimeOffset.UtcNow));
+        Assert.False(replayGuard.TryAccept(requestId, DateTimeOffset.UtcNow));
 
         await using var oversized = new MemoryStream();
         await oversized.WriteAsync(BitConverter.GetBytes(MaintenanceControlValidation.MaximumFrameBytes + 1));
@@ -98,6 +105,15 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
             new MaintenanceControlClient().SendAsync(request, cancellation.Token));
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => serverTask);
+    }
+
+    [Fact]
+    public void Control_authorization_allows_system_and_only_local_administrators()
+    {
+        Assert.True(MaintenancePipeAuthorization.AuthorizeMembership(true, true, true).Authorized);
+        Assert.False(MaintenancePipeAuthorization.AuthorizeMembership(false, true, true).Authorized);
+        Assert.True(MaintenancePipeAuthorization.AuthorizeMembership(false, false, true).Authorized);
+        Assert.False(MaintenancePipeAuthorization.AuthorizeMembership(false, false, false).Authorized);
     }
 
     public void Dispose()

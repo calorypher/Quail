@@ -91,8 +91,32 @@ public sealed class NtfsJournalWaitTests
         Assert.True(backend.Operation.Disposed);
     }
 
+    [Fact]
+    public async Task CancellationFailureKeepsNativeResourcesUntilCompletion()
+    {
+        using var handle = new SafeFileHandle(new IntPtr(1), ownsHandle: false);
+        using var cancellation = new CancellationTokenSource();
+        var backend = new FakeBackend { CancelException = new Win32Exception(6) };
+        var wait = UsnJournalWait.WaitAsync(
+            handle,
+            new IncrementalCheckpoint(9, 100, 1, 1),
+            cancellation.Token,
+            backend);
+
+        cancellation.Cancel();
+
+        Assert.Equal(1, backend.Operation!.CancelCalls);
+        Assert.False(backend.Operation.Disposed);
+        Assert.False(wait.IsCompleted);
+
+        backend.Operation.Complete(errorCode: 995, bytesReturned: 0);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => wait);
+        Assert.True(backend.Operation.Disposed);
+    }
+
     private sealed class FakeBackend : IUsnJournalWaitBackend
     {
+        public Exception? CancelException { get; init; }
         public NtfsJournal.ReadUsnJournalDataV1? Request { get; private set; }
         public int OutputBufferSize { get; private set; }
         public FakeOperation? Operation { get; private set; }
@@ -105,12 +129,14 @@ public sealed class NtfsJournalWaitTests
         {
             Request = request;
             OutputBufferSize = outputBufferSize;
-            Operation = new FakeOperation(completion);
+            Operation = new FakeOperation(completion, CancelException);
             return Operation;
         }
     }
 
-    private sealed class FakeOperation(Action<UsnJournalWaitCompletion> completion) : IUsnJournalWaitOperation
+    private sealed class FakeOperation(
+        Action<UsnJournalWaitCompletion> completion,
+        Exception? cancelException) : IUsnJournalWaitOperation
     {
         private readonly Action<UsnJournalWaitCompletion> _completion = completion;
 
@@ -120,7 +146,14 @@ public sealed class NtfsJournalWaitTests
 
         public void Start() => Started = true;
 
-        public void Cancel() => CancelCalls++;
+        public void Cancel()
+        {
+            CancelCalls++;
+            if (cancelException is not null)
+            {
+                throw cancelException;
+            }
+        }
 
         public void Complete(int errorCode, uint bytesReturned) =>
             _completion(new UsnJournalWaitCompletion(errorCode, bytesReturned));

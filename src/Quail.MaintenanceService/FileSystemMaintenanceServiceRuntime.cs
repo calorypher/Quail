@@ -151,30 +151,35 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     private async Task BuildAsync(MaintenanceOperationSnapshot operation, bool register)
     {
         var identity = operation.VolumeIdentity;
-        var existing = _state.LoadTargets();
-        if (!register && !existing.Targets.Any(target => SameIdentity(target.VolumeIdentity, identity)))
-        {
-            throw new InvalidOperationException("volume-not-registered");
-        }
-
         var volume = ResolveVolume(identity);
         Log($"control-operation-volume-resolved id={operation.OperationId:D}");
         await StopTargetLoopAsync(identity).ConfigureAwait(false);
-        if (register && !existing.Targets.Any(target => SameIdentity(target.VolumeIdentity, identity)))
-        {
-            var updated = new MaintenanceTargetsDocument(
-                MaintenanceTargetsDocument.CurrentVersion,
-                checked(existing.Generation + 1),
-                existing.Targets.Append(new MaintenanceTarget(identity, volume.MountPoint)).ToArray());
-            _state.SaveTargets(updated);
-            existing = updated;
-            Log($"control-operation-target-saved id={operation.OperationId:D}");
-        }
-
-        UpdateHealth(NewHealth(identity, MaintenanceHealthState.CatchingUp, false, "full-build", operation.OperationId), existing.Generation);
-        await _writer.WaitAsync(_stoppingToken).ConfigureAwait(false);
+        var restartTarget = false;
+        var writerAcquired = false;
         try
         {
+            await _writer.WaitAsync(_stoppingToken).ConfigureAwait(false);
+            writerAcquired = true;
+            var existing = _state.LoadTargets();
+            var isRegistered = existing.Targets.Any(target => SameIdentity(target.VolumeIdentity, identity));
+            if (!register && !isRegistered)
+            {
+                throw new InvalidOperationException("volume-not-registered");
+            }
+
+            if (register && !isRegistered)
+            {
+                var updated = new MaintenanceTargetsDocument(
+                    MaintenanceTargetsDocument.CurrentVersion,
+                    checked(existing.Generation + 1),
+                    existing.Targets.Append(new MaintenanceTarget(identity, volume.MountPoint)).ToArray());
+                _state.SaveTargets(updated);
+                existing = updated;
+                Log($"control-operation-target-saved id={operation.OperationId:D}");
+            }
+
+            restartTarget = true;
+            UpdateHealth(NewHealth(identity, MaintenanceHealthState.CatchingUp, false, "full-build", operation.OperationId), existing.Generation);
             volume = ResolveVolume(identity);
             using var storage = PrivilegedIndexStorage.Acquire(identity);
             var store = IndexStore.CreateProtectedWriter(storage.DatabasePath);
@@ -194,31 +199,59 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         }
         finally
         {
-            _writer.Release();
-        }
+            if (writerAcquired)
+            {
+                _writer.Release();
+            }
 
-        StartTargetLoop(identity);
+            if (restartTarget)
+            {
+                StartTargetLoop(identity);
+            }
+        }
     }
 
     private async Task UnregisterAsync(string identity)
     {
         await StopTargetLoopAsync(identity).ConfigureAwait(false);
-        var current = _state.LoadTargets();
-        var retained = current.Targets.Where(target => !SameIdentity(target.VolumeIdentity, identity)).ToArray();
-        if (retained.Length == current.Targets.Count)
+        var wasRegistered = false;
+        var removed = false;
+        var writerAcquired = false;
+        try
         {
-            throw new InvalidOperationException("volume-not-registered");
-        }
+            await _writer.WaitAsync(_stoppingToken).ConfigureAwait(false);
+            writerAcquired = true;
+            var current = _state.LoadTargets();
+            var retained = current.Targets.Where(target => !SameIdentity(target.VolumeIdentity, identity)).ToArray();
+            wasRegistered = retained.Length != current.Targets.Count;
+            if (!wasRegistered)
+            {
+                throw new InvalidOperationException("volume-not-registered");
+            }
 
-        var updated = new MaintenanceTargetsDocument(MaintenanceTargetsDocument.CurrentVersion, checked(current.Generation + 1), retained);
-        _state.SaveTargets(updated);
-        lock (_stateGate)
+            var updated = new MaintenanceTargetsDocument(MaintenanceTargetsDocument.CurrentVersion, checked(current.Generation + 1), retained);
+            _state.SaveTargets(updated);
+            lock (_stateGate)
+            {
+                var health = _state.LoadHealth();
+                _state.SaveHealth(new MaintenanceHealthDocument(
+                    MaintenanceHealthDocument.CurrentVersion,
+                    updated.Generation,
+                    health.Targets.Where(target => !SameIdentity(target.VolumeIdentity, identity)).ToArray()));
+            }
+            removed = true;
+        }
+        finally
         {
-            var health = _state.LoadHealth();
-            _state.SaveHealth(new MaintenanceHealthDocument(
-                MaintenanceHealthDocument.CurrentVersion,
-                updated.Generation,
-                health.Targets.Where(target => !SameIdentity(target.VolumeIdentity, identity)).ToArray()));
+            if (writerAcquired)
+            {
+                _writer.Release();
+            }
+
+            if (wasRegistered && !removed)
+            {
+                StartTargetLoop(identity);
+            }
         }
     }
 
@@ -265,7 +298,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                     var status = store.GetStatus();
                     if (status.State != IndexState.Complete)
                     {
-                        throw new RebuildRequiredException(status.Detail ?? "index-not-complete");
+                        throw new RebuildRequiredException("index-not-complete");
                     }
 
                     var sync = store.Sync(volume.MountPoint);
@@ -301,7 +334,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                UpdateHealth(NewHealth(identity, MaintenanceHealthState.Retrying, false, exception.Message));
+                UpdateHealth(NewHealth(identity, MaintenanceHealthState.Retrying, false, "maintenance-unavailable"));
                 await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
                 retryDelay = TimeSpan.FromSeconds(Math.Min(60, retryDelay.TotalSeconds * 2));
             }
