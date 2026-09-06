@@ -312,7 +312,13 @@ Acceptance boundary:
 - ordering remains deterministic;
 - performance remains within the accepted search budget.
 
-### M19 — Continuous Maintenance Boundary Spike — ACTIVE
+### M19 — Continuous Maintenance Boundary Spike — READY FOR INDEPENDENT QA
+
+The Quail 0.3 execution thread approved the dedicated LocalSystem Windows
+Service boundary on 2026-09-06. The service is the sole index writer; protected
+machine maintenance configuration remains separate from per-user search
+preferences, ordinary Search remains direct/read-only, and unprovable USN
+continuity fails closed to `RebuildRequired` without automatic full rebuild.
 
 **Goal:** determine the smallest safe architecture that can maintain NTFS indexes automatically without routine manual UAC/Refresh.
 
@@ -340,7 +346,7 @@ Acceptance boundary:
 
 Stop on an unresolved privilege-escalation/data-integrity concern, a requirement for a substantially broader privileged service, or a conflict with the protected index-storage model.
 
-### M20 — Continuous Filesystem Maintenance
+### M20 — Continuous Filesystem Maintenance — PLANNED / NOT STARTED
 
 **Goal:** make manual Refresh/Rebuild unnecessary for normal index freshness.
 
@@ -350,6 +356,9 @@ Scope:
 - continuously or effectively continuously consume incremental USN changes;
 - persist checkpoints safely;
 - catch up after Quail or Windows restarts;
+- validate that the persisted checkpoint belongs to the current journal and is
+  inside its complete readable interval, including `next_usn <= NextUsn`; any
+  impossible or inconsistent checkpoint fails closed to `RebuildRequired`;
 - handle sleep/resume where real behavior requires explicit treatment;
 - validate journal identity/range/continuity;
 - recover automatically only where correctness is clear;

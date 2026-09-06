@@ -2,9 +2,10 @@
 
 ## Status
 
-**PHASE 1 — architecture recommendation ready for the explicit decision gate.**
+**READY FOR INDEPENDENT QA — architecture approved in the Quail 0.3 execution thread on 2026-09-06.**
 
-M19 is not complete and M20 has not started. The recommended boundary is a
+M19 is not complete until independent QA and merge, and M20 has not started. The
+approved boundary is a
 dedicated, automatically started Windows Service running as LocalSystem, with no
 ordinary-search IPC and with the existing elevated App worker reduced to an
 administrator-authorized configuration/recovery client. The service is the sole
@@ -208,18 +209,24 @@ measured on the actual M20 overlapped-I/O implementation.
 The authoritative invariant remains: every journal record before persisted
 `next_usn` has been applied in the same SQLite history.
 
-- Matching journal ID and a checkpoint at or after both `FirstUsn` and
-  `LowestValidUsn`: catch up automatically, including after downtime.
+- Matching journal ID and a persisted `next_usn` within the current provably
+  readable interval — at or after both `FirstUsn` and `LowestValidUsn`, and not
+  greater than the current journal `NextUsn`: catch up automatically, including
+  after downtime. Equality with `NextUsn` means the index is caught up and may
+  enter the cancellable wait.
 - Volume temporarily absent, service stop, cancellable-wait cancellation, or a
   retryable open/query error: publish unavailable/retrying health, keep the last
   complete database and checkpoint unchanged, and retry with bounded backoff or
   on rediscovery. Do not label a transient outage as continuity loss.
-- Journal ID mismatch, saved USN before the readable range,
+- Journal ID mismatch, saved USN before the readable range, saved USN greater
+  than the current journal `NextUsn`, any impossible or internally inconsistent
+  checkpoint/journal relationship,
   missing/incompatible checkpoint or derived state, malformed/unsupported
   required journal data, or another state where all intervening mutations cannot
   be proven: apply no uncertain mutation, set explicit `RebuildRequired` with a
   stable reason, stop that target's incremental loop, and remove it from active
-  trusted search through existing status reevaluation.
+  trusted search through existing status reevaluation. Such a value must never
+  be treated as a reason to wait for the journal to catch up to the checkpoint.
 - A failed batch transaction leaves its checkpoint unchanged; already committed
   earlier batches remain authoritative and may be resumed.
 - M20 does not automatically full-rebuild after continuity loss. An explicit
@@ -317,7 +324,7 @@ This is the smallest candidate that satisfies automatic start, no routine UAC,
 true no-change waiting, restart catch-up, one authoritative writer, protected
 configuration ownership, and explicit Windows lifecycle/security controls.
 
-## Proposed closed M20 contract
+## Approved closed M20 contract
 
 ### Goal
 
@@ -349,6 +356,10 @@ unelevated and journal uncertainty cannot produce a trusted stale index.
 - only the service mutates an index after migration to this boundary;
 - every mutation independently revalidates stable volume identity and derives
   the database path;
+- before catch-up or idle wait, the service proves a matching journal ID and a
+  persisted `next_usn` inside the full required readable interval, including
+  `next_usn <= NextUsn`; any future, impossible, or inconsistent checkpoint
+  fails closed to `RebuildRequired` rather than waiting or trusting the index;
 - normal downtime/resume catches up automatically from the durable checkpoint;
 - transient unavailability does not advance or invalidate the checkpoint;
 - unprovable continuity sets `RebuildRequired` and requires explicit elevated
@@ -371,6 +382,9 @@ ranking, or index-format redesign not forced by a concrete implementation defect
 - standard-user journal/protected-write attempts fail and LocalSystem succeeds;
 - CREATE/RENAME/MOVE/DELETE become searchable without manual Refresh or UAC;
 - service and Windows restart catch up exactly from the committed checkpoint;
+- a checkpoint below the readable range, above the current journal `NextUsn`,
+  associated with another journal ID, or otherwise inconsistent cannot remain
+  trusted and deterministically enters `RebuildRequired`;
 - no-change wait is prompt on change, cancellable, and practically idle;
 - continuity-loss fixtures cannot leave a trusted stale source and enter the
   documented `RebuildRequired` state;
@@ -443,13 +457,16 @@ Machine-specific transcripts remain ignored under `.quail-tooling/`; the
 condensed lab report is ignored under `artifacts/m19/`. Cleanup confirmed no
 owned M19 processes, tasks, temporary paths, or protected probe object remained.
 
-## Decision requested
+## Approved decision
 
-Approve or reject the recommended M20 boundary: a dedicated LocalSystem Windows
-Service as sole writer, protected machine maintenance configuration separated
-from per-user search preferences, administrator-only exceptional control through
-the narrowed elevated worker, direct unelevated search without IPC, and
-cancellable USN waiting with fail-closed continuity handling.
+The Quail 0.3 execution thread approved the recommended boundary on 2026-09-06:
+a dedicated LocalSystem Windows Service as sole writer, protected machine
+maintenance configuration separated from per-user search preferences,
+administrator-only exceptional control through the narrowed elevated worker,
+direct unelevated search without IPC, cancellable USN waiting, restart/resume
+catch-up, and fail-closed continuity handling without automatic full rebuild.
 
-Until explicit approval, M19 remains at Phase 1 and no canonical `M20.md`, final
-M19 PR, or production service/IPC code is created.
+The canonical implementation contract is now
+[`docs/milestones/M20.md`](M20.md). M19 remains ready for independent QA rather
+than complete. No production service, task, IPC, or continuous-maintenance code
+was created during M19.
