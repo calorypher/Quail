@@ -87,6 +87,7 @@ $version = Get-Version $root
 $stage = Join-Path $root 'artifacts\installer-staging\win-x64'
 $appPublish = Join-Path $stage 'app'
 $cliPublish = Join-Path $stage 'cli'
+$servicePublish = Join-Path $stage 'service'
 $payload = Join-Path $stage 'payload'
 $installerDirectory = Join-Path $root "artifacts\installer\\$version"
 $installer = Join-Path $installerDirectory "Quail-$version-Setup.exe"
@@ -99,7 +100,8 @@ foreach ($directory in @($stage, $installerDirectory)) {
 
 foreach ($publish in @(
     @{ Project = 'src\Quail.App\Quail.App.csproj'; Output = $appPublish },
-    @{ Project = 'src\Quail.Cli\Quail.Cli.csproj'; Output = $cliPublish })) {
+    @{ Project = 'src\Quail.Cli\Quail.Cli.csproj'; Output = $cliPublish },
+    @{ Project = 'src\Quail.MaintenanceService\Quail.MaintenanceService.csproj'; Output = $servicePublish })) {
     & dotnet restore (Join-Path $root $publish.Project) --runtime win-x64 --ignore-failed-sources -p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $($publish.Project) with exit code $LASTEXITCODE." }
     & dotnet publish (Join-Path $root $publish.Project) --configuration Release --runtime win-x64 --self-contained false --output $publish.Output --no-restore -p:Platform=x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:PublishAot=false
@@ -112,8 +114,9 @@ foreach ($artifact in @('App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
 Copy-Payload $appPublish $payload
 Copy-Payload $cliPublish $payload
+Copy-Payload $servicePublish $payload
 
-$required = @('Quail.exe', 'Quail.Cli.exe', 'Quail.FileSystem.dll', 'App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll')
+$required = @('Quail.exe', 'Quail.Cli.exe', 'Quail.MaintenanceService.exe', 'Quail.MaintenanceService.dll', 'Quail.MaintenanceService.runtimeconfig.json', 'Quail.FileSystem.dll', 'App.xbf', 'QuickSearchWindow.xbf', 'Quail.pri', 'Assets\quail-feather-A-gradient.svg', 'Assets\quail-app-icon-32px.png', 'Assets\quail-app-icon-48px.png', 'Assets\quail-tray-icon-16px.png', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll', 'System.ServiceProcess.ServiceController.dll')
 foreach ($artifact in $required) { if (-not (Test-Path -LiteralPath (Join-Path $payload $artifact) -PathType Leaf)) { throw "Final installer payload is missing required artifact: $artifact" } }
 foreach ($runtimeFile in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll')) { if (Test-Path -LiteralPath (Join-Path $payload $runtimeFile) -PathType Leaf) { throw "Framework-dependent payload unexpectedly contains private .NET runtime file: $runtimeFile" } }
 foreach ($unusedAiMlFile in @('DirectML.dll', 'onnxruntime.dll', 'Microsoft.ML.OnnxRuntime.dll', 'Microsoft.Windows.AI.MachineLearning.dll', 'Microsoft.Windows.AI.MachineLearning.Projection.dll', 'System.Numerics.Tensors.dll')) {

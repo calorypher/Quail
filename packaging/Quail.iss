@@ -82,7 +82,7 @@ RedirectionGuard=yes
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#AppVersion}
 CloseApplications=yes
-CloseApplicationsFilter=Quail.exe,Quail.Cli.exe
+CloseApplicationsFilter=Quail.exe,Quail.Cli.exe,Quail.MaintenanceService.exe
 RestartApplications=no
 
 [Files]
@@ -103,6 +103,137 @@ const
   RequiredWindowsAppRuntime = '{#WindowsAppRuntimeMinimumVersion}';
   RequiredVcRedist = '{#VcRedistMinimumVersion}';
   QuailUninstallRegistryKey = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{D67D6288-D90A-429F-9FFD-D1EE472E5D43}_is1';
+  MaintenanceServiceName = 'QuailMaintenance';
+  SC_MANAGER_CONNECT = $0001;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_STOP = $0020;
+  SERVICE_CONTROL_STOP = $00000001;
+  SERVICE_STOPPED = $00000001;
+  SERVICE_RUNNING = $00000004;
+
+type
+  TServiceStatus = record
+    ServiceType: Cardinal;
+    CurrentState: Cardinal;
+    ControlsAccepted: Cardinal;
+    Win32ExitCode: Cardinal;
+    ServiceSpecificExitCode: Cardinal;
+    CheckPoint: Cardinal;
+    WaitHint: Cardinal;
+  end;
+
+function OpenSCManager(MachineName, DatabaseName: Integer; DesiredAccess: Cardinal): THandle;
+  external 'OpenSCManagerW@advapi32.dll stdcall';
+function OpenService(ScManager: THandle; ServiceName: String; DesiredAccess: Cardinal): THandle;
+  external 'OpenServiceW@advapi32.dll stdcall';
+function QueryServiceStatus(Service: THandle; var Status: TServiceStatus): Boolean;
+  external 'QueryServiceStatus@advapi32.dll stdcall';
+function ControlService(Service: THandle; Control: Cardinal; var Status: TServiceStatus): Boolean;
+  external 'ControlService@advapi32.dll stdcall';
+function CloseServiceHandle(Handle: THandle): Boolean;
+  external 'CloseServiceHandle@advapi32.dll stdcall';
+
+function OpenMaintenanceService(DesiredAccess: Cardinal): THandle;
+var
+  Manager: THandle;
+begin
+  Result := 0;
+  Manager := OpenSCManager(0, 0, SC_MANAGER_CONNECT);
+  if Manager = 0 then Exit;
+  try
+    Result := OpenService(Manager, MaintenanceServiceName, DesiredAccess);
+  finally
+    CloseServiceHandle(Manager);
+  end;
+end;
+
+function MaintenanceServiceExists: Boolean;
+var
+  Service: THandle;
+begin
+  Service := OpenMaintenanceService(SERVICE_QUERY_STATUS);
+  Result := Service <> 0;
+  if Result then CloseServiceHandle(Service);
+end;
+
+function WaitForMaintenanceServiceState(ExpectedState: Cardinal): Boolean;
+var
+  Service: THandle;
+  Status: TServiceStatus;
+  Attempt: Integer;
+begin
+  Result := False;
+  Service := OpenMaintenanceService(SERVICE_QUERY_STATUS);
+  if Service = 0 then Exit;
+  try
+    for Attempt := 1 to 120 do
+    begin
+      if QueryServiceStatus(Service, Status) and (Status.CurrentState = ExpectedState) then
+      begin
+        Result := True;
+        Exit;
+      end;
+      Sleep(250);
+    end;
+  finally
+    CloseServiceHandle(Service);
+  end;
+end;
+
+function StopMaintenanceService: Boolean;
+var
+  Service: THandle;
+  Status: TServiceStatus;
+begin
+  Result := True;
+  Service := OpenMaintenanceService(SERVICE_QUERY_STATUS or SERVICE_STOP);
+  if Service = 0 then Exit;
+  try
+    if not QueryServiceStatus(Service, Status) then
+    begin
+      Result := False;
+      Exit;
+    end;
+    if Status.CurrentState = SERVICE_STOPPED then Exit;
+    if not ControlService(Service, SERVICE_CONTROL_STOP, Status) then
+    begin
+      Result := False;
+      Exit;
+    end;
+  finally
+    CloseServiceHandle(Service);
+  end;
+  Result := WaitForMaintenanceServiceState(SERVICE_STOPPED);
+end;
+
+function RunSc(const Parameters: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), Parameters, '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+procedure ConfigureAndStartMaintenanceService;
+var
+  BinaryPath: String;
+  Created: Boolean;
+begin
+  BinaryPath := '"' + ExpandConstant('{app}\Quail.MaintenanceService.exe') + '"';
+  Created := not MaintenanceServiceExists;
+  if Created and not RunSc('create ' + MaintenanceServiceName + ' binPath= "' + BinaryPath + '" start= delayed-auto obj= LocalSystem DisplayName= "Quail Maintenance Service"') then
+    RaiseException('Could not create the Quail maintenance service.');
+  if not RunSc('config ' + MaintenanceServiceName + ' binPath= "' + BinaryPath + '" start= delayed-auto obj= LocalSystem DisplayName= "Quail Maintenance Service"') or
+     not RunSc('sdset ' + MaintenanceServiceName + ' D:P(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;LCSWLOCRRC;;;AU)') or
+     not RunSc('failure ' + MaintenanceServiceName + ' reset= 86400 actions= restart/5000/restart/30000/none/0') or
+     not RunSc('failureflag ' + MaintenanceServiceName + ' 1') or
+     not RunSc('start ' + MaintenanceServiceName) or
+     not WaitForMaintenanceServiceState(SERVICE_RUNNING) then
+  begin
+    if Created then RunSc('delete ' + MaintenanceServiceName);
+    RaiseException('Could not securely configure and start the Quail maintenance service.');
+  end;
+end;
 
 function IsVersionAtLeast(const Candidate, Minimum: String): Boolean;
 var
@@ -528,14 +659,27 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if CurStep = ssInstall then
+  begin
+    if not StopMaintenanceService then
+      RaiseException('The existing Quail maintenance service did not stop within 30 seconds.');
+  end;
   if CurStep = ssPostInstall then
   begin
+    ConfigureAndStartMaintenanceService;
     SetQuailPathEntry(True);
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    if not StopMaintenanceService then
+      RaiseException('The Quail maintenance service did not stop within 30 seconds.');
+    if MaintenanceServiceExists and not RunSc('delete ' + MaintenanceServiceName) then
+      RaiseException('Could not remove the Quail maintenance service registration.');
+  end;
   if CurUninstallStep = usPostUninstall then
   begin
     SetQuailPathEntry(False);
