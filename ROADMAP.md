@@ -567,6 +567,21 @@ Only after FileSystem and at least one real heterogeneous source exist should Qu
 
 The exact 0.5 scope, browser families, runtime source-loading needs, and milestone numbering remain intentionally unfrozen until 0.4 and real 0.3/0.4 usage provide better evidence.
 
+## Quail 1.0 scope boundary — FROZEN
+
+Quail 1.0 is the completion of the product direction already recorded in the canonical repository at the 2026-09-06 scope-freeze baseline. New feature ideas proposed after that freeze do not automatically extend the road to 1.0.
+
+The detailed policy is canonical in `docs/1.0-scope-boundary.md`. In summary:
+
+- the existing product/architecture direction keeps the meaning and status it already had at the freeze; the freeze does not turn every merely plausible or explicitly optional idea into a mandatory 1.0 requirement;
+- after 0.3, roadmap planning should convert the frozen envelope into a concrete completion map toward 1.0 and classify already-recorded work as required before 1.0, optional pre-1.0, or post-1.0;
+- intermediate `0.x` releases and milestone structure may still change freely as evidence requires, provided they are working toward the frozen product target rather than enlarging it;
+- bounded technical prerequisites required for correctness, security, compatibility, or implementation of existing 1.0 scope may still be added before 1.0;
+- new product ideas after the freeze are post-1.0 by default and belong in `docs/post-1.0-ideas.md`;
+- a post-freeze idea moves into pre-1.0 scope only through an explicit cross-version decision showing that it is genuinely required to satisfy the already-frozen 1.0 product definition or an unavoidable prerequisite.
+
+This policy exists to prevent the 1.0 goal from receding indefinitely as new ideas appear. The engineering route may continue to adapt; the product destination should not.
+
 ## Later directional candidates
 
 The ordering below is intentionally not assigned to fixed version numbers yet.
