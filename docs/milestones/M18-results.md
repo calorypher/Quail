@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR INDEPENDENT QA — deterministic relevance and physical performance acceptance passed.**
+**COMPLETE — independent QA and manual Quick Search smoke passed; PR #17 merged to `main` as `c62b59cfd56315e09daffc347f6d8e568ebedad0`.**
 
 ## Deterministic baseline
 
@@ -232,14 +232,13 @@ guardrails; no further optimization is justified after acceptance. Raw evidence:
 | Multi-index global top N | PASS; complete local top N plus deterministic global merge |
 | Focused/full tests and Release build | PASS; final 237/237 and full solution zero warnings/errors |
 | Final M16 8x3 | PASS; every target and guardrail |
-| Manual Quick Search smoke | Pending user/independent QA: representative visual order and Enter-to-open |
-| Independent project QA | Pending |
+| Manual Quick Search smoke | PASS |
+| Independent project QA | PASS |
 
 The final campaign itself provides real Quick Search input-to-render evidence for
-ordinary, broad, short, warm, fresh and rapid workflows. The repository
-verification playbook assigns the remaining brief visual/Enter-to-open check to
-the user or independent QA when native desktop control is unavailable. No new
-desktop automation was built for this observation.
+ordinary, broad, short, warm, fresh and rapid workflows. The separately recorded
+manual Quick Search smoke passed. No more specific manual interaction claim is
+made without corresponding durable evidence.
 
-M18 is ready for independent QA. It is not complete, no merge has occurred,
-and no merge, branch deletion, tag or release is authorized.
+M18 completed with PR #17 merged as
+`c62b59cfd56315e09daffc347f6d8e568ebedad0`.

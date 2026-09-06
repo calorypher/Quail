@@ -281,7 +281,10 @@ The M17.5 canonical median is 82.161 seconds for the current physical C: corpus.
 
 Scope is limited to the FTS bulk-build hypothesis, focused integrity/lifecycle verification, and one final production-like campaign. Do not weaken durability, change Search/ranking semantics, introduce concurrent SQLite writers, add a generic scheduler, or absorb metadata-pipeline, M19, or M20 work unless fresh M17.6 evidence requires a separately approved decision.
 
-### M18 — Ranking / Relevance v2 — READY FOR INDEPENDENT QA
+### M18 — Ranking / Relevance v2 — COMPLETE
+
+Independent QA and the manual Quick Search smoke passed. PR #17 was merged to
+`main` as `c62b59cfd56315e09daffc347f6d8e568ebedad0`.
 
 **Goal:** make the intended result appear high enough that fast search is also useful search.
 
@@ -309,7 +312,13 @@ Acceptance boundary:
 - ordering remains deterministic;
 - performance remains within the accepted search budget.
 
-### M19 — Continuous Maintenance Boundary Spike
+### M19 — Continuous Maintenance Boundary Spike — READY FOR INDEPENDENT QA
+
+The Quail 0.3 execution thread approved the dedicated LocalSystem Windows
+Service boundary on 2026-09-06. The service is the sole index writer; protected
+machine maintenance configuration remains separate from per-user search
+preferences, ordinary Search remains direct/read-only, and unprovable USN
+continuity fails closed to `RebuildRequired` without automatic full rebuild.
 
 **Goal:** determine the smallest safe architecture that can maintain NTFS indexes automatically without routine manual UAC/Refresh.
 
@@ -337,7 +346,7 @@ Acceptance boundary:
 
 Stop on an unresolved privilege-escalation/data-integrity concern, a requirement for a substantially broader privileged service, or a conflict with the protected index-storage model.
 
-### M20 — Continuous Filesystem Maintenance
+### M20 — Continuous Filesystem Maintenance — PLANNED / NOT STARTED
 
 **Goal:** make manual Refresh/Rebuild unnecessary for normal index freshness.
 
@@ -347,6 +356,9 @@ Scope:
 - continuously or effectively continuously consume incremental USN changes;
 - persist checkpoints safely;
 - catch up after Quail or Windows restarts;
+- validate that the persisted checkpoint belongs to the current journal and is
+  inside its complete readable interval, including `next_usn <= NextUsn`; any
+  impossible or inconsistent checkpoint fails closed to `RebuildRequired`;
 - handle sleep/resume where real behavior requires explicit treatment;
 - validate journal identity/range/continuity;
 - recover automatically only where correctness is clear;
@@ -476,6 +488,11 @@ Scope:
 - final performance comparison against M16 baseline and Everything;
 - relevance regression set;
 - resource/idle CPU checks;
+- determine whether the observed post-first-search memory plateau is normal
+  .NET/GC reservation or retained search state: Quail started around 38 MB
+  working set, rose to roughly 180 MB after the first search, and remained near
+  that level without an observed functional failure; compare Working Set,
+  Private Bytes, managed heap/LOH, and repeated-search plateau behavior;
 - final focused security review of the privileged boundaries actually present;
 - representative upgrade from the normal supported 0.2 deployment, without building exhaustive compatibility machinery for unusual development-install variants;
 - release notes, changelog, known limitations, and durable QA evidence.
