@@ -105,9 +105,16 @@ const
   QuailUninstallRegistryKey = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{D67D6288-D90A-429F-9FFD-D1EE472E5D43}_is1';
   MaintenanceServiceName = 'QuailMaintenance';
   SC_MANAGER_CONNECT = $0001;
+  SC_MANAGER_CREATE_SERVICE = $0002;
+  SERVICE_CHANGE_CONFIG = $0002;
   SERVICE_QUERY_STATUS = $0004;
+  SERVICE_START = $0010;
   SERVICE_STOP = $0020;
   SERVICE_CONTROL_STOP = $00000001;
+  SERVICE_WIN32_OWN_PROCESS = $00000010;
+  SERVICE_AUTO_START = $00000002;
+  SERVICE_ERROR_NORMAL = $00000001;
+  SERVICE_NO_CHANGE = $FFFFFFFF;
   SERVICE_STOPPED = $00000001;
   SERVICE_RUNNING = $00000004;
 
@@ -132,6 +139,16 @@ function ControlService(Service: THandle; Control: Cardinal; var Status: TServic
   external 'ControlService@advapi32.dll stdcall';
 function CloseServiceHandle(Handle: THandle): Boolean;
   external 'CloseServiceHandle@advapi32.dll stdcall';
+function CreateService(ScManager: THandle; ServiceName, DisplayName: String;
+  DesiredAccess, ServiceType, StartType, ErrorControl: Cardinal;
+  BinaryPath: String; LoadOrderGroup, TagId, Dependencies: Integer;
+  ServiceStartName: String; Password: Integer): THandle;
+  external 'CreateServiceW@advapi32.dll stdcall';
+function ChangeServiceConfig(Service: THandle; ServiceType, StartType,
+  ErrorControl: Cardinal; BinaryPath: String; LoadOrderGroup, TagId,
+  Dependencies: Integer; ServiceStartName: String; Password: Integer;
+  DisplayName: String): Boolean;
+  external 'ChangeServiceConfigW@advapi32.dll stdcall';
 
 function OpenMaintenanceService(DesiredAccess: Cardinal): THandle;
 var
@@ -214,16 +231,52 @@ begin
     ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
+function CreateOrConfigureMaintenanceService(const BinaryPath: String;
+  var Created: Boolean): Boolean;
+var
+  Manager: THandle;
+  Service: THandle;
+begin
+  Result := False;
+  Created := False;
+  Manager := OpenSCManager(0, 0, SC_MANAGER_CONNECT or SC_MANAGER_CREATE_SERVICE);
+  if Manager = 0 then Exit;
+  try
+    Service := OpenService(Manager, MaintenanceServiceName,
+      SERVICE_CHANGE_CONFIG or SERVICE_QUERY_STATUS or SERVICE_START or SERVICE_STOP);
+    if Service = 0 then
+    begin
+      Service := CreateService(Manager, MaintenanceServiceName,
+        'Quail Maintenance Service',
+        SERVICE_CHANGE_CONFIG or SERVICE_QUERY_STATUS or SERVICE_START or SERVICE_STOP,
+        SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
+        BinaryPath, 0, 0, 0, 'LocalSystem', 0);
+      Created := Service <> 0;
+    end
+    else
+      Result := ChangeServiceConfig(Service, SERVICE_NO_CHANGE,
+        SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, BinaryPath, 0, 0, 0,
+        'LocalSystem', 0, 'Quail Maintenance Service');
+
+    if Service <> 0 then
+    begin
+      if Created then Result := True;
+      CloseServiceHandle(Service);
+    end;
+  finally
+    CloseServiceHandle(Manager);
+  end;
+end;
+
 procedure ConfigureAndStartMaintenanceService;
 var
   BinaryPath: String;
   Created: Boolean;
 begin
   BinaryPath := '"' + ExpandConstant('{app}\Quail.MaintenanceService.exe') + '"';
-  Created := not MaintenanceServiceExists;
-  if Created and not RunSc('create ' + MaintenanceServiceName + ' binPath= "' + BinaryPath + '" start= delayed-auto obj= LocalSystem DisplayName= "Quail Maintenance Service"') then
-    RaiseException('Could not create the Quail maintenance service.');
-  if not RunSc('config ' + MaintenanceServiceName + ' binPath= "' + BinaryPath + '" start= delayed-auto obj= LocalSystem DisplayName= "Quail Maintenance Service"') or
+  if not CreateOrConfigureMaintenanceService(BinaryPath, Created) then
+    RaiseException('Could not create or configure the Quail maintenance service.');
+  if not RunSc('config ' + MaintenanceServiceName + ' start= delayed-auto') or
      not RunSc('sdset ' + MaintenanceServiceName + ' D:P(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;LCSWLOCRRC;;;AU)') or
      not RunSc('failure ' + MaintenanceServiceName + ' reset= 86400 actions= restart/5000/restart/30000/none/0') or
      not RunSc('failureflag ' + MaintenanceServiceName + ' 1') or
