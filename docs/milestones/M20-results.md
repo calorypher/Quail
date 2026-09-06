@@ -135,6 +135,12 @@ A local System-token control request was accepted as operation
 index, and published `Healthy`, `TrustedForSearch=true` with a real journal
 checkpoint.
 
+A separate local high-integrity `Quail-Lab\quailadmin` S4U token, with Builtin
+Administrators enabled and no NETWORK group, sent a non-mutating
+`GetOperationStatus` request. The service logged `control-authorized
+administrator`, reached the closed handler, and returned the expected
+`unknown-operation` response. The ordinary SSH network token remained rejected.
+
 One file creation on disposable `QUAIL_LAB_DATA` woke the outstanding wait and
 advanced the committed checkpoint from `26592000` to `26592520`. A direct
 `Quail.Cli.exe search --index ... m20wake-7f43c51a` returned exactly the created
@@ -178,7 +184,7 @@ found for the Phase A integration gate.
 
 Independent review must happen before Phase B. Phase B still needs the planned
 multi-restart and recovery variants, Windows restart and sleep/resume catch-up,
-final no-change idle CPU measurement, standard interactive UAC/App control and
+final no-change idle CPU measurement, the complete interactive UAC/App flow and
 working standard-user negative probes, the full bounded adversarial matrix,
 continuity-loss runtime cases without destructive journal reset, and final
 installer upgrade/uninstall verification. No final M20 pull request is opened at
