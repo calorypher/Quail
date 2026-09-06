@@ -24,16 +24,17 @@ public static class NtfsVolume
         return new VolumeDescriptor(volumeName.ToString().TrimEnd('\\'), root, drive.DriveFormat, drive.VolumeLabel);
     }
 
-    internal static SafeFileHandle Open(string mountPoint)
+    internal static SafeFileHandle Open(string mountPoint, bool overlapped = false)
     {
         var letter = char.ToUpperInvariant(mountPoint[0]) + ":";
+        const uint FileFlagOverlapped = 0x40000000;
         var handle = CreateFile(
             $@"\\.\{letter}",
             0x80000000,
             0x00000001 | 0x00000002 | 0x00000004,
             IntPtr.Zero,
             3,
-            0,
+            overlapped ? FileFlagOverlapped : 0,
             IntPtr.Zero);
         if (handle.IsInvalid)
         {

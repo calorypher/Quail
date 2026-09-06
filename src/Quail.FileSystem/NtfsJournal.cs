@@ -6,8 +6,8 @@ namespace Quail.FileSystem;
 
 public static class NtfsJournal
 {
-    private const uint FsctlQueryUsnJournal = 0x000900F4;
-    private const uint FsctlReadUsnJournal = 0x000900BB;
+    internal const uint FsctlQueryUsnJournal = 0x000900F4;
+    internal const uint FsctlReadUsnJournal = 0x000900BB;
     private const int BufferSize = 1024 * 1024;
 
     public static UsnJournalState Query(VolumeDescriptor volume)
@@ -45,6 +45,19 @@ public static class NtfsJournal
     {
         using var handle = NtfsVolume.Open(volume.MountPoint);
         return Read(handle, checkpoint, onBatch);
+    }
+
+    /// <summary>
+    /// Waits for a possible USN journal change. Completion is only a change signal;
+    /// callers must query the journal and run authoritative catch-up afterwards.
+    /// </summary>
+    public static async Task WaitForChangesAsync(
+        VolumeDescriptor volume,
+        IncrementalCheckpoint checkpoint,
+        CancellationToken cancellationToken = default)
+    {
+        using var handle = NtfsVolume.Open(volume.MountPoint, overlapped: true);
+        await UsnJournalWait.WaitAsync(handle, checkpoint, cancellationToken).ConfigureAwait(false);
     }
 
     internal static long Read(SafeFileHandle handle, IncrementalCheckpoint checkpoint, Action<JournalBatch> onBatch)
@@ -109,7 +122,7 @@ public static class NtfsJournal
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct ReadUsnJournalDataV1(
+    internal readonly record struct ReadUsnJournalDataV1(
         long StartUsn,
         uint ReasonMask,
         uint ReturnOnlyOnClose,
