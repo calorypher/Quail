@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Quail.FileSystem;
 
 namespace Quail.MaintenanceService;
@@ -11,6 +12,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     private readonly object _stateGate = new();
     private readonly object _targetGate = new();
     private readonly ConcurrentDictionary<Guid, MaintenanceOperationSnapshot> _operations = new();
+    private readonly ConcurrentDictionary<Guid, Task> _operationTasks = new();
     private readonly Dictionary<string, TargetLoop> _targetLoops = new(StringComparer.OrdinalIgnoreCase);
     private CancellationToken _stoppingToken;
 
@@ -27,7 +29,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             StartTargetLoop(target.VolumeIdentity);
         }
 
-        var server = new MaintenanceControlServer(HandleControlAsync);
+        var server = new MaintenanceControlServer(HandleControlAsync, diagnostic: Log);
         try
         {
             await server.RunAsync(stoppingToken).ConfigureAwait(false);
@@ -47,6 +49,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             foreach (var loop in loops) loop.Cancellation.Cancel();
             await Task.WhenAll(loops.Select(loop => IgnoreCancellationAsync(loop.Task))).ConfigureAwait(false);
             foreach (var loop in loops) loop.Cancellation.Dispose();
+            await Task.WhenAll(_operationTasks.Values.Select(IgnoreCancellationAsync)).ConfigureAwait(false);
         }
     }
 
@@ -77,7 +80,13 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             return Task.FromResult(Response(request, MaintenanceControlStatus.Busy, null, "operation-collision"));
         }
 
-        _ = Task.Run(() => ExecuteOperationAsync(snapshot));
+        var task = Task.Run(() => ExecuteOperationAsync(snapshot));
+        _operationTasks[operationId] = task;
+        _ = task.ContinueWith(
+            _ => { _operationTasks.TryRemove(operationId, out var ignored); },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
         return Task.FromResult(Response(request, MaintenanceControlStatus.Accepted, operationId, null));
     }
 
@@ -99,6 +108,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
 
     private async Task ExecuteOperationAsync(MaintenanceOperationSnapshot operation)
     {
+        Log($"control-operation-start command={operation.Command} id={operation.OperationId:D}");
         var status = MaintenanceControlStatus.Error;
         string? diagnostic = null;
         try
@@ -135,6 +145,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         }
 
         _operations[operation.OperationId] = operation with { Status = status, Diagnostic = diagnostic };
+        Log($"control-operation-stop status={status} id={operation.OperationId:D}");
     }
 
     private async Task BuildAsync(MaintenanceOperationSnapshot operation, bool register)
@@ -147,6 +158,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         }
 
         var volume = ResolveVolume(identity);
+        Log($"control-operation-volume-resolved id={operation.OperationId:D}");
         await StopTargetLoopAsync(identity).ConfigureAwait(false);
         if (register && !existing.Targets.Any(target => SameIdentity(target.VolumeIdentity, identity)))
         {
@@ -156,6 +168,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                 existing.Targets.Append(new MaintenanceTarget(identity, volume.MountPoint)).ToArray());
             _state.SaveTargets(updated);
             existing = updated;
+            Log($"control-operation-target-saved id={operation.OperationId:D}");
         }
 
         UpdateHealth(NewHealth(identity, MaintenanceHealthState.CatchingUp, false, "full-build", operation.OperationId), existing.Generation);
@@ -165,7 +178,9 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             volume = ResolveVolume(identity);
             using var storage = PrivilegedIndexStorage.Acquire(identity);
             var store = IndexStore.CreateProtectedWriter(storage.DatabasePath);
+            Log($"control-operation-build-start id={operation.OperationId:D}");
             store.Build(volume.MountPoint);
+            Log($"control-operation-build-stop id={operation.OperationId:D}");
             var status = store.GetStatus();
             UpdateHealth(new MaintenanceTargetHealth(
                 identity,
@@ -337,6 +352,12 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     {
         try { await task.ConfigureAwait(false); }
         catch (OperationCanceledException) { }
+    }
+
+    private static void Log(string message)
+    {
+        try { EventLog.WriteEntry("QuailMaintenance", message, EventLogEntryType.Information); }
+        catch { }
     }
 
     private sealed record TargetLoop(CancellationTokenSource Cancellation, Task Task);

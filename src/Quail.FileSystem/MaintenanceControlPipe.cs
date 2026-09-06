@@ -41,13 +41,16 @@ public sealed class MaintenanceControlServer
     private readonly Func<MaintenanceControlRequest, CancellationToken, Task<MaintenanceControlResponse>> _handler;
     private readonly MaintenanceRequestReplayGuard _replayGuard = new();
     private readonly Func<DateTimeOffset> _utcNow;
+    private readonly Action<string>? _diagnostic;
 
     public MaintenanceControlServer(
         Func<MaintenanceControlRequest, CancellationToken, Task<MaintenanceControlResponse>> handler,
-        Func<DateTimeOffset>? utcNow = null)
+        Func<DateTimeOffset>? utcNow = null,
+        Action<string>? diagnostic = null)
     {
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _diagnostic = diagnostic;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -56,6 +59,7 @@ public sealed class MaintenanceControlServer
         {
             await using var pipe = MaintenancePipeFactory.CreateServer();
             await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+            _diagnostic?.Invoke("control-connected");
             await ProcessConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -67,10 +71,13 @@ public sealed class MaintenanceControlServer
         try
         {
             var request = await MaintenanceControlFraming.ReadRequestAsync(pipe, deadline.Token).ConfigureAwait(false);
+            _diagnostic?.Invoke("control-request-read");
             var now = _utcNow();
             var validationError = MaintenanceControlValidation.Validate(request, now);
             MaintenanceControlResponse response;
-            if (!MaintenancePipeAuthorization.IsAuthorized(pipe))
+            var authorized = MaintenancePipeAuthorization.IsAuthorized(pipe);
+            _diagnostic?.Invoke(authorized ? "control-authorized" : "control-unauthorized");
+            if (!authorized)
             {
                 response = Rejected(request, "unauthorized-caller");
             }
@@ -85,9 +92,11 @@ public sealed class MaintenanceControlServer
             else
             {
                 response = await _handler(request, deadline.Token).ConfigureAwait(false);
+                _diagnostic?.Invoke("control-handler-returned");
             }
 
             await MaintenanceControlFraming.WriteResponseAsync(pipe, response, deadline.Token).ConfigureAwait(false);
+            _diagnostic?.Invoke("control-response-written");
         }
         catch (OperationCanceledException) when (serviceCancellation.IsCancellationRequested)
         {
@@ -96,6 +105,7 @@ public sealed class MaintenanceControlServer
         catch (Exception exception) when (exception is IOException or InvalidDataException or OperationCanceledException)
         {
             // A malformed, truncated, or timed-out client is isolated to this one connection.
+            _diagnostic?.Invoke($"control-connection-failed type={exception.GetType().Name}");
         }
     }
 

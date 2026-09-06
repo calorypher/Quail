@@ -75,6 +75,31 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
         Assert.False(IndexStore.IsTransientJournalFailure(new Win32Exception(1181)));
     }
 
+    [Fact]
+    public async Task Native_pipe_acl_rejects_a_non_elevated_client_before_framing()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var server = new MaintenanceControlServer((request, _) => Task.FromResult(new MaintenanceControlResponse(
+            MaintenanceControlResponse.CurrentVersion,
+            request.RequestId,
+            MaintenanceControlStatus.Accepted,
+            Guid.NewGuid(),
+            null)));
+        var serverTask = Task.Run(() => server.RunAsync(cancellation.Token));
+        var request = new MaintenanceControlRequest(
+            MaintenanceControlRequest.CurrentVersion,
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            MaintenanceControlCommand.RegisterAndBuild,
+            Volume,
+            null);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            new MaintenanceControlClient().SendAsync(request, cancellation.Token));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => serverTask);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
