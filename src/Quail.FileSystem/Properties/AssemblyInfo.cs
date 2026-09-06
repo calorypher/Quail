@@ -4,3 +4,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Quail.Core.Tests")]
 [assembly: InternalsVisibleTo("Quail.M17.ProductionMeasure")]
 [assembly: InternalsVisibleTo("Quail.BuildBenchmark")]
+[assembly: InternalsVisibleTo("Quail.MaintenanceService")]

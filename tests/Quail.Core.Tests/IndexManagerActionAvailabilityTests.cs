@@ -7,7 +7,7 @@ public sealed class IndexManagerActionAvailabilityTests
 {
     [Theory]
     [InlineData(IndexState.Absent, 0, false, false, false)]
-    [InlineData(IndexState.Complete, 2, true, false, true)]
+    [InlineData(IndexState.Complete, 1, false, false, false)]
     [InlineData(IndexState.RebuildRequired, 1, false, true, false)]
     [InlineData(IndexState.Incomplete, 1, false, true, false)]
     public void Chooses_the_recovery_action_and_refresh_availability(IndexState state, int expectedPrimaryOperation, bool expectedShowRebuild, bool expectedShowRefresh, bool expectedRefreshAvailability)

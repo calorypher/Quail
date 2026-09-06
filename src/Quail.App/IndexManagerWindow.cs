@@ -86,7 +86,7 @@ internal sealed class IndexManagerWindow : Window
     {
         _content.Children.Clear();
         _content.Children.Add(new TextBlock { Text = "Indexes", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        _content.Children.Add(Description("Manage the local volumes that Quick Search can use. Building and refreshing an index may request administrator approval."));
+        _content.Children.Add(Description("Manage the local volumes that Quick Search can use. The maintenance service keeps built indexes current; build and rebuild require administrator approval."));
         if (_operations.HasRunningOperations)
         {
             var progress = new StackPanel { Spacing = 10 };
@@ -164,14 +164,6 @@ internal sealed class IndexManagerWindow : Window
                 "Rebuild",
                 () => RunOperationAsync(AdminIndexOperation.Rebuild, entry),
                 enabled: !_operations.HasRunningOperations);
-        }
-        if (availability.ShowRefresh)
-        {
-            AddAction(
-                actions,
-                "Refresh",
-                () => RunOperationAsync(AdminIndexOperation.Refresh, entry),
-                enabled: availability.RefreshAvailable && !_operations.HasRunningOperations);
         }
         AddAction(actions, entry.EnabledForSearch ? "Disable" : "Enable", () => RunUiActionAsync(() => _catalog.SetEnabledAsync(entry.VolumeIdentity, !entry.EnabledForSearch)), enabled: !_operations.HasRunningOperations);
         AddAction(
@@ -253,7 +245,7 @@ internal sealed class IndexManagerWindow : Window
         {
             return;
         }
-        Render(result.Success ? result.RebuildRequired ? "Refresh completed: rebuild is required." : $"{operation} completed." : result.Detail ?? $"{operation} failed.");
+        Render(result.Success ? result.RebuildRequired ? "Maintenance requires an explicit rebuild." : $"{operation} completed." : result.Detail ?? $"{operation} failed.");
     }
 
     private async Task RunUiActionAsync(Func<Task> action, string? successMessage = null)

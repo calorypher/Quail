@@ -4,9 +4,9 @@ using Quail.FileSystem;
 
 namespace Quail.App;
 
-internal enum AdminIndexOperation { Build, Rebuild, Refresh }
+internal enum AdminIndexOperation { Build, Rebuild, Unregister }
 
-internal sealed record AdminOperationRequest(Guid Id, AdminIndexOperation Operation, string MountPoint, string VolumeIdentity);
+internal sealed record AdminOperationRequest(Guid Id, AdminIndexOperation Operation, string VolumeIdentity);
 
 internal sealed record AdminOperationResult(
     Guid OperationId,
@@ -25,9 +25,6 @@ internal static class AdminIndexWorker
     internal const int FailureExitCode = 1;
     internal const int RebuildRequiredExitCode = 3;
     internal const int ElevationRejectedExitCode = 10;
-    internal const int VolumeRejectedExitCode = 11;
-    internal const int CatalogRejectedExitCode = 12;
-    internal const int StorageRejectedExitCode = 13;
     internal const int IndexOperationFailedExitCode = 14;
 
     public static bool TryParse(string[] arguments, out AdminOperationRequest? request, out string? error)
@@ -35,24 +32,23 @@ internal static class AdminIndexWorker
         request = null;
         error = null;
         if (!arguments.Contains("--internal-index-operation", StringComparer.Ordinal)) return false;
-        string? operation = null, id = null, mount = null, identity = null;
+        string? operation = null, id = null, identity = null;
         for (var index = 0; index < arguments.Length; index++)
         {
             var argument = arguments[index];
-            if (argument is not "--internal-index-operation" and not "--internal-operation-id" and not "--internal-mount-point" and not "--internal-volume-identity") { error = $"Unknown internal worker argument '{argument}'."; return true; }
+            if (argument is not "--internal-index-operation" and not "--internal-operation-id" and not "--internal-volume-identity") { error = $"Unknown internal worker argument '{argument}'."; return true; }
             if (++index >= arguments.Length || arguments[index].StartsWith("--", StringComparison.Ordinal)) { error = $"{argument} requires a value."; return true; }
             switch (argument)
             {
                 case "--internal-index-operation": operation = arguments[index]; break;
                 case "--internal-operation-id": id = arguments[index]; break;
-                case "--internal-mount-point": mount = arguments[index]; break;
                 case "--internal-volume-identity": identity = arguments[index]; break;
             }
         }
         if (!Guid.TryParse(id, out var parsedId)) { error = "Internal worker requires a valid operation GUID."; return true; }
         if (!Enum.TryParse<AdminIndexOperation>(operation, true, out var parsedOperation)) { error = "Unknown index operation."; return true; }
-        if (string.IsNullOrWhiteSpace(mount) || string.IsNullOrWhiteSpace(identity)) { error = "Internal worker requires a mount point and volume identity."; return true; }
-        request = new(parsedId, parsedOperation, mount, identity);
+        if (!MaintenanceControlValidation.IsCanonicalVolumeIdentity(identity)) { error = "Internal worker requires a canonical volume identity."; return true; }
+        request = new(parsedId, parsedOperation, identity!);
         return true;
     }
 
@@ -60,27 +56,60 @@ internal static class AdminIndexWorker
     {
         if (!IsElevated()) return ElevationRejectedExitCode;
 
-        var outcome = FileSystemIndexAdministration.Run(new FileSystemIndexOperationRequest(
-            request.Operation switch
-            {
-                AdminIndexOperation.Build => FileSystemIndexOperation.Build,
-                AdminIndexOperation.Rebuild => FileSystemIndexOperation.Rebuild,
-                AdminIndexOperation.Refresh => FileSystemIndexOperation.Refresh,
-                _ => throw new ArgumentOutOfRangeException(nameof(request))
-            },
-            request.MountPoint,
-            request.VolumeIdentity));
-
-        return outcome switch
+        MaintenanceControlResponse response;
+        var client = new MaintenanceControlClient();
+        try
         {
-            FileSystemIndexOperationOutcome.Succeeded => SuccessExitCode,
-            FileSystemIndexOperationOutcome.RebuildRequired => RebuildRequiredExitCode,
-            FileSystemIndexOperationOutcome.VolumeRejected => VolumeRejectedExitCode,
-            FileSystemIndexOperationOutcome.CatalogRejected => CatalogRejectedExitCode,
-            FileSystemIndexOperationOutcome.StorageRejected => StorageRejectedExitCode,
-            FileSystemIndexOperationOutcome.IndexOperationFailed => IndexOperationFailedExitCode,
-            _ => FailureExitCode
-        };
+            response = client.SendAsync(new MaintenanceControlRequest(
+                MaintenanceControlRequest.CurrentVersion,
+                request.Id,
+                DateTimeOffset.UtcNow,
+                request.Operation switch
+                {
+                    AdminIndexOperation.Build => MaintenanceControlCommand.RegisterAndBuild,
+                    AdminIndexOperation.Rebuild => MaintenanceControlCommand.Rebuild,
+                    AdminIndexOperation.Unregister => MaintenanceControlCommand.Unregister,
+                    _ => throw new ArgumentOutOfRangeException(nameof(request))
+                },
+                request.VolumeIdentity,
+                null)).GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+        {
+            return IndexOperationFailedExitCode;
+        }
+        if (response.Status != MaintenanceControlStatus.Accepted || response.OperationId is null)
+        {
+            return response.Status == MaintenanceControlStatus.RebuildRequired
+                ? RebuildRequiredExitCode
+                : IndexOperationFailedExitCode;
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(30);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+            try
+            {
+                response = client.SendAsync(new MaintenanceControlRequest(
+                    MaintenanceControlRequest.CurrentVersion,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow,
+                    MaintenanceControlCommand.GetOperationStatus,
+                    null,
+                    response.OperationId)).GetAwaiter().GetResult();
+            }
+            catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
+            {
+                return IndexOperationFailedExitCode;
+            }
+            if (response.Status == MaintenanceControlStatus.Succeeded) return SuccessExitCode;
+            if (response.Status == MaintenanceControlStatus.RebuildRequired) return RebuildRequiredExitCode;
+            if (response.Status is MaintenanceControlStatus.Error or MaintenanceControlStatus.Rejected or MaintenanceControlStatus.Unavailable)
+                return IndexOperationFailedExitCode;
+        }
+
+        return FailureExitCode;
     }
 
     private static bool IsElevated()
@@ -99,8 +128,6 @@ internal sealed class ElevatedIndexOperationRunner
         startInfo.ArgumentList.Add(operation.ToString());
         startInfo.ArgumentList.Add("--internal-operation-id");
         startInfo.ArgumentList.Add(id.ToString("D"));
-        startInfo.ArgumentList.Add("--internal-mount-point");
-        startInfo.ArgumentList.Add(entry.MountPoint);
         startInfo.ArgumentList.Add("--internal-volume-identity");
         startInfo.ArgumentList.Add(entry.VolumeIdentity);
         return startInfo;
@@ -127,7 +154,7 @@ internal sealed class ElevatedIndexOperationRunner
         stopwatch.Stop();
         if (exitCode == AdminIndexWorker.RebuildRequiredExitCode)
         {
-            return new(id, operation.ToString(), true, true, null, null, stopwatch.Elapsed.TotalMilliseconds, "Refresh requires an explicit rebuild.", "RebuildRequired");
+            return new(id, operation.ToString(), true, true, null, null, stopwatch.Elapsed.TotalMilliseconds, "Maintenance requires an explicit rebuild.", "RebuildRequired");
         }
 
         if (exitCode != AdminIndexWorker.SuccessExitCode)

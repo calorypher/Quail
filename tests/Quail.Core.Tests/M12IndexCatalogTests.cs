@@ -92,12 +92,12 @@ public sealed class AdminIndexWorkerTests
 {
     [Theory]
     [InlineData("Build")]
-    [InlineData("Refresh")]
     [InlineData("Rebuild")]
+    [InlineData("Unregister")]
     public void Internal_worker_parses_only_narrow_supported_operations(string operation)
     {
         var id = Guid.NewGuid();
-        var parsed = AdminIndexWorker.TryParse(["--internal-index-operation", operation, "--internal-operation-id", id.ToString(), "--internal-mount-point", "D:\\", "--internal-volume-identity", "volume-a"], out var request, out var error);
+        var parsed = AdminIndexWorker.TryParse(["--internal-index-operation", operation, "--internal-operation-id", id.ToString(), "--internal-volume-identity", "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}"], out var request, out var error);
         Assert.True(parsed);
         Assert.Null(error);
         Assert.Equal(id, request!.Id);
@@ -106,11 +106,11 @@ public sealed class AdminIndexWorkerTests
     [Fact]
     public void Internal_worker_rejects_bad_guid_unknown_operation_and_arbitrary_path_argument()
     {
-        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "delete", "--internal-operation-id", Guid.NewGuid().ToString(), "--internal-mount-point", "D:\\", "--internal-volume-identity", "volume-a"], out _, out var operationError));
+        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "delete", "--internal-operation-id", Guid.NewGuid().ToString(), "--internal-volume-identity", "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}"], out _, out var operationError));
         Assert.NotNull(operationError);
-        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "Build", "--internal-operation-id", "no", "--internal-mount-point", "D:\\", "--internal-volume-identity", "volume-a"], out _, out var guidError));
+        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "Build", "--internal-operation-id", "no", "--internal-volume-identity", "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}"], out _, out var guidError));
         Assert.NotNull(guidError);
-        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "Build", "--internal-operation-id", Guid.NewGuid().ToString(), "--internal-mount-point", "D:\\", "--internal-volume-identity", "volume-a", "--index", "C:\\Windows\\x.db"], out _, out var pathError));
+        Assert.True(AdminIndexWorker.TryParse(["--internal-index-operation", "Build", "--internal-operation-id", Guid.NewGuid().ToString(), "--internal-volume-identity", "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}", "--index", "C:\\Windows\\x.db"], out _, out var pathError));
         Assert.NotNull(pathError);
     }
 
@@ -118,7 +118,8 @@ public sealed class AdminIndexWorkerTests
     public void Elevated_worker_start_info_keeps_drive_root_as_one_argument()
     {
         var id = Guid.NewGuid();
-        var entry = new IndexCatalogEntry("volume-a", "C:\\", ManagedIndexPath.ForVolumeIdentity("volume-a"), true);
+        const string identity = "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}";
+        var entry = new IndexCatalogEntry(identity, "C:\\", ManagedIndexPath.ForVolumeIdentity(identity), true);
 
         var startInfo = ElevatedIndexOperationRunner.CreateProcessStartInfo("Quail.exe", AdminIndexOperation.Build, id, entry);
 
@@ -126,7 +127,7 @@ public sealed class AdminIndexWorkerTests
         Assert.Equal("runas", startInfo.Verb);
         Assert.True(string.IsNullOrEmpty(startInfo.Arguments));
         Assert.Equal(
-            ["--internal-index-operation", "Build", "--internal-operation-id", id.ToString("D"), "--internal-mount-point", "C:\\", "--internal-volume-identity", "volume-a"],
+            ["--internal-index-operation", "Build", "--internal-operation-id", id.ToString("D"), "--internal-volume-identity", identity],
             startInfo.ArgumentList);
         Assert.DoesNotContain(startInfo.ArgumentList, argument => argument.Contains("AdminOperations", StringComparison.OrdinalIgnoreCase));
     }
@@ -216,7 +217,8 @@ public sealed class M12TransactionalCatalogTests
         var controller = new IndexCatalogController(
             store,
             mount => mount.StartsWith("D", StringComparison.OrdinalIgnoreCase) ? VolumeA : VolumeB,
-            status ?? (path => Complete(string.Equals(path, ManagedIndexPath.ForVolumeIdentity(VolumeA.StableIdentity), StringComparison.OrdinalIgnoreCase) ? VolumeA.StableIdentity : VolumeB.StableIdentity)));
+            status ?? (path => Complete(string.Equals(path, ManagedIndexPath.ForVolumeIdentity(VolumeA.StableIdentity), StringComparison.OrdinalIgnoreCase) ? VolumeA.StableIdentity : VolumeB.StableIdentity)),
+            identity => TrustedHealth(identity));
         await controller.LoadAsync();
         return controller;
     }
@@ -225,6 +227,9 @@ public sealed class M12TransactionalCatalogTests
         new(volume.StableIdentity, volume.MountPoint, ManagedIndexPath.ForVolumeIdentity(volume.StableIdentity), enabled);
 
     internal static IndexStatus Complete(string identity) => new(IndexState.Complete, identity, "D:\\", 1, DateTimeOffset.UtcNow, null, null);
+
+    internal static MaintenanceTargetHealth TrustedHealth(string identity) =>
+        new(identity, MaintenanceHealthState.Healthy, true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, null);
 }
 
 internal sealed class FaultInjectingCatalogStore : IIndexCatalogStore
@@ -475,16 +480,38 @@ public sealed class M12CatalogActivePathTests : IDisposable
         Assert.Equal([_entry.DatabasePath], controller.ActivePaths);
     }
 
+    [Fact]
+    public async Task Untrusted_service_health_excludes_an_otherwise_complete_index()
+    {
+        var controller = await LoadAsync(
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", ""),
+            _ => Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = MaintenanceHealthState.RebuildRequired,
+                TrustedForSearch = false
+            });
+
+        Assert.Empty(controller.ActivePaths);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
     }
 
-    private async Task<IndexCatalogController> LoadAsync(Func<string, VolumeDescriptor> validateVolume, Func<string, IndexStatus> readStatus)
+    private async Task<IndexCatalogController> LoadAsync(
+        Func<string, VolumeDescriptor> validateVolume,
+        Func<string, IndexStatus> readStatus,
+        Func<string, MaintenanceTargetHealth?>? readHealth = null)
     {
         var store = new IndexCatalogStore(Path.Combine(_directory, "indexes.json"));
         await store.SaveAsync(new IndexCatalogDocument(1, [_entry]));
-        var controller = new IndexCatalogController(store, validateVolume, readStatus);
+        var controller = new IndexCatalogController(
+            store,
+            validateVolume,
+            readStatus,
+            readHealth ?? (identity => M12TransactionalCatalogTests.TrustedHealth(identity)));
         await controller.LoadAsync();
         return controller;
     }

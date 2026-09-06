@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using Microsoft.Data.Sqlite;
 using Microsoft.Win32.SafeHandles;
 
@@ -26,12 +27,18 @@ public sealed class IndexStore
     private const int JournalTransitionTimeoutMilliseconds = 30_000;
     private readonly string _databasePath;
     private readonly IndexStoreJournalLifecycle _journalLifecycle;
+    private readonly bool _protectedWriterAuthority;
 
     public IndexStore(string databasePath) : this(databasePath, IndexStoreJournalLifecycle.PersistentWal)
     {
     }
 
     public IndexStore(string databasePath, IndexStoreJournalLifecycle journalLifecycle)
+        : this(databasePath, journalLifecycle, protectedWriterAuthority: false)
+    {
+    }
+
+    private IndexStore(string databasePath, IndexStoreJournalLifecycle journalLifecycle, bool protectedWriterAuthority)
     {
         if (!Enum.IsDefined(journalLifecycle))
         {
@@ -40,7 +47,11 @@ public sealed class IndexStore
 
         _databasePath = Path.GetFullPath(databasePath);
         _journalLifecycle = journalLifecycle;
+        _protectedWriterAuthority = protectedWriterAuthority;
     }
+
+    internal static IndexStore CreateProtectedWriter(string databasePath) =>
+        new(databasePath, IndexStoreJournalLifecycle.DeleteWhenQuiescent, protectedWriterAuthority: true);
 
     public string DatabasePath => _databasePath;
     private string StagingPath => _databasePath + ".building";
@@ -68,7 +79,10 @@ public sealed class IndexStore
     }
 
     public BuildMetrics Build(string mountPoint, int? failAfterRecords = null)
-        => BuildCore(mountPoint, failAfterRecords, includeSearchIndex: true);
+    {
+        AssertWriteAuthorized();
+        return BuildCore(mountPoint, failAfterRecords, includeSearchIndex: true);
+    }
 
     // This diagnostic-only seam omits FTS schema/triggers to isolate their build contribution.
     // Its output is intentionally not a searchable production index.
@@ -122,6 +136,7 @@ public sealed class IndexStore
         IncrementalCheckpoint? checkpoint = null,
         Func<NamespaceRecord, FileMetadata>? acquireMetadata = null)
     {
+        AssertWriteAuthorized();
         var finalCheckpoint = checkpoint ?? new IncrementalCheckpoint(0x515541494CUL, 0, 0, 0);
         var timing = new BuildTiming();
         return BuildStaging(
@@ -205,6 +220,7 @@ public sealed class IndexStore
 
     public SyncResult Sync(string mountPoint)
     {
+        AssertWriteAuthorized();
         var volume = NtfsVolume.Validate(mountPoint);
         if (!File.Exists(_databasePath))
         {
@@ -225,11 +241,16 @@ public sealed class IndexStore
             {
                 journal = NtfsJournal.Query(volume);
             }
-            catch (Exception exception)
+            catch (Exception exception) when (IsTransientJournalFailure(exception))
             {
                 const string queryFailure = "journal-query-failed";
+                return new SyncResult(false, queryFailure, 0, 0, checkpoint, Unavailable: true);
+            }
+            catch (Exception)
+            {
+                const string queryFailure = "journal-query-invalid";
                 MarkRebuildRequired(connection, queryFailure);
-                return new SyncResult(true, $"{queryFailure}: {exception.Message}", 0, 0, checkpoint);
+                return new SyncResult(true, queryFailure, 0, 0, checkpoint);
             }
 
             if (!TryValidateContinuity(checkpoint!, journal, out reason))
@@ -256,11 +277,16 @@ public sealed class IndexStore
                 PersistSuccessfulSync(connection, finalCheckpoint);
                 return new SyncResult(false, null, applied, batches, finalCheckpoint, metadata.Metrics);
             }
-            catch (Exception exception)
+            catch (Exception exception) when (IsTransientJournalFailure(exception))
+            {
+                const string readFailure = "journal-read-unavailable";
+                return new SyncResult(false, readFailure, applied, batches, ReadCheckpoint(connection), metadata?.Metrics, Unavailable: true);
+            }
+            catch (Exception)
             {
                 const string readFailure = "journal-read-or-parse-failed";
-                MarkRebuildRequired(connection, $"{readFailure}: {exception.Message}");
-                return new SyncResult(true, $"{readFailure}: {exception.Message}", applied, batches, ReadCheckpoint(connection), metadata?.Metrics);
+                MarkRebuildRequired(connection, readFailure);
+                return new SyncResult(true, readFailure, applied, batches, ReadCheckpoint(connection), metadata?.Metrics);
             }
             finally
             {
@@ -281,6 +307,14 @@ public sealed class IndexStore
         bool failBeforeCommit = false,
         Func<NamespaceRecord, FileMetadata>? acquireMetadata = null)
     {
+        AssertWriteAuthorized();
+        var materializedBatches = batches.ToArray();
+        if (materializedBatches.Length != 0 && materializedBatches.Max(batch => batch.NextUsn) > journal.NextUsn)
+        {
+            // The deterministic seam receives already-materialized authoritative
+            // batches; let their cursor define the synthetic journal frontier.
+            journal = journal with { NextUsn = materializedBatches.Max(batch => batch.NextUsn) };
+        }
         using var connection = Open(_databasePath);
         try
         {
@@ -295,7 +329,7 @@ public sealed class IndexStore
             }
 
             var acquire = acquireMetadata ?? UnavailableMetadata;
-            foreach (var batch in batches)
+            foreach (var batch in materializedBatches)
             {
                 ApplyBatch(connection, batch, journal, failBeforeCommit, acquire);
             }
@@ -1062,8 +1096,26 @@ public sealed class IndexStore
         return true;
     }
 
-    private static bool TryValidateContinuity(IncrementalCheckpoint checkpoint, UsnJournalState journal, out string? reason)
+    internal static bool TryValidateContinuity(IncrementalCheckpoint checkpoint, UsnJournalState journal, out string? reason)
     {
+        if (checkpoint.NextUsn < checkpoint.FirstUsn || checkpoint.NextUsn < checkpoint.LowestValidUsn)
+        {
+            reason = "checkpoint-lower-bounds-inconsistent";
+            return false;
+        }
+
+        if (journal.NextUsn < journal.FirstUsn || journal.NextUsn < journal.LowestValidUsn)
+        {
+            reason = "journal-bounds-inconsistent";
+            return false;
+        }
+
+        if (journal.MaximumSupportedMajorVersion < 2 || journal.MinimumSupportedMajorVersion > 3)
+        {
+            reason = "journal-record-version-unsupported";
+            return false;
+        }
+
         if (checkpoint.JournalId != journal.JournalId)
         {
             reason = "journal-id-mismatch";
@@ -1076,8 +1128,43 @@ public sealed class IndexStore
             return false;
         }
 
+        if (checkpoint.NextUsn > journal.NextUsn)
+        {
+            reason = "saved-usn-after-journal-frontier";
+            return false;
+        }
+
         reason = null;
         return true;
+    }
+
+    internal static bool IsTransientJournalFailure(Exception exception)
+    {
+        if (exception is Win32Exception win32)
+        {
+            // Missing/deleted journal entries prove continuity loss; ordinary device
+            // unavailability and journal deletion-in-progress remain retryable.
+            return win32.NativeErrorCode is not (1179 or 1181);
+        }
+
+        return exception is IOException or UnauthorizedAccessException;
+    }
+
+    private void AssertWriteAuthorized()
+    {
+        if (_protectedWriterAuthority || !IsProtectedIndexPath(_databasePath))
+        {
+            return;
+        }
+
+        throw new UnauthorizedAccessException("Protected indexes may only be written by the Quail maintenance service.");
+    }
+
+    internal static bool IsProtectedIndexPath(string path)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(PrivilegedIndexStorage.IndexesPath));
+        var candidate = Path.GetFullPath(path);
+        return candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void CompleteBuild(

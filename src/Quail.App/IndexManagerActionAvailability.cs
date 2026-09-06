@@ -7,7 +7,7 @@ internal readonly record struct IndexManagerActionAvailability(AdminIndexOperati
     public static IndexManagerActionAvailability For(IndexState state) => state switch
     {
         IndexState.Absent => new(AdminIndexOperation.Build, false, false, false),
-        IndexState.Complete => new(AdminIndexOperation.Refresh, true, false, true),
+        IndexState.Complete => new(AdminIndexOperation.Rebuild, false, false, false),
         IndexState.RebuildRequired => new(AdminIndexOperation.Rebuild, false, true, false),
         _ => new(AdminIndexOperation.Rebuild, false, true, false)
     };
