@@ -20,8 +20,7 @@ internal static class FileSystemSearchComposition
             new SearchApplicationService([source]),
             () => GetCurrentPaths().Count > 0,
             () => catalog.ActivePathsChanged -= runtime!.NotifySourcesChanged,
-            () => GetFreshnessNotice(options, source),
-            trace =>
+            recordSessionStart: trace =>
             {
                 var scale = source.GetSearchIndexScale();
                 trace.RecordSessionStart(new SearchIndexScale(
@@ -32,22 +31,5 @@ internal static class FileSystemSearchComposition
             });
         catalog.ActivePathsChanged += runtime.NotifySourcesChanged;
         return runtime;
-    }
-
-    private static string? GetFreshnessNotice(AppLaunchOptions options, FileSystemSearchSource source)
-    {
-        if (options.IndexPaths.Count > 0)
-        {
-            return null;
-        }
-
-        var freshness = source.GetIndexStatuses()
-            .Select(status => IndexFreshnessPolicy.Classify(status, DateTimeOffset.UtcNow))
-            .ToArray();
-        return freshness.Contains(IndexFreshness.RefreshRecommended)
-            ? "Refresh recommended for one or more indexes."
-            : freshness.Contains(IndexFreshness.Unknown)
-                ? "Last refresh unknown for one or more indexes."
-                : null;
     }
 }

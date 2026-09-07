@@ -293,8 +293,10 @@ internal sealed class IndexManagerWindow : Window
 
     private static string StatusDetails(IndexStatus status)
     {
-        var metadata = status.State == IndexState.Complete ? $"{status.RecordCount:N0} records. Last refreshed: {status.LastRefreshedUtc?.ToString("O") ?? "unknown"}." : string.Empty;
-        return string.Join(" ", new[] { metadata, status.Detail, IndexFreshnessPolicy.Describe(status, DateTimeOffset.UtcNow) }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var metadata = status.State == IndexState.Complete
+            ? $"{status.RecordCount:N0} records. Last maintained: {status.LastRefreshedUtc?.ToString("O") ?? "unknown"}."
+            : string.Empty;
+        return string.Join(" ", new[] { metadata, status.Detail }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static string StateLabel(IndexState state) => state switch

@@ -568,6 +568,26 @@ public sealed class M12DynamicSourceGenerationTests
 
         Assert.Equal(2, sourceChanges);
     }
+
+    [Fact]
+    public async Task Healthy_continuously_maintained_index_has_no_manual_refresh_notice()
+    {
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a") with
+            {
+                LastRefreshedUtc = DateTimeOffset.UtcNow.AddDays(-30)
+            },
+            M12TransactionalCatalogTests.TrustedHealth);
+        await controller.LoadAsync();
+        using var runtime = FileSystemSearchComposition.Create(AppLaunchOptions.Parse([]), controller);
+
+        Assert.True(runtime.HasSources());
+        Assert.Null(runtime.GetSourceStatusNotice());
+    }
 }
 
 public sealed class M12SettingsHotkeyRestoreGuardTests
@@ -776,18 +796,6 @@ public sealed class M12IndexFreshnessTests : IDisposable
         var status = store.GetStatus();
         Assert.Equal(IndexState.Complete, status.State);
         Assert.Null(status.LastRefreshedUtc);
-        Assert.Equal(IndexFreshness.Unknown, IndexFreshnessPolicy.Classify(status, DateTimeOffset.UtcNow));
-    }
-
-    [Fact]
-    public void Freshness_recommends_refresh_at_twenty_four_hours()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var fresh = new IndexStatus(IndexState.Complete, null, null, 0, null, null, null, now.AddHours(-23));
-        var stale = fresh with { LastRefreshedUtc = now.AddHours(-24) };
-
-        Assert.Equal(IndexFreshness.Fresh, IndexFreshnessPolicy.Classify(fresh, now));
-        Assert.Equal(IndexFreshness.RefreshRecommended, IndexFreshnessPolicy.Classify(stale, now));
     }
 
     public void Dispose()

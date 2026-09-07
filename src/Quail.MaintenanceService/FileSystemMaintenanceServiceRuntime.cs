@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json;
 using Quail.FileSystem;
 
 namespace Quail.MaintenanceService;
@@ -14,6 +15,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     private readonly ConcurrentDictionary<Guid, MaintenanceOperationSnapshot> _operations = new();
     private readonly ConcurrentDictionary<Guid, Task> _operationTasks = new();
     private readonly Dictionary<string, TargetLoop> _targetLoops = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TaskCompletionSource<Exception> _targetLoopFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationToken _stoppingToken;
 
     public async Task RunAsync(CancellationToken stoppingToken)
@@ -32,7 +34,9 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         var server = new MaintenanceControlServer(HandleControlAsync, diagnostic: Log);
         try
         {
-            await server.RunAsync(stoppingToken).ConfigureAwait(false);
+            await AwaitControlOrTargetFailureAsync(
+                server.RunAsync(stoppingToken),
+                _targetLoopFailure.Task).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -47,10 +51,24 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             }
 
             foreach (var loop in loops) loop.Cancellation.Cancel();
-            await Task.WhenAll(loops.Select(loop => IgnoreCancellationAsync(loop.Task))).ConfigureAwait(false);
+            await Task.WhenAll(loops.Select(loop => IgnoreCompletionAsync(loop.Task))).ConfigureAwait(false);
             foreach (var loop in loops) loop.Cancellation.Dispose();
             await Task.WhenAll(_operationTasks.Values.Select(IgnoreCancellationAsync)).ConfigureAwait(false);
+            TryPublishInactiveHealth(
+                stoppingToken.IsCancellationRequested ? MaintenanceHealthState.Unavailable : MaintenanceHealthState.Error,
+                stoppingToken.IsCancellationRequested ? "service-stopped" : "runtime-failed");
         }
+    }
+
+    internal static async Task AwaitControlOrTargetFailureAsync(Task controlServer, Task<Exception> targetFailure)
+    {
+        var completed = await Task.WhenAny(controlServer, targetFailure).ConfigureAwait(false);
+        if (completed == targetFailure)
+        {
+            throw await targetFailure.ConfigureAwait(false);
+        }
+
+        await controlServer.ConfigureAwait(false);
     }
 
     private Task<MaintenanceControlResponse> HandleControlAsync(MaintenanceControlRequest request, CancellationToken cancellationToken)
@@ -263,6 +281,17 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
             var task = Task.Run(() => MaintainTargetAsync(identity, cancellation.Token));
             _targetLoops.Add(identity, new TargetLoop(cancellation, task));
+            _ = task.ContinueWith(
+                completed =>
+                {
+                    if (completed.IsFaulted)
+                    {
+                        _targetLoopFailure.TrySetResult(completed.Exception?.InnerException ?? completed.Exception!);
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 
@@ -363,6 +392,56 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         lock (_stateGate) _state.SaveHealth(document);
     }
 
+    private void TryPublishInactiveHealth(MaintenanceHealthState state, string reason)
+    {
+        try
+        {
+            lock (_stateGate)
+            {
+                var targets = _state.LoadTargets();
+                MaintenanceHealthDocument current;
+                try
+                {
+                    current = _state.LoadHealth();
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                {
+                    current = new MaintenanceHealthDocument(MaintenanceHealthDocument.CurrentVersion, targets.Generation, []);
+                }
+
+                _state.SaveHealth(CreateInactiveHealth(targets, current, state, reason, DateTimeOffset.UtcNow));
+            }
+        }
+        catch (Exception exception)
+        {
+            Log($"health-inactive-publication-failed type={exception.GetType().Name}");
+        }
+    }
+
+    internal static MaintenanceHealthDocument CreateInactiveHealth(
+        MaintenanceTargetsDocument targets,
+        MaintenanceHealthDocument current,
+        MaintenanceHealthState state,
+        string reason,
+        DateTimeOffset now)
+    {
+        var inactive = targets.Targets.Select(target =>
+        {
+            var previous = current.Targets.SingleOrDefault(item => SameIdentity(item.VolumeIdentity, target.VolumeIdentity));
+            return previous is null
+                ? new MaintenanceTargetHealth(target.VolumeIdentity, state, false, now, null, null, null, reason)
+                : previous with
+                {
+                    State = state,
+                    TrustedForSearch = false,
+                    UpdatedUtc = now,
+                    OperationId = null,
+                    Reason = MaintenanceControlValidation.BoundDiagnostic(reason)
+                };
+        }).ToArray();
+        return new MaintenanceHealthDocument(MaintenanceHealthDocument.CurrentVersion, targets.Generation, inactive);
+    }
+
     private static MaintenanceTargetHealth NewHealth(
         string identity,
         MaintenanceHealthState state,
@@ -385,6 +464,12 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     {
         try { await task.ConfigureAwait(false); }
         catch (OperationCanceledException) { }
+    }
+
+    private static async Task IgnoreCompletionAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch (Exception) { }
     }
 
     private static void Log(string message)

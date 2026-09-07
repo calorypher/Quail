@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Quail.App\AppLog.cs" Link="App\AppLog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexFreshness.cs" Link="App\IndexFreshness.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerWindowLayout.cs" Link="App\IndexManagerWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerActionAvailability.cs" Link="App\IndexManagerActionAvailability.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
