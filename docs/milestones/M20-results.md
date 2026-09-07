@@ -2,12 +2,12 @@
 
 ## Status
 
-**PHASE A INTEGRATION GATE — independent-review blockers corrected; awaiting
-focused independent re-review before Phase B.**
+**IMPLEMENTATION AND PHASE B VERIFICATION COMPLETE — PR candidate ready for
+independent adversarial review and final project QA.**
 
-M20 is not complete and is not ready for final QA or merge. Phase B runtime,
-recovery, adversarial, resource, and installer campaigns have deliberately not
-started.
+The implementation and its planned Quail-Lab campaign are complete. M20 is not
+merge-approved: independent adversarial review and independent project QA remain
+external acceptance gates.
 
 ## Baseline and preparation
 
@@ -263,13 +263,190 @@ quoted Program Files path, with `Healthy`, `TrustedForSearch=true`, its bounded
 5-second/30-second recovery actions, no probe process/task/marker, no disposable
 test file, and a clean VM repository at the approved base.
 
-## Remaining Phase B work
+## Phase B implementation delta
 
-Focused independent re-review of these corrections must happen before Phase B.
-Phase B still needs the planned
-multi-restart and recovery variants, Windows restart and sleep/resume catch-up,
-final no-change idle CPU measurement, the complete interactive UAC/App flow and
-working standard-user negative probes, a production-runtime SCM recovery case,
-the full bounded adversarial matrix, continuity-loss runtime cases without
-destructive journal reset, and final installer upgrade/uninstall verification.
-No final M20 pull request is opened at this gate.
+Phase B removed the obsolete time-based freshness notice. A complete index is no
+longer classified as `RefreshRecommended` merely because its last maintenance
+timestamp is more than 24 hours old; protected maintenance health is the
+authoritative freshness and trust state, and the UI now describes the timestamp
+as last maintained.
+
+Service runtime supervision was tightened before the final campaign. A target
+loop fault now terminates the aggregate runtime, while controlled service stop
+publishes `Unavailable`, untrusted health and preserves the last successful
+checkpoint. Unexpected aggregate completion or failure remains visible to the
+`ServiceBase` terminal-failure path and SCM recovery rather than leaving an inert
+service reported as Running.
+
+The representative Search/Sync overlap campaign exposed a concrete in-scope
+correctness defect. A sustained clustered create burst exhausted the existing
+128-leaf short-query relabel window, and transaction-application exceptions were
+misreported as journal read/parse failures. Commit
+`5ace81353bfdbb6488ace8b4b9cf214c79098052` corrects this without changing the
+storage design:
+
+- transactional batch-application failures are classified separately from
+  native journal read failures and keep the committed checkpoint unchanged;
+- bounded diagnostics expose only stable stage/type/error identifiers;
+- CLOSE-only and unrelated USN records advance the batch checkpoint but do not
+  reapply stale namespace state;
+- clustered short-query relabel recovery remains bounded to one existing
+  1,024-entry persisted chunk.
+
+The final candidate recovered the previously retained valid backlog from its
+committed checkpoint without rebuilding and returned to `Healthy`/trusted. A
+500-file create/delete regression advanced the checkpoint from `27192328` to
+`27213280` and then `27387688`, remained healthy, and did not enter
+`RebuildRequired`.
+
+## Phase B Windows lifecycle and continuity evidence
+
+- Controlled stop completed in 594.3 ms in the lifecycle campaign, preserved
+  checkpoint `26594800`, and published `Unavailable`/untrusted. Representative
+  restarts replaced the service process and returned to `Healthy`/trusted.
+- A real post-start production-runtime failure was induced through the protected
+  health-read path while maintenance was active. PID 5928 left Running, SCM
+  recorded event 7031, recovery started PID 4684, and the service resumed healthy
+  maintenance from checkpoint `26594800` to `26595136`.
+- A Windows restart test stopped maintenance, retained checkpoint `26598976`,
+  created a disposable change during downtime, and rebooted the guest. Automatic
+  Delayed Start correctly required longer than the first 60-second observation;
+  without another reboot or state repair, the bounded follow-up observed PID
+  4260, `Healthy`/trusted at checkpoint `26600192`, and Search returned the
+  downtime file.
+- `powercfg /a` showed that this Hyper-V Generation 2 guest exposes no S1, S2,
+  S3, hibernation, S0 low-power idle, hybrid sleep, or fast-startup path. One
+  capability attempt was therefore recorded as an environment limitation; VM
+  save/restore was not substituted as false sleep/resume evidence.
+- A non-destructive future-checkpoint fixture changed only the disposable index
+  database while the service was stopped. Checkpoint `26601128` was set to
+  `1026601128`; startup deterministically published untrusted
+  `RebuildRequired` with `saved-usn-after-journal-frontier`, Search failed closed,
+  and the database hash stayed unchanged over three seconds, proving no automatic
+  rebuild. An explicit administrator Rebuild returned 0 and restored
+  `Healthy`/trusted at `26601440`.
+- Journal-ID mismatch, checkpoint below the readable lower range, upper-bound
+  violation, and inconsistent checkpoint relations also pass deterministic
+  focused tests. No test deleted or reset the USN journal.
+- Taking only the disposable `QUAIL_LAB_DATA` disk offline published
+  `Retrying`/untrusted with `maintenance-unavailable` while preserving checkpoint
+  `26603744`. Bringing it online rediscovered the same volume and returned to
+  `Healthy`/trusted at `26605056`.
+
+## Phase B security and control evidence
+
+A temporary real local standard user ran from a password-backed scheduled-task
+logon at medium integrity. Its token contained neither Builtin Administrators nor
+NETWORK. The account received native error 5 when opening the raw volume/USN
+capability, could not write protected ProgramData, could not connect to the
+administrator control pipe, and received worker exit 10 for a mutating request.
+It could read protected machine health and perform direct read-only Search of a
+trusted protected database. Final package checks additionally denied write-open
+of the Program Files binary and machine-target file and denied `sc config`; all
+tested hashes and service configuration remained unchanged. The task and account
+were removed.
+
+The bounded control round trip used the production administrator client contract:
+
+- `Unregister` returned 0, removed the machine target, left the protected database
+  present with unchanged SHA-256, and did not alter the per-user catalog;
+- `RegisterAndBuild` returned 0, restored `Healthy`/trusted maintenance, indexed a
+  disposable marker, and again left the user catalog unchanged;
+- removal of that marker was caught up normally. The user's pre-existing
+  `EnabledForSearch=false` preference stayed false throughout, confirming that
+  Disable is not machine Unregister.
+
+Focused coordinator tests cover the actual App ordering: successful initial Build
+enables the user entry, Disable/Enable require no administrator operation,
+successful Remove performs administrator Unregister before catalog removal, and
+canceled or failed elevation preserves the catalog. Quail-Lab had no interactive
+desktop session, so the visual UAC prompt and window presentation remain a
+user-owned manual smoke; the privilege/control transitions themselves have real
+runtime evidence.
+
+The final bounded adversarial evidence combines the real standard-user, volume,
+continuity, recovery, and reader/writer cases above with the accepted Phase A
+focused coverage for arbitrary paths, volume identity substitution, protected
+config/health and reparse/sidecar/staging/lock redirection, malformed/oversized/
+stale/duplicate framing, remote/network rejection, and the sole-writer lock.
+No unresolved privilege escalation, protected-storage integrity, second-writer,
+or speculative-recovery defect was found.
+
+## Phase B search, concurrency, and resources
+
+CREATE, RENAME, MOVE, and DELETE on disposable `QUAIL_LAB_DATA` all became visible
+or absent in Search without manual Refresh, service restart, or UAC. Observed
+latencies were 123.8 ms for create; 84.4/96.9 ms for rename old/new; 84.0/95.1 ms
+for move old/new; and 86.0 ms for delete.
+
+The final Search/Sync overlap ran 39 direct read-only Search calls while producing
+500 files. It had zero search failures; the checkpoint advanced from `27387688`
+through an observed `27408352` to `27534176`, the final file was searchable, and
+cleanup advanced to `27583032` with the result absent and health still trusted.
+
+A focused same-process paired measurement covered the exact
+`FileSystemSearchComposition -> GetActivePathsForSearch -> protected health and
+status -> filesystem Search` path. Across 80 warm pairs, the explicit-path
+baseline median/p95 was 0.508/0.623 ms and the health-revalidated path was
+1.730/2.193 ms. The 1.223 ms median delta is small in absolute terms and did not
+justify further performance work.
+
+The final installed candidate spent 30.00 seconds in a real no-change USN wait
+with 0 ms CPU delta (0% across four logical processors), 43,909,120 bytes working
+set, and 12,263,424 bytes private memory. Checkpoint and health timestamp stayed
+unchanged. Windows Restart Manager reported no process holding the protected
+SQLite database, and specifically no service database handle. A final wake made
+a disposable file searchable and its deletion absent; controlled stop completed
+in 278.6 ms, published `Unavailable`/untrusted with `service-stopped`, and restart
+returned under a new PID to `Running`, `Healthy`, and trusted.
+
+## Phase B installer and final automated verification
+
+Same-version replacement stopped the service before the fixed Program Files file
+phase, completed successfully, replaced the process, and preserved protected
+state. A separate uninstall removed the running service registration and payload
+while preserving machine targets, protected database, health/checkpoint, and the
+per-user catalog. Reinstall restored the exact quoted Program Files path,
+LocalSystem Automatic (Delayed Start), 5-second/30-second recovery actions, the
+SCM DACL, and healthy maintenance. The lab was returned to the installed state
+required for final QA.
+
+Final verification after the last code change:
+
+- focused incremental/M20 boundary tests: PASS, 46/46;
+- service lifecycle/composition tests: PASS, 10/10;
+- `dotnet test Quail.sln -c Release --no-restore`: PASS, 261 Core tests and 10
+  service tests, zero failures;
+- `dotnet build Quail.sln -c Release --no-restore`: PASS, zero warnings and zero
+  errors;
+- `git diff --check`: PASS;
+- `scripts/build-installer.ps1`: PASS, release/XAML provenance, pinned
+  prerequisites, and payload validation.
+
+Final package from the verified candidate:
+
+- payload files: 66;
+- payload bytes: 45,430,034;
+- installer bytes: 10,201,656;
+- staged/installed service DLL SHA-256:
+  `30de37bb23857ede138035934cd782efdbac0554619007d5c30095c794690a0c`;
+- staged/installed filesystem DLL SHA-256:
+  `c79d0b3e2f94332100ad3cf8a63966b8a3f9c4414709d4c7d42987c94631131c`;
+- installer SHA-256:
+  `6e9b7794c6050018432af5f18690592756c3136817b6ffbd586b5386cd8e7a52`.
+
+## Remaining external gates
+
+The final cleanup audit found no temporary standard users, scheduled tasks,
+probe processes, or `D:\m20-*` artifacts. It removed only
+`C:\QuailLab\M20-PhaseB`; the service remained Running as LocalSystem,
+`Healthy`/trusted at checkpoint `27584048`, the protected database remained
+present, and the canonical VM repository was clean at
+`5fc29ac589c8c19abd54131af122e0eac52dbb59`. Hyper-V checkpoints were not
+modified.
+
+Independent adversarial review and independent final project QA must evaluate the
+published PR before any merge recommendation. The only user-owned product check
+is the visual interactive UAC/window smoke noted above. The sleep/resume case is
+an explicit Quail-Lab environment limitation, not a product PASS. No M21 work is
+included.

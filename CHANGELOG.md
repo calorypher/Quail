@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Filesystem indexes are maintained continuously by a protected LocalSystem service, with direct read-only Quick Search, restart/downtime catch-up, explicit fail-closed recovery, and no routine Refresh or UAC for normal changes.
+
 ### Changed
 
 - Filesystem search now preserves the best-ranked results when many names match, including duplicate names across indexes. Exact and prefix matches in ordinary visible locations rank above weaker matches in the current profile, while internal and system-heavy results remain deprioritized.
