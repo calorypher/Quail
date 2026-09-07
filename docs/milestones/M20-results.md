@@ -2,7 +2,8 @@
 
 ## Status
 
-**PHASE A INTEGRATION GATE — awaiting independent security/integration review.**
+**PHASE A INTEGRATION GATE — independent-review blockers corrected; awaiting
+focused independent re-review before Phase B.**
 
 M20 is not complete and is not ready for final QA or merge. Phase B runtime,
 recovery, adversarial, resource, and installer campaigns have deliberately not
@@ -180,12 +181,95 @@ No unresolved credible privilege-escalation, service-replacement, arbitrary-path
 second-writer, speculative-continuity-repair, or partial-publication blocker was
 found for the Phase A integration gate.
 
+## Independent-review correction pass
+
+Independent review of Phase A commit
+`6e2a2dc58dfa0722dd45df203efc140d33740193` found two integration blockers.
+They were corrected in implementation commit
+`5313b2ce61b43df56e96b9ab7d11cbf35ce21002` without starting Phase B.
+
+Protected health is now re-read on demand before normal Search evaluates source
+availability and again before a filesystem source opens its databases. A
+trusted-to-untrusted transition removes the database from `ActivePaths` and
+raises the existing `ActivePathsChanged` event, preserving the established
+`SearchRuntime` generation invalidation. The reverse transition adds the source
+on the next normal Search. There is no timer, watcher, service IPC, or polling
+loop. The public machine-health API is read-only; target and health mutation
+methods are internal to the trusted service/friend boundary, while the protected
+directory SDDL continues to grant Builtin Users only generic read and execute.
+
+`MaintenanceServiceLifecycle` now observes the runtime task continuously after
+`OnStart`. Unexpected successful completion, cancellation without a stop
+request, or a fault claims exactly one terminal failure path. The production
+`ServiceBase` wrapper calls `Environment.FailFast` with the original failure so
+the process cannot remain registered as Running after maintenance has stopped
+and SCM recovery can act. An intentional `OnStop` marks the lifecycle as
+stopping before cancellation, retains the bounded timeout, and cannot race into
+the crash callback or dispose the cancellation source twice.
+
+The existing Index Manager `Remove` wording means removal of the index
+configuration, not merely disabling Search. It now performs the bounded,
+administrator-authorized service `Unregister` first and removes the per-user
+catalog entry only after success. `Unregister` is idempotent when the machine
+target is already absent and never deletes the database. `Disable` remains only
+a per-user `EnabledForSearch` preference and does not contact the service.
+
+Final correction verification:
+
+- focused catalog/source-generation, ACL/API, and operation-coordination tests:
+  PASS, 17 tests;
+- service lifecycle tests: PASS, 5 tests, covering post-start fault, unexpected
+  completion, normal stop cancellation, bounded non-cooperative stop, startup
+  failure, idempotent stop, and exactly one terminal callback;
+- `dotnet test Quail.sln -c Release --no-restore`: PASS, 258 Core tests and 5
+  service-host tests, zero failures;
+- `dotnet build Quail.sln -c Release --no-restore`: PASS, zero warnings and zero
+  errors;
+- `git diff --check`: PASS.
+
+A focused Quail-Lab single-process catalog/direct-Search probe kept one loaded
+controller alive across protected health transitions. With one real disposable
+indexed file it observed `Healthy/trusted -> Retrying/untrusted ->
+Healthy/trusted` as active-path/result counts `1/1 -> 0/0 -> 1/1`. This was not
+a GUI smoke because the VM had no active interactive desktop session. The S4U
+task requested as Limited still received an administrator token, so it is not
+claimed as standard-user evidence; the actual ordinary-user runtime probe
+remains in Phase B. Health was atomically restored, the disposable file was
+removed, and the production service remained Running and Healthy.
+
+A separate temporary SCM probe used the production lifecycle and
+`ServiceBase` wrapper under the real Quail service name. It reached Running as
+PID 1320, faulted its runtime two seconds after start, generated Service Control
+Manager event 7031, and was restarted by SCM as PID 4152. The probe then stayed
+Running, proving that the first process did not remain inert. The temporary
+registration, process, marker, task, and data were removed, and the production
+service was restored by the installer.
+
+The final package was rebuilt from implementation commit
+`5313b2ce61b43df56e96b9ab7d11cbf35ce21002`:
+
+- payload files: 66;
+- payload bytes: 45,423,398;
+- installer bytes: 10,199,733;
+- installer SHA-256:
+  `d92c53173b812f0c92f6fce6a972cc0015456803aa5424a6f1d4c33b4e7651e1`.
+
+The final package was installed in Quail-Lab. The installed service and
+filesystem DLL hashes matched the staged payload
+(`8bbcf0624ae1c2b8610b9fd34ee36151be49fef9215d298056ba6816dc4f1c60`
+and `aacecbef3f299dd636a6bc8454a0364848a752c65351c8d2800674296f09693f`).
+The restored production service was Running as LocalSystem from the exact
+quoted Program Files path, with `Healthy`, `TrustedForSearch=true`, its bounded
+5-second/30-second recovery actions, no probe process/task/marker, no disposable
+test file, and a clean VM repository at the approved base.
+
 ## Remaining Phase B work
 
-Independent review must happen before Phase B. Phase B still needs the planned
+Focused independent re-review of these corrections must happen before Phase B.
+Phase B still needs the planned
 multi-restart and recovery variants, Windows restart and sleep/resume catch-up,
 final no-change idle CPU measurement, the complete interactive UAC/App flow and
-working standard-user negative probes, the full bounded adversarial matrix,
-continuity-loss runtime cases without destructive journal reset, and final
-installer upgrade/uninstall verification. No final M20 pull request is opened at
-this gate.
+working standard-user negative probes, a production-runtime SCM recovery case,
+the full bounded adversarial matrix, continuity-loss runtime cases without
+destructive journal reset, and final installer upgrade/uninstall verification.
+No final M20 pull request is opened at this gate.
