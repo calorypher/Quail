@@ -317,6 +317,48 @@ public sealed class M12OperationCoordinationTests
         Assert.False(controller.Entries.Single().EnabledForSearch);
     }
 
+    [Fact]
+    public async Task Unregister_removes_machine_target_before_user_catalog_entry()
+    {
+        var controller = await ControllerAsync(enabled: true);
+        var operations = new List<AdminIndexOperation>();
+        var coordinator = new IndexOperationCoordinator(controller, (operation, _) =>
+        {
+            operations.Add(operation);
+            Assert.Single(controller.Entries);
+            return Task.FromResult(Success(operation));
+        });
+
+        var result = await coordinator.StartAsync(AdminIndexOperation.Unregister, controller.Entries.Single());
+
+        Assert.True(result.Success);
+        Assert.Equal([AdminIndexOperation.Unregister], operations);
+        Assert.Empty(controller.Entries);
+    }
+
+    [Fact]
+    public async Task Failed_unregister_preserves_user_catalog_entry()
+    {
+        var controller = await ControllerAsync(enabled: true);
+        var coordinator = new IndexOperationCoordinator(
+            controller,
+            (_, _) => Task.FromResult(new AdminOperationResult(
+                Guid.NewGuid(),
+                "Unregister",
+                false,
+                false,
+                null,
+                null,
+                1,
+                "operation-failed",
+                "Error")));
+
+        var result = await coordinator.StartAsync(AdminIndexOperation.Unregister, controller.Entries.Single());
+
+        Assert.False(result.Success);
+        Assert.Single(controller.Entries);
+    }
+
     private static async Task<IndexCatalogController> ControllerAsync(bool enabled)
     {
         var store = new FaultInjectingCatalogStore(new(1, [M12TransactionalCatalogTests.Entry(Volume, enabled)]));
@@ -400,6 +442,132 @@ public sealed class M12DynamicSourceGenerationTests
         Assert.Equal(2, snapshots[0].Length);
         Assert.Single(snapshots[1]);
     }
+
+    [Fact]
+    public async Task Trusted_to_untrusted_search_refresh_removes_path_and_invalidates_generation()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var completed = new SemaphoreSlim(0);
+        SearchCompletion? observed = null;
+        var trusted = true;
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = trusted ? MaintenanceHealthState.Healthy : MaintenanceHealthState.Retrying,
+                TrustedForSearch = trusted
+            });
+        await controller.LoadAsync();
+        using var coordinator = new LatestSearchCoordinator(_ =>
+        {
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(5));
+            return [];
+        });
+        controller.ActivePathsChanged += coordinator.Invalidate;
+        coordinator.Completed += completion =>
+        {
+            observed = completion;
+            completed.Release();
+        };
+
+        coordinator.Request("query");
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+        trusted = false;
+        Assert.Empty(controller.GetActivePathsForSearch());
+        release.Set();
+        await completed.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.NotNull(observed);
+        Assert.False(observed!.IsCurrent);
+    }
+
+    [Fact]
+    public async Task Untrusted_to_trusted_search_refresh_adds_path()
+    {
+        var trusted = false;
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = trusted ? MaintenanceHealthState.Healthy : MaintenanceHealthState.CatchingUp,
+                TrustedForSearch = trusted
+            });
+        await controller.LoadAsync();
+        var changes = 0;
+        controller.ActivePathsChanged += () => changes++;
+        Assert.Empty(controller.ActivePaths);
+
+        trusted = true;
+        var paths = controller.GetActivePathsForSearch();
+
+        Assert.Equal([entry.DatabasePath], paths);
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public async Task Health_is_rechecked_only_when_search_requests_paths_without_poll_loop()
+    {
+        var healthReads = 0;
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a"),
+            identity =>
+            {
+                healthReads++;
+                return M12TransactionalCatalogTests.TrustedHealth(identity);
+            });
+        await controller.LoadAsync();
+        Assert.Equal(1, healthReads);
+
+        _ = controller.ActivePaths;
+        _ = controller.ActivePaths;
+        Assert.Equal(1, healthReads);
+
+        _ = controller.GetActivePathsForSearch();
+        Assert.Equal(2, healthReads);
+    }
+
+    [Fact]
+    public async Task Normal_search_runtime_rechecks_health_before_source_availability()
+    {
+        var trusted = true;
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = trusted ? MaintenanceHealthState.Healthy : MaintenanceHealthState.Unavailable,
+                TrustedForSearch = trusted
+            });
+        await controller.LoadAsync();
+        using var runtime = FileSystemSearchComposition.Create(AppLaunchOptions.Parse([]), controller);
+        var sourceChanges = 0;
+        runtime.SourcesChanged += () => sourceChanges++;
+
+        Assert.True(runtime.HasSources());
+        trusted = false;
+        Assert.False(runtime.HasSources());
+        trusted = true;
+        Assert.True(runtime.HasSources());
+
+        Assert.Equal(2, sourceChanges);
+    }
 }
 
 public sealed class M12SettingsHotkeyRestoreGuardTests
@@ -424,6 +592,38 @@ public sealed class M12PrivilegedStorageAclTests
         Assert.True(PrivilegedIndexStorage.GrantsDangerousRights(System.Security.AccessControl.FileSystemRights.Delete));
         Assert.True(PrivilegedIndexStorage.GrantsDangerousRights(System.Security.AccessControl.FileSystemRights.ChangePermissions));
         Assert.True(PrivilegedIndexStorage.GrantsDangerousRights(System.Security.AccessControl.FileSystemRights.TakeOwnership));
+    }
+
+    [Fact]
+    public void Public_machine_health_surface_is_read_only()
+    {
+        var publicMethods = typeof(MaintenanceStateStore)
+            .GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly)
+            .Select(method => method.Name)
+            .Order()
+            .ToArray();
+
+        Assert.Equal([nameof(MaintenanceStateStore.GetHealth)], publicMethods);
+    }
+
+    [Fact]
+    public void Protected_machine_state_acl_gives_ordinary_users_read_execute_without_write()
+    {
+        var descriptor = new System.Security.AccessControl.RawSecurityDescriptor(PrivilegedIndexStorage.SecureDirectorySddl);
+        var users = new System.Security.Principal.SecurityIdentifier(
+            System.Security.Principal.WellKnownSidType.BuiltinUsersSid,
+            null);
+        var rule = Assert.Single(
+            descriptor.DiscretionaryAcl!.OfType<System.Security.AccessControl.CommonAce>(),
+            ace => ace.SecurityIdentifier == users);
+        var genericRead = unchecked((int)0x80000000);
+        var genericWrite = 0x40000000;
+        var genericExecute = 0x20000000;
+
+        Assert.Equal(System.Security.AccessControl.AceQualifier.AccessAllowed, rule.AceQualifier);
+        Assert.Equal(genericRead | genericExecute, rule.AccessMask);
+        Assert.Equal(0, rule.AccessMask & genericWrite);
+        Assert.False(PrivilegedIndexStorage.GrantsDangerousRights((System.Security.AccessControl.FileSystemRights)rule.AccessMask));
     }
 }
 

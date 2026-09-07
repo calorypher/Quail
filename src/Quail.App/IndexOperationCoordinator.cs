@@ -67,6 +67,23 @@ internal sealed class IndexOperationCoordinator
                 }
             }
 
+            if (result.Success && !result.RebuildRequired && operation == AdminIndexOperation.Unregister)
+            {
+                try
+                {
+                    await _catalog.RemoveAsync(entry.VolumeIdentity);
+                }
+                catch (Exception exception)
+                {
+                    result = result with
+                    {
+                        Success = false,
+                        Detail = $"Unregister completed, but the user catalog could not be updated: {exception.Message}",
+                        Status = "Error"
+                    };
+                }
+            }
+
             _catalog.ReevaluateActivePaths();
         }
         catch (Exception exception)

@@ -8,13 +8,19 @@ public sealed class MaintenanceServiceLifecycleTests
     public void StartInvokesRuntimeWithCancellationToken()
     {
         using var runtime = new RecordingRuntime();
-        var lifecycle = new MaintenanceServiceLifecycle(runtime, TimeSpan.FromSeconds(1));
+        var terminalFailures = 0;
+        var lifecycle = new MaintenanceServiceLifecycle(
+            runtime,
+            TimeSpan.FromSeconds(1),
+            _ => Interlocked.Increment(ref terminalFailures));
 
         lifecycle.Start();
+        lifecycle.Stop();
         lifecycle.Stop();
 
         Assert.True(runtime.Started);
         Assert.True(runtime.CancellationRequested);
+        Assert.Equal(0, terminalFailures);
     }
 
     [Fact]
@@ -22,7 +28,8 @@ public sealed class MaintenanceServiceLifecycleTests
     {
         var lifecycle = new MaintenanceServiceLifecycle(
             new ThrowingRuntime(new InvalidOperationException("startup")),
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            _ => throw new Xunit.Sdk.XunitException("Startup failure must not use the post-start terminal path."));
 
         var exception = Assert.Throws<InvalidOperationException>(lifecycle.Start);
 
@@ -30,18 +37,46 @@ public sealed class MaintenanceServiceLifecycleTests
     }
 
     [Fact]
-    public void BackgroundFailureIsPropagatedWhenStopping()
+    public async Task RuntimeFaultAfterSuccessfulStartUsesOneTerminalFailurePath()
     {
         var runtime = new FaultingRuntime();
+        var terminalFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var terminalFailures = 0;
         var lifecycle = new MaintenanceServiceLifecycle(
             runtime,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            failure =>
+            {
+                Interlocked.Increment(ref terminalFailures);
+                terminalFailure.TrySetResult(failure);
+            });
         lifecycle.Start();
         runtime.Fail(new InvalidOperationException("background"));
 
-        var exception = Assert.Throws<InvalidOperationException>(lifecycle.Stop);
+        var exception = await terminalFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        lifecycle.Stop();
+        lifecycle.Stop();
 
         Assert.Equal("background", exception.Message);
+        Assert.Equal(1, terminalFailures);
+    }
+
+    [Fact]
+    public async Task RuntimeCompletionAfterSuccessfulStartUsesTerminalFailurePath()
+    {
+        var runtime = new CompletingRuntime();
+        var terminalFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lifecycle = new MaintenanceServiceLifecycle(
+            runtime,
+            TimeSpan.FromSeconds(1),
+            failure => terminalFailure.TrySetResult(failure));
+        lifecycle.Start();
+
+        runtime.Complete();
+
+        var exception = await terminalFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("The maintenance runtime completed without a stop request.", exception.Message);
+        lifecycle.Stop();
     }
 
     [Fact]
@@ -49,7 +84,8 @@ public sealed class MaintenanceServiceLifecycleTests
     {
         var lifecycle = new MaintenanceServiceLifecycle(
             new BlockingRuntime(),
-            TimeSpan.FromMilliseconds(25));
+            TimeSpan.FromMilliseconds(25),
+            _ => { });
         lifecycle.Start();
 
         Assert.Throws<TimeoutException>(lifecycle.Stop);
@@ -85,6 +121,15 @@ public sealed class MaintenanceServiceLifecycleTests
         public Task RunAsync(CancellationToken stoppingToken) => _completion.Task;
 
         public void Fail(Exception failure) => _completion.TrySetException(failure);
+    }
+
+    private sealed class CompletingRuntime : IMaintenanceServiceRuntime
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task RunAsync(CancellationToken stoppingToken) => _completion.Task;
+
+        public void Complete() => _completion.TrySetResult();
     }
 
     private sealed class BlockingRuntime : IMaintenanceServiceRuntime

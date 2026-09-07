@@ -47,7 +47,7 @@ public sealed class PrivilegedMachineStateLease : IDisposable
 
 public static class PrivilegedIndexStorage
 {
-    private const string SecureDirectorySddl = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)";
+    internal const string SecureDirectorySddl = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)";
     private const uint FileListDirectory = 0x0001;
     private const uint FileReadAttributes = 0x0080;
     private const uint ReadControl = 0x00020000;

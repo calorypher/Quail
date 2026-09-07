@@ -34,23 +34,23 @@ public sealed class MaintenanceStateStore
         _protectMachinePaths = protectMachinePaths;
     }
 
-    public MaintenanceTargetsDocument LoadTargets() => Read(
+    internal MaintenanceTargetsDocument LoadTargets() => Read(
         _targetsPath,
         MaintenanceTargetsDocument.Empty,
         ValidateTargets);
 
-    public MaintenanceHealthDocument LoadHealth() => Read(
+    internal MaintenanceHealthDocument LoadHealth() => Read(
         _healthPath,
         MaintenanceHealthDocument.Empty,
         ValidateHealth);
 
-    public void SaveTargets(MaintenanceTargetsDocument document)
+    internal void SaveTargets(MaintenanceTargetsDocument document)
     {
         ValidateTargets(document);
         WriteAtomically(_targetsPath, document);
     }
 
-    public void SaveHealth(MaintenanceHealthDocument document)
+    internal void SaveHealth(MaintenanceHealthDocument document)
     {
         ValidateHealth(document);
         WriteAtomically(_healthPath, document);

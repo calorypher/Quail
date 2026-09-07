@@ -169,9 +169,7 @@ internal sealed class IndexManagerWindow : Window
         AddAction(
             actions,
             "Remove",
-            () => RunUiActionAsync(
-                () => _catalog.RemoveAsync(entry.VolumeIdentity),
-                "Index configuration removed. The database remains on disk."),
+            () => RunOperationAsync(AdminIndexOperation.Unregister, entry),
             tertiary: true,
             enabled: !_operations.HasRunningOperations);
         panel.Children.Add(actions);

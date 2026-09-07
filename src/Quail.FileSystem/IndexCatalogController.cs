@@ -30,6 +30,12 @@ public sealed class IndexCatalogController
     public IReadOnlyList<string> ActivePaths => Volatile.Read(ref _activePaths);
     public event Action? ActivePathsChanged;
 
+    public IReadOnlyList<string> GetActivePathsForSearch()
+    {
+        ReevaluateActivePaths();
+        return ActivePaths;
+    }
+
     public async Task LoadAsync()
     {
         var loaded = await _store.LoadAsync();

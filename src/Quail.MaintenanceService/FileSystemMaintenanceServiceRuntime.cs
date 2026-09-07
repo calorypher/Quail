@@ -226,7 +226,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             wasRegistered = retained.Length != current.Targets.Count;
             if (!wasRegistered)
             {
-                throw new InvalidOperationException("volume-not-registered");
+                return;
             }
 
             var updated = new MaintenanceTargetsDocument(MaintenanceTargetsDocument.CurrentVersion, checked(current.Generation + 1), retained);
