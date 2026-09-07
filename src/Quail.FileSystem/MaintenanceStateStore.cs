@@ -92,12 +92,18 @@ public sealed class MaintenanceStateStore
             throw new InvalidDataException("Maintenance state has an invalid size.");
         }
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = OpenSnapshotForRead(path);
         var value = JsonSerializer.Deserialize<T>(stream, SerializerOptions)
             ?? throw new InvalidDataException("Maintenance state is empty.");
         validate(value);
         return value;
     }
+
+    internal static FileStream OpenSnapshotForRead(string path) => new(
+        path,
+        FileMode.Open,
+        FileAccess.Read,
+        FileShare.Read | FileShare.Write | FileShare.Delete);
 
     private void WriteAtomically<T>(string path, T value)
     {
@@ -126,7 +132,14 @@ public sealed class MaintenanceStateStore
                 PrivilegedIndexStorage.ValidateNotReparseIfPresent(path);
             }
 
-            File.Move(temporaryPath, path, overwrite: true);
+            if (File.Exists(path))
+            {
+                File.Replace(temporaryPath, path, destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(temporaryPath, path);
+            }
         }
         finally
         {

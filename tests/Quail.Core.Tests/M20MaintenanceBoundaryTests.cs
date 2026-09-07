@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using Quail.FileSystem;
 
 namespace Quail.Core.Tests;
@@ -45,6 +46,30 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
         Assert.Equal(targets.Generation, loaded.Generation);
         Assert.Equal(targets.Targets, loaded.Targets);
         Assert.Throws<InvalidDataException>(() => store.SaveTargets(new(1, 8, [new("C:\\", null)])));
+        Assert.Empty(Directory.EnumerateFiles(_directory, "*.tmp"));
+    }
+
+    [Fact]
+    public void Maintenance_state_reader_allows_atomic_replacement_and_keeps_its_snapshot()
+    {
+        Directory.CreateDirectory(_directory);
+        var targetsPath = Path.Combine(_directory, "targets.json");
+        var store = new MaintenanceStateStore(
+            targetsPath,
+            Path.Combine(_directory, "health.json"));
+        store.SaveTargets(new MaintenanceTargetsDocument(1, 1, [new(Volume, "Q:\\")]));
+
+        using var oldSnapshot = MaintenanceStateStore.OpenSnapshotForRead(targetsPath);
+        store.SaveTargets(new MaintenanceTargetsDocument(1, 2, [new(Volume, "R:\\")]));
+
+        var oldDocument = JsonSerializer.Deserialize<MaintenanceTargetsDocument>(oldSnapshot);
+        Assert.NotNull(oldDocument);
+        Assert.Equal(1, oldDocument.Generation);
+        Assert.Equal("Q:\\", oldDocument.Targets.Single().LastKnownMountPoint);
+
+        var currentDocument = store.LoadTargets();
+        Assert.Equal(2, currentDocument.Generation);
+        Assert.Equal("R:\\", currentDocument.Targets.Single().LastKnownMountPoint);
         Assert.Empty(Directory.EnumerateFiles(_directory, "*.tmp"));
     }
 
