@@ -68,4 +68,36 @@ public sealed class FileSystemMaintenanceServiceRuntimeTests
         Assert.Null(health.OperationId);
         Assert.Equal(reason, health.Reason);
     }
+
+    [Fact]
+    public void Transient_and_rebuild_required_health_preserve_only_committed_progress()
+    {
+        var checkpoint = new IncrementalCheckpoint(42, 100, 7, 11);
+        var lastSuccess = DateTimeOffset.Parse("2026-09-07T09:59:00Z");
+        var previous = new MaintenanceTargetHealth(
+            "volume-a",
+            MaintenanceHealthState.Healthy,
+            true,
+            DateTimeOffset.Parse("2026-09-07T10:00:00Z"),
+            lastSuccess,
+            checkpoint,
+            null,
+            null);
+        var transition = new MaintenanceTargetHealth(
+            "volume-a",
+            MaintenanceHealthState.Retrying,
+            false,
+            DateTimeOffset.Parse("2026-09-07T11:00:00Z"),
+            null,
+            null,
+            null,
+            "maintenance-unavailable");
+
+        var preserved = FileSystemMaintenanceServiceRuntime.PreserveProgress(transition, previous);
+
+        Assert.Equal(checkpoint, preserved.Checkpoint);
+        Assert.Equal(lastSuccess, preserved.LastSuccessfulMaintenanceUtc);
+        Assert.Equal(MaintenanceHealthState.Retrying, preserved.State);
+        Assert.False(preserved.TrustedForSearch);
+    }
 }

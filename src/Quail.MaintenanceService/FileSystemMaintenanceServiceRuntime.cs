@@ -22,10 +22,12 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     {
         _stoppingToken = stoppingToken;
         var targets = _state.LoadTargets();
-        SaveHealth(new MaintenanceHealthDocument(
-            MaintenanceHealthDocument.CurrentVersion,
-            targets.Generation,
-            targets.Targets.Select(target => NewHealth(target.VolumeIdentity, MaintenanceHealthState.CatchingUp, false, "startup-catch-up")).ToArray()));
+        SaveHealth(CreateInactiveHealth(
+            targets,
+            TryLoadCurrentHealth(targets.Generation),
+            MaintenanceHealthState.CatchingUp,
+            "startup-catch-up",
+            DateTimeOffset.UtcNow));
         foreach (var target in targets.Targets)
         {
             StartTargetLoop(target.VolumeIdentity);
@@ -354,7 +356,9 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             }
             catch (RebuildRequiredException exception)
             {
-                UpdateHealth(NewHealth(identity, MaintenanceHealthState.RebuildRequired, false, exception.Message));
+                UpdateHealth(
+                    NewHealth(identity, MaintenanceHealthState.RebuildRequired, false, exception.Message),
+                    preserveProgress: true);
                 return;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -363,7 +367,9 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                UpdateHealth(NewHealth(identity, MaintenanceHealthState.Retrying, false, "maintenance-unavailable"));
+                UpdateHealth(
+                    NewHealth(identity, MaintenanceHealthState.Retrying, false, "maintenance-unavailable"),
+                    preserveProgress: true);
                 await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
                 retryDelay = TimeSpan.FromSeconds(Math.Min(60, retryDelay.TotalSeconds * 2));
             }
@@ -374,11 +380,19 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
         VolumeDiscovery.Discover().SingleOrDefault(volume => SameIdentity(volume.StableIdentity, identity))
         ?? throw new IOException("configured-volume-unavailable");
 
-    private void UpdateHealth(MaintenanceTargetHealth target, long? generation = null)
+    private void UpdateHealth(
+        MaintenanceTargetHealth target,
+        long? generation = null,
+        bool preserveProgress = false)
     {
         lock (_stateGate)
         {
             var current = _state.LoadHealth();
+            if (preserveProgress)
+            {
+                var previous = current.Targets.SingleOrDefault(item => SameIdentity(item.VolumeIdentity, target.VolumeIdentity));
+                target = PreserveProgress(target, previous);
+            }
             var targets = current.Targets.Where(item => !SameIdentity(item.VolumeIdentity, target.VolumeIdentity)).Append(target).ToArray();
             _state.SaveHealth(new MaintenanceHealthDocument(
                 MaintenanceHealthDocument.CurrentVersion,
@@ -391,6 +405,29 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     {
         lock (_stateGate) _state.SaveHealth(document);
     }
+
+    private MaintenanceHealthDocument TryLoadCurrentHealth(long generation)
+    {
+        try
+        {
+            return _state.LoadHealth();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+        {
+            return new MaintenanceHealthDocument(MaintenanceHealthDocument.CurrentVersion, generation, []);
+        }
+    }
+
+    internal static MaintenanceTargetHealth PreserveProgress(
+        MaintenanceTargetHealth current,
+        MaintenanceTargetHealth? previous) =>
+        previous is null
+            ? current
+            : current with
+            {
+                LastSuccessfulMaintenanceUtc = current.LastSuccessfulMaintenanceUtc ?? previous.LastSuccessfulMaintenanceUtc,
+                Checkpoint = current.Checkpoint ?? previous.Checkpoint
+            };
 
     private void TryPublishInactiveHealth(MaintenanceHealthState state, string reason)
     {
