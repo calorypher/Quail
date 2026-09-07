@@ -83,6 +83,36 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
     }
 
     [Fact]
+    public void Sync_failure_classification_separates_transaction_rollback_from_journal_loss()
+    {
+        var apply = IndexStore.ClassifySyncFailure(
+            SyncFailureStage.BatchApplication,
+            new InvalidOperationException());
+        Assert.False(apply.RebuildRequired);
+        Assert.True(apply.Unavailable);
+        Assert.Equal("index-update-failed", apply.Reason);
+
+        var derived = IndexStore.ClassifySyncFailure(
+            SyncFailureStage.BatchApplication,
+            new InvalidOperationException("Short-query rank label gap is exhausted; rebuild is required."));
+        Assert.True(derived.RebuildRequired);
+        Assert.False(derived.Unavailable);
+        Assert.Equal("derived-state-update-failed", derived.Reason);
+
+        var unavailable = IndexStore.ClassifySyncFailure(
+            SyncFailureStage.JournalRead,
+            new Win32Exception(1178));
+        Assert.False(unavailable.RebuildRequired);
+        Assert.True(unavailable.Unavailable);
+
+        var invalid = IndexStore.ClassifySyncFailure(
+            SyncFailureStage.JournalRead,
+            new InvalidDataException());
+        Assert.True(invalid.RebuildRequired);
+        Assert.False(invalid.Unavailable);
+    }
+
+    [Fact]
     public async Task Native_pipe_acl_rejects_a_non_elevated_client_before_framing()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));

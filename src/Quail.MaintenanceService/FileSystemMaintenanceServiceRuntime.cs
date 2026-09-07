@@ -333,6 +333,10 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                     }
 
                     var sync = store.Sync(volume.MountPoint);
+                    if (!string.IsNullOrWhiteSpace(sync.Diagnostic))
+                    {
+                        Log($"target-sync-failure stage={sync.Reason} diagnostic={MaintenanceControlValidation.BoundDiagnostic(sync.Diagnostic)}");
+                    }
                     if (sync.RebuildRequired) throw new RebuildRequiredException(sync.Reason ?? "continuity-unprovable");
                     if (sync.Unavailable) throw new IOException(sync.Reason ?? "journal-unavailable");
                     checkpoint = sync.Checkpoint ?? throw new RebuildRequiredException("checkpoint-missing-after-sync");

@@ -15,7 +15,9 @@ internal static class ShortQueryIndex
     // An exhausted gap remains an explicit rebuild-required recovery path.
     private const long InitialLabelSpacing = 1L << 12;
     private const int ChunkEntryCount = 1_024;
-    private const int MaximumRecoveryLeafEntries = 128;
+    // Keep local relabeling bounded to one persisted chunk. A normal burst can
+    // insert many adjacent leaves between two previously built labels.
+    private const int MaximumRecoveryLeafEntries = ChunkEntryCount;
     private const int RankEntryBytes = 28;
     private const uint InternalAttributes = 0x2 | 0x4;
 

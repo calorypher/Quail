@@ -268,7 +268,15 @@ public sealed class IndexStore
                 metadata = new NtfsMetadataAcquirer(volume);
                 var finalCursor = NtfsJournal.Read(volume, finalCheckpoint, batch =>
                 {
-                    ApplyBatch(connection, batch, journal, false, metadata.Acquire);
+                    try
+                    {
+                        ApplyBatch(connection, batch, journal, false, metadata.Acquire);
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new BatchApplicationException(exception);
+                    }
+
                     applied += batch.Records.Count;
                     batches++;
                     finalCheckpoint = finalCheckpoint with { NextUsn = batch.NextUsn };
@@ -277,16 +285,35 @@ public sealed class IndexStore
                 PersistSuccessfulSync(connection, finalCheckpoint);
                 return new SyncResult(false, null, applied, batches, finalCheckpoint, metadata.Metrics);
             }
-            catch (Exception exception) when (IsTransientJournalFailure(exception))
+            catch (BatchApplicationException exception)
             {
-                const string readFailure = "journal-read-unavailable";
-                return new SyncResult(false, readFailure, applied, batches, ReadCheckpoint(connection), metadata?.Metrics, Unavailable: true);
+                var failure = ClassifySyncFailure(SyncFailureStage.BatchApplication, exception.InnerException!);
+                return new SyncResult(
+                    failure.RebuildRequired,
+                    failure.Reason,
+                    applied,
+                    batches,
+                    ReadCheckpoint(connection),
+                    metadata?.Metrics,
+                    failure.Unavailable,
+                    DescribeSyncFailure(exception.InnerException!));
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                const string readFailure = "journal-read-or-parse-failed";
-                MarkRebuildRequired(connection, readFailure);
-                return new SyncResult(true, readFailure, applied, batches, ReadCheckpoint(connection), metadata?.Metrics);
+                var failure = ClassifySyncFailure(SyncFailureStage.JournalRead, exception);
+                if (failure.RebuildRequired)
+                {
+                    MarkRebuildRequired(connection, failure.Reason);
+                }
+                return new SyncResult(
+                    failure.RebuildRequired,
+                    failure.Reason,
+                    applied,
+                    batches,
+                    ReadCheckpoint(connection),
+                    metadata?.Metrics,
+                    failure.Unavailable,
+                    DescribeSyncFailure(exception));
             }
             finally
             {
@@ -298,6 +325,36 @@ public sealed class IndexStore
             FinalizeJournal(connection);
         }
     }
+
+    internal static SyncFailureClassification ClassifySyncFailure(
+        SyncFailureStage stage,
+        Exception exception)
+    {
+        if (stage == SyncFailureStage.BatchApplication)
+        {
+            if (exception is InvalidOperationException invalidOperation &&
+                (invalidOperation.Message.StartsWith("Short-query", StringComparison.Ordinal) ||
+                 invalidOperation.Message.StartsWith("Cycle detected in short-query", StringComparison.Ordinal)))
+            {
+                return new(true, false, "derived-state-update-failed");
+            }
+
+            return new(false, true, "index-update-failed");
+        }
+
+        return IsTransientJournalFailure(exception)
+            ? new(false, true, "journal-read-unavailable")
+            : new(true, false, "journal-read-or-parse-failed");
+    }
+
+    private static string DescribeSyncFailure(Exception exception) => exception switch
+    {
+        SqliteException sqlite => $"SqliteException:{sqlite.SqliteErrorCode}:{sqlite.SqliteExtendedErrorCode}",
+        Win32Exception win32 => $"Win32Exception:{win32.NativeErrorCode}",
+        InvalidOperationException invalidOperation when invalidOperation.Message.Contains("rank label gap is exhausted", StringComparison.Ordinal) =>
+            "InvalidOperationException:rank-label-gap-exhausted",
+        _ => exception.GetType().Name
+    };
 
     // Used by focused automated tests to prove transaction boundaries without a Windows volume.
     public void ApplyParsedBatchesForTesting(
@@ -734,6 +791,7 @@ public sealed class IndexStore
         Func<NamespaceRecord, FileMetadata> acquireMetadata)
     {
         var canonicalRecords = batch.Records
+            .Where(record => UsnReason.RequiresIndexMutation(record.Reason))
             .Select(record => new JournalRecord(CanonicalizeJournalRecord(record.NamespaceRecord), record.Reason))
             .ToArray();
         // Metadata is current filesystem state and can be acquired once per
@@ -1808,6 +1866,9 @@ public sealed class IndexStore
             return new IndexStatus(IndexState.Incomplete, null, null, 0, null, null, exception.Message);
         }
     }
+
+    private sealed class BatchApplicationException(Exception innerException)
+        : Exception("A transactional journal batch could not be applied.", innerException);
 
     private sealed class BuildTiming
     {

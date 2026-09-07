@@ -16,6 +16,7 @@ public static class UsnReason
     public const uint ReparsePointChange = 0x00100000;
     public const uint StreamChange = 0x00200000;
     public const uint TransactedChange = 0x00400000;
+    public const uint Close = 0x80000000;
 
     public const uint MetadataRefreshMask =
         DataOverwrite | DataExtend | DataTruncation |
@@ -26,4 +27,9 @@ public static class UsnReason
     public static bool IsFileDelete(uint reason) => (reason & FileDelete) != 0;
     public static bool IsRenameOldName(uint reason) => (reason & RenameOldName) != 0;
     public static bool IsRenameNewName(uint reason) => (reason & RenameNewName) != 0;
+    public static bool RequiresIndexMutation(uint reason) =>
+        IsFileDelete(reason) ||
+        IsRenameOldName(reason) ||
+        IsRenameNewName(reason) ||
+        RequiresMetadataRefresh(reason);
 }

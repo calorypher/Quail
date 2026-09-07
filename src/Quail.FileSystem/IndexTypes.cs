@@ -114,9 +114,21 @@ public sealed record SyncResult(
     long Batches,
     IncrementalCheckpoint? Checkpoint,
     MetadataAcquisitionMetrics? Metadata = null,
-    bool Unavailable = false);
+    bool Unavailable = false,
+    string? Diagnostic = null);
 
 public sealed record PathResolution(bool Success, string? Path, string? Diagnostic);
+
+internal enum SyncFailureStage
+{
+    JournalRead,
+    BatchApplication
+}
+
+internal readonly record struct SyncFailureClassification(
+    bool RebuildRequired,
+    bool Unavailable,
+    string Reason);
 
 public enum SearchEntryType { Any, File, Directory }
 
