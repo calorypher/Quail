@@ -348,7 +348,7 @@ Stop on an unresolved privilege-escalation/data-integrity concern, a requirement
 
 ### M20 — Continuous Filesystem Maintenance — PR CANDIDATE
 
-Implementation and Phase B Quail-Lab verification are complete on the M20 branch.
+Implementation and Phase B Quail-Lab verification are complete in PR #21.
 Independent adversarial review and final project QA remain required before merge.
 See `docs/milestones/M20-results.md`.
 

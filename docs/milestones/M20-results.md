@@ -5,9 +5,9 @@
 **IMPLEMENTATION AND PHASE B VERIFICATION COMPLETE — PR candidate ready for
 independent adversarial review and final project QA.**
 
-The implementation and its planned Quail-Lab campaign are complete. M20 is not
-merge-approved: independent adversarial review and independent project QA remain
-external acceptance gates.
+The implementation and its planned Quail-Lab campaign are complete and published
+as PR #21. M20 is not merge-approved: independent adversarial review and
+independent project QA remain external acceptance gates.
 
 ## Baseline and preparation
 
