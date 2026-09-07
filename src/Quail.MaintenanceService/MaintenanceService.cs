@@ -242,17 +242,34 @@ public sealed class MaintenanceService : ServiceBase
     private readonly MaintenanceServiceLifecycle _lifecycle;
 
     public MaintenanceService(IMaintenanceServiceRuntime runtime, TimeSpan stopTimeout)
+        : this(runtime, stopTimeout, TerminateProcess)
+    {
+    }
+
+    internal MaintenanceService(
+        IMaintenanceServiceRuntime runtime,
+        TimeSpan stopTimeout,
+        Action<Exception> terminalFailure)
     {
         ServiceName = "QuailMaintenance";
         CanStop = true;
+        CanShutdown = true;
         CanPauseAndContinue = false;
         AutoLog = true;
-        _lifecycle = new MaintenanceServiceLifecycle(runtime, stopTimeout, TerminateProcess);
+        _lifecycle = new MaintenanceServiceLifecycle(runtime, stopTimeout, terminalFailure);
     }
 
-    protected override void OnStart(string[] args) => _lifecycle.Start();
+    protected override void OnStart(string[] args) => StartCore();
 
-    protected override void OnStop() => _lifecycle.Stop();
+    protected override void OnStop() => StopCore();
+
+    protected override void OnShutdown() => ShutdownCore();
+
+    internal void StartCore() => _lifecycle.Start();
+
+    internal void StopCore() => _lifecycle.Stop();
+
+    internal void ShutdownCore() => _lifecycle.Stop();
 
     private static void TerminateProcess(Exception failure) =>
         Environment.FailFast("The Quail maintenance runtime terminated unexpectedly.", failure);

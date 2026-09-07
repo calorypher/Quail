@@ -91,6 +91,53 @@ public sealed class MaintenanceServiceLifecycleTests
         Assert.Throws<TimeoutException>(lifecycle.Stop);
     }
 
+    [Fact]
+    public void ShutdownUsesTheControlledCancellationPath()
+    {
+        using var runtime = new RecordingRuntime();
+        var terminalFailures = 0;
+        using var service = new MaintenanceService(
+            runtime,
+            TimeSpan.FromSeconds(1),
+            _ => Interlocked.Increment(ref terminalFailures));
+
+        service.StartCore();
+        service.ShutdownCore();
+
+        Assert.True(service.CanShutdown);
+        Assert.True(runtime.CancellationRequested);
+        Assert.Equal(0, terminalFailures);
+    }
+
+    [Fact]
+    public void ShutdownFollowedByStopIsIdempotent()
+    {
+        var runtime = new CountingCancellationRuntime();
+        using var service = new MaintenanceService(runtime, TimeSpan.FromSeconds(1), _ => { });
+        service.StartCore();
+
+        service.ShutdownCore();
+        service.StopCore();
+
+        Assert.Equal(1, runtime.CancellationCount);
+    }
+
+    [Fact]
+    public void ShutdownDoesNotUseTheTerminalFailureCallback()
+    {
+        using var runtime = new RecordingRuntime();
+        var terminalFailures = 0;
+        using var service = new MaintenanceService(
+            runtime,
+            TimeSpan.FromSeconds(1),
+            _ => Interlocked.Increment(ref terminalFailures));
+        service.StartCore();
+
+        service.ShutdownCore();
+
+        Assert.Equal(0, terminalFailures);
+    }
+
     private sealed class RecordingRuntime : IMaintenanceServiceRuntime, IDisposable
     {
         private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -135,5 +182,16 @@ public sealed class MaintenanceServiceLifecycleTests
     private sealed class BlockingRuntime : IMaintenanceServiceRuntime
     {
         public Task RunAsync(CancellationToken stoppingToken) => Task.Delay(Timeout.InfiniteTimeSpan);
+    }
+
+    private sealed class CountingCancellationRuntime : IMaintenanceServiceRuntime
+    {
+        public int CancellationCount { get; private set; }
+
+        public async Task RunAsync(CancellationToken stoppingToken)
+        {
+            using var registration = stoppingToken.Register(() => CancellationCount++);
+            await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+        }
     }
 }
