@@ -74,6 +74,21 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
     }
 
     [Fact]
+    public void Maintenance_registration_query_reads_only_machine_targets()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new MaintenanceStateStore(
+            Path.Combine(_directory, "targets.json"),
+            Path.Combine(_directory, "health.json"));
+
+        Assert.False(store.IsRegistered(Volume));
+        store.SaveTargets(new MaintenanceTargetsDocument(1, 1, [new(Volume, "Q:\\")]));
+
+        Assert.True(store.IsRegistered(Volume));
+        Assert.False(store.IsRegistered(@"\\?\Volume{11111111-1111-1111-1111-111111111111}"));
+    }
+
+    [Fact]
     public async Task Control_framing_rejects_oversized_duplicate_and_stale_requests()
     {
         var stale = new MaintenanceControlRequest(1, Guid.NewGuid(), DateTimeOffset.UtcNow.AddHours(-1), MaintenanceControlCommand.Rebuild, Volume, null);

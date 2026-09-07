@@ -11,6 +11,7 @@ internal sealed class IndexManagerWindow : Window
 {
     private readonly IndexCatalogController _catalog;
     private readonly IndexOperationCoordinator _operations;
+    private readonly MaintenanceStateStore _maintenanceState = new();
     private readonly StackPanel _content = new() { Spacing = 12, Padding = new Thickness(18) };
     private readonly ScrollViewer _root;
     private readonly Grid _windowRoot;
@@ -135,7 +136,9 @@ internal sealed class IndexManagerWindow : Window
     {
         var presentation = FileSystemIndexAdministration.GetPresentation(entry);
         var status = presentation.Status;
-        var availability = IndexManagerActionAvailability.For(status.State);
+        var availability = IndexManagerActionAvailability.For(
+            status.State,
+            _maintenanceState.IsRegistered(entry.VolumeIdentity));
         var panel = new StackPanel
         {
             Spacing = 10
@@ -154,7 +157,7 @@ internal sealed class IndexManagerWindow : Window
         AddAction(
             actions,
             availability.PrimaryOperation.ToString(),
-            () => RunOperationAsync(availability.PrimaryOperation, entry),
+            () => RunOperationAsync(availability.PrimaryOperation, entry, availability.EnableAfterBuild),
             primary: true,
             enabled: !_operations.HasRunningOperations);
         if (availability.ShowRebuild)
@@ -226,13 +229,16 @@ internal sealed class IndexManagerWindow : Window
         panel.Children.Add(button);
     }
 
-    private async Task RunOperationAsync(AdminIndexOperation operation, IndexCatalogEntry entry)
+    private async Task RunOperationAsync(
+        AdminIndexOperation operation,
+        IndexCatalogEntry entry,
+        bool enableAfterBuild = true)
     {
         Render($"{operation} is running with administrator approval…");
         AdminOperationResult result;
         try
         {
-            result = await _operations.StartAsync(operation, entry);
+            result = await _operations.StartAsync(operation, entry, enableAfterBuild);
         }
         catch (Exception exception)
         {

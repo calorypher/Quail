@@ -302,6 +302,52 @@ public sealed class M12OperationCoordinationTests
         Assert.True(controller.Entries.Single().EnabledForSearch);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Existing_complete_bootstrap_preserves_explicit_enable_state(bool enabled)
+    {
+        var controller = await ControllerAsync(enabled);
+        var coordinator = new IndexOperationCoordinator(controller, (operation, _) => Task.FromResult(Success(operation)));
+
+        await coordinator.StartAsync(
+            AdminIndexOperation.Build,
+            controller.Entries.Single(),
+            enableAfterBuild: false);
+
+        Assert.Equal(enabled, controller.Entries.Single().EnabledForSearch);
+    }
+
+    [Theory]
+    [InlineData("Error", false)]
+    [InlineData("Error", true)]
+    [InlineData("Canceled", false)]
+    [InlineData("Canceled", true)]
+    public async Task Failed_or_canceled_bootstrap_preserves_user_catalog_preference(string status, bool enabled)
+    {
+        var controller = await ControllerAsync(enabled);
+        var coordinator = new IndexOperationCoordinator(
+            controller,
+            (_, _) => Task.FromResult(new AdminOperationResult(
+                Guid.NewGuid(),
+                "Build",
+                false,
+                false,
+                null,
+                null,
+                1,
+                "bootstrap-not-completed",
+                status)));
+
+        var result = await coordinator.StartAsync(
+            AdminIndexOperation.Build,
+            controller.Entries.Single(),
+            enableAfterBuild: false);
+
+        Assert.False(result.Success);
+        Assert.Equal(enabled, controller.Entries.Single().EnabledForSearch);
+    }
+
     [Fact]
     public async Task Explicit_disable_during_build_is_not_overwritten_by_completion()
     {

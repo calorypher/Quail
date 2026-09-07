@@ -78,6 +78,25 @@ public sealed class MaintenanceStateStore
         }
     }
 
+    internal bool IsRegistered(string volumeIdentity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(volumeIdentity);
+        try
+        {
+            return LoadTargets().Targets.Any(target =>
+                string.Equals(target.VolumeIdentity, volumeIdentity, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception exception) when (exception is
+            IOException or
+            UnauthorizedAccessException or
+            JsonException or
+            InvalidDataException or
+            System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
     private T Read<T>(string path, T missingValue, Action<T> validate)
     {
         using var lease = AcquireProtection();
