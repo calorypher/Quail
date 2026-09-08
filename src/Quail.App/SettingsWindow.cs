@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Quail.FileSystem;
 using Windows.System;
 using Windows.UI.Core;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
 namespace Quail.App;
@@ -17,6 +18,7 @@ internal sealed class SettingsWindow : Window
     private readonly Func<ShellSettings, Task<string?>> _saveSettings;
     private readonly Action _beginHotkeyCapture;
     private readonly Func<bool> _restoreHotkey;
+    private readonly Func<bool> _isHotkeyCaptureActive;
     private readonly MaintenanceStateStore _maintenanceState = new();
     private readonly Frame _content = new();
     private ShellSettings _settings;
@@ -33,7 +35,8 @@ internal sealed class SettingsWindow : Window
         Func<ShellSettings, Task<string?>> saveSettings,
         Action beginHotkeyCapture,
         Func<bool> restoreHotkey,
-        IStartupRegistration? startup = null)
+        IStartupRegistration? startup = null,
+        Func<bool>? isHotkeyCaptureActive = null)
     {
         _catalog = catalog;
         _operations = operations;
@@ -41,6 +44,7 @@ internal sealed class SettingsWindow : Window
         _saveSettings = saveSettings;
         _beginHotkeyCapture = beginHotkeyCapture;
         _restoreHotkey = restoreHotkey;
+        _isHotkeyCaptureActive = isHotkeyCaptureActive ?? (() => false);
         _startup = startup ?? new StartupRegistration();
         Title = "Quail Settings";
         Content = CreateRoot();
@@ -48,9 +52,17 @@ internal sealed class SettingsWindow : Window
         _operations.Changed += OnOperationsChanged;
         Closed += (_, _) =>
         {
+            RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Closed);
             _closing = true;
             _operations.Changed -= OnOperationsChanged;
             ClosedByUser?.Invoke();
+        };
+        Activated += (_, args) =>
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Deactivated);
+            }
         };
     }
 
@@ -76,6 +88,7 @@ internal sealed class SettingsWindow : Window
         var navigation = new NavigationView
         {
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
+            IsSettingsVisible = false,
             PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
             Content = _content
         };
@@ -84,7 +97,11 @@ internal sealed class SettingsWindow : Window
         navigation.MenuItems.Add(new NavigationViewItem { Content = "About", Tag = "about", Icon = new SymbolIcon(Symbol.Help) });
         navigation.SelectionChanged += (_, args) =>
         {
-            if (args.SelectedItem is NavigationViewItem item && item.Tag is string page) Navigate(page);
+            if (args.SelectedItem is NavigationViewItem item && item.Tag is string page)
+            {
+                RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Deactivated);
+                Navigate(page);
+            }
         };
         navigation.SelectedItem = navigation.MenuItems[0];
         Navigate("general");
@@ -140,6 +157,7 @@ internal sealed class SettingsWindow : Window
         }
         _settings = proposed.Normalize();
         ApplyTheme(_settings.Theme);
+        RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Saved);
         ShowGeneralError(null);
     }
 
@@ -160,6 +178,11 @@ internal sealed class SettingsWindow : Window
         if (!SettingsHotkeyRestoreGuard.TryRestore(_restoreHotkey, out var error)) ShowGeneralError(error);
     }
 
+    private void RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent @event)
+    {
+        if (SettingsWindowHotkeyLifecycle.ShouldRestoreHotkey(_isHotkeyCaptureActive(), @event)) RestoreHotkey();
+    }
+
     private void ShowGeneralError(string? error)
     {
         if (_generalError is null) return;
@@ -177,7 +200,12 @@ internal sealed class SettingsWindow : Window
         foreach (var volume in VolumeDiscovery.Discover().Where(volume => !_catalog.IsConfigured(volume.StableIdentity)))
         {
             var add = new Button { Content = $"Add {volume.MountPoint}", HorizontalAlignment = HorizontalAlignment.Left };
-            add.Click += async (_, _) => { await _catalog.AddAsync(volume); Navigate("indexing", "Volume added. Build it before it can be searched."); };
+            add.IsEnabled = !_operations.HasRunningOperations;
+            add.Click += async (_, _) => await RunIndexActionAsync(async () =>
+            {
+                await _catalog.AddAsync(volume);
+                Navigate("indexing", "Volume added. Build it before it can be searched.");
+            });
             panel.Children.Add(add);
         }
         if (message is not null) panel.Children.Add(Description(message));
@@ -190,33 +218,50 @@ internal sealed class SettingsWindow : Window
         var health = _maintenanceState.GetHealth(entry.VolumeIdentity);
         var registered = health is not null || _maintenanceState.IsRegistered(entry.VolumeIdentity);
         var panel = new StackPanel { Spacing = 8 };
+        if (_operations.HasRunningOperations)
+        {
+            panel.Children.Add(new ProgressBar { IsIndeterminate = true, Height = 5 });
+            panel.Children.Add(Description("An index operation is in progress."));
+        }
         panel.Children.Add(new TextBlock { Text = entry.MountPoint, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(new TextBlock { Text = HealthLabel(presentation.Status.State, health), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(Description(presentation.VolumeDetail ?? HealthDetail(presentation.Status, health)));
-        panel.Children.Add(Description(entry.EnabledForSearch ? "Available to Quick Search" : "Not available to Quick Search"));
+        panel.Children.Add(Description(entry.EnabledForSearch ? "Enabled for Quick Search" : "Disabled for Quick Search"));
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var policy = IndexingActionPolicy.For(presentation.Status.State, registered);
+        var policy = IndexingActionPolicy.For(presentation.Status.State, registered, health?.State);
         if (policy.PrimaryOperation is { } primaryOperation) AddOperation(actions, primaryOperation, entry, primary: true, enableAfterBuild: policy.EnableAfterBuild);
         if (policy.ShowSecondaryRebuild) AddOperation(actions, AdminIndexOperation.Rebuild, entry, primary: false);
         AddAction(actions, entry.EnabledForSearch ? "Disable" : "Enable", async () => { await _catalog.SetEnabledAsync(entry.VolumeIdentity, !entry.EnabledForSearch); Navigate("indexing"); });
-        AddOperation(actions, AdminIndexOperation.Unregister, entry, primary: false);
+        AddOperation(actions, AdminIndexOperation.Unregister, entry, primary: false, label: "Remove");
         panel.Children.Add(actions);
         return Card(panel);
     }
 
-    private void AddOperation(StackPanel panel, AdminIndexOperation operation, IndexCatalogEntry entry, bool primary, bool enableAfterBuild = false) =>
-        AddAction(panel, operation.ToString(), async () =>
+    private void AddOperation(StackPanel panel, AdminIndexOperation operation, IndexCatalogEntry entry, bool primary, bool enableAfterBuild = false, string? label = null) =>
+        AddAction(panel, label ?? operation.ToString(), async () =>
         {
             var result = await _operations.StartAsync(operation, entry, enableAfterBuild);
             Navigate("indexing", result.Success ? $"{operation} completed." : result.Detail ?? $"{operation} failed.");
         }, primary);
 
-    private static void AddAction(StackPanel panel, string text, Func<Task> action, bool primary = false)
+    private void AddAction(StackPanel panel, string text, Func<Task> action, bool primary = false)
     {
-        var button = new Button { Content = text };
+        var button = new Button { Content = text, IsEnabled = !_operations.HasRunningOperations };
         if (primary) button.Style = Application.Current.Resources["QuailPrimaryActionButtonStyle"] as Style;
-        button.Click += async (_, _) => await action();
+        button.Click += async (_, _) => await RunIndexActionAsync(action);
         panel.Children.Add(button);
+    }
+
+    private async Task RunIndexActionAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception exception)
+        {
+            Navigate("indexing", exception.Message);
+        }
     }
 
     private UIElement CreateAboutPage()
@@ -233,6 +278,9 @@ internal sealed class SettingsWindow : Window
     {
         var requested = theme switch { "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default };
         if (Content is FrameworkElement root) root.RequestedTheme = requested;
+        var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
+        var value = useDark ? 1u : 0u;
+        _ = NativeMethods.DwmSetWindowAttribute(WindowNative.GetWindowHandle(this), NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
     }
 
     private void OnOperationsChanged()
@@ -258,7 +306,20 @@ internal sealed class SettingsWindow : Window
         _ => state switch { IndexState.RebuildRequired or IndexState.Incomplete => "Rebuild required", IndexState.Absent => "Not built", IndexState.Complete => "Maintenance unavailable", _ => "Maintenance error" }
     };
 
-    private static string HealthDetail(IndexStatus status, MaintenanceTargetHealth? health) => health?.Reason ?? (status.State == IndexState.Complete ? $"{status.RecordCount:N0} records. Last maintained: {status.LastRefreshedUtc?.ToString("g") ?? "unknown"}." : status.Detail ?? string.Empty);
+    private static string HealthDetail(IndexStatus status, MaintenanceTargetHealth? health) => health?.State switch
+    {
+        MaintenanceHealthState.Healthy => $"{status.RecordCount:N0} records. Last maintained: {health.LastSuccessfulMaintenanceUtc?.ToString("g") ?? status.LastRefreshedUtc?.ToString("g") ?? "unknown"}.",
+        MaintenanceHealthState.CatchingUp => "Quail is applying filesystem changes.",
+        MaintenanceHealthState.Unavailable or MaintenanceHealthState.Retrying => "Filesystem maintenance is temporarily unavailable and will retry.",
+        MaintenanceHealthState.RebuildRequired => "Quail can no longer prove incremental index continuity. Rebuild the index to use it again.",
+        MaintenanceHealthState.Error => "Filesystem maintenance encountered an error.",
+        _ => status.State == IndexState.Complete ? $"{status.RecordCount:N0} records. Last maintained: {status.LastRefreshedUtc?.ToString("g") ?? "unknown"}." : "The index needs attention."
+    };
+    private static bool IsSystemDark()
+    {
+        var color = new UISettings().GetColorValue(UIColorType.Background);
+        return color.R + color.G + color.B < 384;
+    }
     private static bool IsDown(VirtualKey key) => (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) != 0;
     private static Border Card(UIElement content) => new() { Style = Application.Current.Resources["QuailSettingsCardStyle"] as Style, Child = content };
     private static TextBlock Description(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Style = Application.Current.Resources["QuailSecondaryTextStyle"] as Style };

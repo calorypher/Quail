@@ -83,7 +83,8 @@ public sealed partial class App : Application
             window.CurrentSettings,
             window.TryApplySettingsAsync,
             window.BeginHotkeyCapture,
-            window.RestoreHotkeyAfterCapture);
+            window.RestoreHotkeyAfterCapture,
+            isHotkeyCaptureActive: () => window.IsHotkeyCaptureActive);
         _settingsWindow.ClosedByUser += () => _settingsWindow = null;
         _settingsWindow.ActivateSettings();
     }

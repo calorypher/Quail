@@ -56,6 +56,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     internal string CurrentTheme => _settings.Theme;
     internal ShellSettings CurrentSettings => _settings;
+    internal bool IsHotkeyCaptureActive => _hotkeyCaptureSession.IsActive;
 
     internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showSettings)
     {

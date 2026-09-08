@@ -7,10 +7,10 @@ internal readonly record struct IndexingActionPolicy(
     bool ShowSecondaryRebuild,
     bool EnableAfterBuild)
 {
-    public static IndexingActionPolicy For(IndexState state, bool isMachineTargetRegistered) =>
+    public static IndexingActionPolicy For(IndexState state, bool isMachineTargetRegistered, MaintenanceHealthState? healthState = null) =>
         !isMachineTargetRegistered
             ? new(AdminIndexOperation.Build, false, state == IndexState.Absent)
-            : state is IndexState.RebuildRequired or IndexState.Incomplete
+            : healthState == MaintenanceHealthState.RebuildRequired || state is IndexState.RebuildRequired or IndexState.Incomplete
                 ? new(AdminIndexOperation.Rebuild, false, false)
                 : new(null, true, false);
 }
