@@ -2,13 +2,12 @@
 
 ## Status
 
-**FINAL-QA CORRECTIONS COMPLETE — PR candidate ready for focused independent
-delta re-review.**
+**COMPLETE / MERGED — focused independent delta re-review passed, the user
+provided explicit merge approval, and PR #21 merged to `main` as
+`cec6803a2753835617bd31486e97786356a234f2`.**
 
 The implementation, Phase B campaign, and three corrections requested by the
-first independent final-QA pass are published as PR #21. M20 is not
-merge-approved: focused independent delta re-review remains an external
-acceptance gate.
+first independent final-QA pass were published as PR #21.
 
 ## Baseline and preparation
 
@@ -497,7 +496,7 @@ were preserved. The canonical VM repository remained clean at
 `5fc29ac589c8c19abd54131af122e0eac52dbb59`, and Hyper-V checkpoints were not
 modified.
 
-## Remaining external gates
+## Post-merge closure
 
 An earlier pre-correction cleanup audit found no temporary standard users,
 scheduled tasks, probe processes, or `D:\m20-*` artifacts and recorded the
@@ -508,6 +507,8 @@ checkpoint `27586976`, with the protected database preserved and the canonical
 VM repository clean at `5fc29ac589c8c19abd54131af122e0eac52dbb59`.
 
 Focused independent delta re-review of the three final-QA corrections passed.
-The only remaining gate before merge is explicit user approval. The only user-owned product check is the visual
-interactive UAC/window smoke noted above. The sleep/resume case is an explicit
-Quail-Lab environment limitation, not a product PASS. No M21 work is included.
+The user provided explicit merge approval, and PR #21 merged to `main` as
+`cec6803a2753835617bd31486e97786356a234f2`. The only user-owned product check
+is the visual interactive UAC/window smoke noted above. The sleep/resume case
+is an explicit Quail-Lab environment limitation, not a product PASS. No M21
+work is included.
