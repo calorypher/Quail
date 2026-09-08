@@ -499,13 +499,13 @@ modified.
 
 ## Remaining external gates
 
-The final cleanup audit found no temporary standard users, scheduled tasks,
-probe processes, or `D:\m20-*` artifacts. It removed only
-`C:\QuailLab\M20-PhaseB`; the service remained Running as LocalSystem,
-`Healthy`/trusted at checkpoint `27584048`, the protected database remained
-present, and the canonical VM repository was clean at
-`5fc29ac589c8c19abd54131af122e0eac52dbb59`. Hyper-V checkpoints were not
-modified.
+An earlier pre-correction cleanup audit found no temporary standard users,
+scheduled tasks, probe processes, or `D:\m20-*` artifacts and recorded the
+then-current service checkpoint `27584048`. That paragraph is retained only as
+historical pre-correction evidence. The authoritative final state after the
+correction pass is the cleanup and sanity result above: `Healthy`/trusted at
+checkpoint `27586976`, with the protected database preserved and the canonical
+VM repository clean at `5fc29ac589c8c19abd54131af122e0eac52dbb59`.
 
 Focused independent delta re-review must evaluate the three final-QA corrections
 before any merge recommendation. The only user-owned product check is the visual
