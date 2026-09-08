@@ -346,7 +346,11 @@ Acceptance boundary:
 
 Stop on an unresolved privilege-escalation/data-integrity concern, a requirement for a substantially broader privileged service, or a conflict with the protected index-storage model.
 
-### M20 — Continuous Filesystem Maintenance — PLANNED / NOT STARTED
+### M20 — Continuous Filesystem Maintenance — PR CANDIDATE
+
+Implementation and Phase B Quail-Lab verification are complete in PR #21.
+Independent adversarial review and final project QA remain required before merge.
+See `docs/milestones/M20-results.md`.
 
 **Goal:** make manual Refresh/Rebuild unnecessary for normal index freshness.
 

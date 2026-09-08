@@ -11,6 +11,7 @@ internal sealed class IndexManagerWindow : Window
 {
     private readonly IndexCatalogController _catalog;
     private readonly IndexOperationCoordinator _operations;
+    private readonly MaintenanceStateStore _maintenanceState = new();
     private readonly StackPanel _content = new() { Spacing = 12, Padding = new Thickness(18) };
     private readonly ScrollViewer _root;
     private readonly Grid _windowRoot;
@@ -86,7 +87,7 @@ internal sealed class IndexManagerWindow : Window
     {
         _content.Children.Clear();
         _content.Children.Add(new TextBlock { Text = "Indexes", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        _content.Children.Add(Description("Manage the local volumes that Quick Search can use. Building and refreshing an index may request administrator approval."));
+        _content.Children.Add(Description("Manage the local volumes that Quick Search can use. The maintenance service keeps built indexes current; build and rebuild require administrator approval."));
         if (_operations.HasRunningOperations)
         {
             var progress = new StackPanel { Spacing = 10 };
@@ -135,7 +136,9 @@ internal sealed class IndexManagerWindow : Window
     {
         var presentation = FileSystemIndexAdministration.GetPresentation(entry);
         var status = presentation.Status;
-        var availability = IndexManagerActionAvailability.For(status.State);
+        var availability = IndexManagerActionAvailability.For(
+            status.State,
+            _maintenanceState.IsRegistered(entry.VolumeIdentity));
         var panel = new StackPanel
         {
             Spacing = 10
@@ -154,7 +157,7 @@ internal sealed class IndexManagerWindow : Window
         AddAction(
             actions,
             availability.PrimaryOperation.ToString(),
-            () => RunOperationAsync(availability.PrimaryOperation, entry),
+            () => RunOperationAsync(availability.PrimaryOperation, entry, availability.EnableAfterBuild),
             primary: true,
             enabled: !_operations.HasRunningOperations);
         if (availability.ShowRebuild)
@@ -165,21 +168,11 @@ internal sealed class IndexManagerWindow : Window
                 () => RunOperationAsync(AdminIndexOperation.Rebuild, entry),
                 enabled: !_operations.HasRunningOperations);
         }
-        if (availability.ShowRefresh)
-        {
-            AddAction(
-                actions,
-                "Refresh",
-                () => RunOperationAsync(AdminIndexOperation.Refresh, entry),
-                enabled: availability.RefreshAvailable && !_operations.HasRunningOperations);
-        }
         AddAction(actions, entry.EnabledForSearch ? "Disable" : "Enable", () => RunUiActionAsync(() => _catalog.SetEnabledAsync(entry.VolumeIdentity, !entry.EnabledForSearch)), enabled: !_operations.HasRunningOperations);
         AddAction(
             actions,
             "Remove",
-            () => RunUiActionAsync(
-                () => _catalog.RemoveAsync(entry.VolumeIdentity),
-                "Index configuration removed. The database remains on disk."),
+            () => RunOperationAsync(AdminIndexOperation.Unregister, entry),
             tertiary: true,
             enabled: !_operations.HasRunningOperations);
         panel.Children.Add(actions);
@@ -236,13 +229,16 @@ internal sealed class IndexManagerWindow : Window
         panel.Children.Add(button);
     }
 
-    private async Task RunOperationAsync(AdminIndexOperation operation, IndexCatalogEntry entry)
+    private async Task RunOperationAsync(
+        AdminIndexOperation operation,
+        IndexCatalogEntry entry,
+        bool enableAfterBuild = true)
     {
         Render($"{operation} is running with administrator approval…");
         AdminOperationResult result;
         try
         {
-            result = await _operations.StartAsync(operation, entry);
+            result = await _operations.StartAsync(operation, entry, enableAfterBuild);
         }
         catch (Exception exception)
         {
@@ -253,7 +249,7 @@ internal sealed class IndexManagerWindow : Window
         {
             return;
         }
-        Render(result.Success ? result.RebuildRequired ? "Refresh completed: rebuild is required." : $"{operation} completed." : result.Detail ?? $"{operation} failed.");
+        Render(result.Success ? result.RebuildRequired ? "Maintenance requires an explicit rebuild." : $"{operation} completed." : result.Detail ?? $"{operation} failed.");
     }
 
     private async Task RunUiActionAsync(Func<Task> action, string? successMessage = null)
@@ -303,8 +299,10 @@ internal sealed class IndexManagerWindow : Window
 
     private static string StatusDetails(IndexStatus status)
     {
-        var metadata = status.State == IndexState.Complete ? $"{status.RecordCount:N0} records. Last refreshed: {status.LastRefreshedUtc?.ToString("O") ?? "unknown"}." : string.Empty;
-        return string.Join(" ", new[] { metadata, status.Detail, IndexFreshnessPolicy.Describe(status, DateTimeOffset.UtcNow) }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var metadata = status.State == IndexState.Complete
+            ? $"{status.RecordCount:N0} records. Last maintained: {status.LastRefreshedUtc?.ToString("O") ?? "unknown"}."
+            : string.Empty;
+        return string.Join(" ", new[] { metadata, status.Detail }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static string StateLabel(IndexState state) => state switch

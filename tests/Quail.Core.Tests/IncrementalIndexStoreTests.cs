@@ -148,6 +148,39 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_clustered_burst_relabels_at_most_one_chunk()
+    {
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000011"), _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000012"), _root, "zzzz", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+        var records = Enumerable.Range(0, 500)
+            .Select(index => new JournalRecord(
+                new NamespaceRecord(
+                    Id((0x1000L + index).ToString("X16")),
+                    _root,
+                    $"burst{index:D4}",
+                    0,
+                    index + 1,
+                    2),
+                UsnReason.FileCreate))
+            .ToArray();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, records)]);
+
+        AssertShortQueryIntegrity();
+        Assert.Equal(503, Store.GetStatus().RecordCount);
+        Assert.Equal(
+            "burst0499",
+            Assert.Single(Store.Search(new FileSearchQuery("burst0499", Limit: 1))).Name);
+    }
+
+    [Fact]
     public void Short_query_deduplicates_metadata_acquisition_without_relabeling_metadata_only_updates()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
@@ -787,6 +820,27 @@ public sealed class IncrementalIndexStoreTests : IDisposable
         reopened.ApplyParsedBatchesForTesting(Volume, Journal(100), new[] { batch });
         Assert.Equal(200, reopened.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("X:\\alpha\\renamed.txt", reopened.ReconstructPath(_file).Path);
+    }
+
+    [Fact]
+    public void Close_only_record_after_delete_does_not_reinsert_deleted_entry()
+    {
+        Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
+        var deleted = new NamespaceRecord(_file, _directoryId, "file.txt", 0, 150, 2);
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(300),
+            [
+                Batch(200, new JournalRecord(deleted, UsnReason.FileDelete | UsnReason.Close)),
+                Batch(300, new JournalRecord(deleted, UsnReason.Close))
+            ]);
+
+        var status = Store.GetStatus();
+        Assert.Equal(300, status.Checkpoint!.NextUsn);
+        Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.FileId.Equals(_file));
+        Assert.Empty(Store.Search(new FileSearchQuery("file")));
+        AssertShortQueryIntegrity();
     }
 
     [Fact]

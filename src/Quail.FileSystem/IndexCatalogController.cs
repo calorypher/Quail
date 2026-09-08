@@ -5,6 +5,7 @@ public sealed class IndexCatalogController
     private readonly IIndexCatalogStore _store;
     private readonly Func<string, VolumeDescriptor> _validateVolume;
     private readonly Func<string, IndexStatus> _readStatus;
+    private readonly Func<string, MaintenanceTargetHealth?> _readMaintenanceHealth;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly Dictionary<string, long> _entryRevisions = new(StringComparer.OrdinalIgnoreCase);
@@ -12,17 +13,28 @@ public sealed class IndexCatalogController
     private string? _loadError;
     private string[] _activePaths = [];
 
-    public IndexCatalogController(IIndexCatalogStore? store = null, Func<string, VolumeDescriptor>? validateVolume = null, Func<string, IndexStatus>? readStatus = null)
+    public IndexCatalogController(
+        IIndexCatalogStore? store = null,
+        Func<string, VolumeDescriptor>? validateVolume = null,
+        Func<string, IndexStatus>? readStatus = null,
+        Func<string, MaintenanceTargetHealth?>? readMaintenanceHealth = null)
     {
         _store = store ?? new IndexCatalogStore();
         _validateVolume = validateVolume ?? NtfsVolume.Validate;
         _readStatus = readStatus ?? FileSystemIndexAdministration.GetStatus;
+        _readMaintenanceHealth = readMaintenanceHealth ?? new MaintenanceStateStore().GetHealth;
     }
 
     public string? LoadError { get { lock (_gate) return _loadError; } }
     public IReadOnlyList<IndexCatalogEntry> Entries { get { lock (_gate) return _catalog.Entries.ToArray(); } }
     public IReadOnlyList<string> ActivePaths => Volatile.Read(ref _activePaths);
     public event Action? ActivePathsChanged;
+
+    public IReadOnlyList<string> GetActivePathsForSearch()
+    {
+        ReevaluateActivePaths();
+        return ActivePaths;
+    }
 
     public async Task LoadAsync()
     {
@@ -157,7 +169,10 @@ public sealed class IndexCatalogController
             }
 
             var status = _readStatus(entry.DatabasePath);
+            var health = _readMaintenanceHealth(entry.VolumeIdentity);
             return status.State == IndexState.Complete &&
+                   health is { TrustedForSearch: true } &&
+                   health.State != MaintenanceHealthState.RebuildRequired &&
                    string.Equals(status.VolumeIdentity, entry.VolumeIdentity, StringComparison.OrdinalIgnoreCase) &&
                    string.Equals(status.VolumeIdentity, currentVolume.StableIdentity, StringComparison.OrdinalIgnoreCase);
         }

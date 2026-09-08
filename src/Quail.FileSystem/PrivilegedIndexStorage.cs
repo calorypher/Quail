@@ -27,9 +27,27 @@ public sealed class PrivilegedIndexStorageLease : IDisposable
     }
 }
 
+public sealed class PrivilegedMachineStateLease : IDisposable
+{
+    private readonly IReadOnlyList<IDisposable> _resources;
+
+    internal PrivilegedMachineStateLease(IReadOnlyList<IDisposable> resources)
+    {
+        _resources = resources;
+    }
+
+    public void Dispose()
+    {
+        for (var index = _resources.Count - 1; index >= 0; index--)
+        {
+            _resources[index].Dispose();
+        }
+    }
+}
+
 public static class PrivilegedIndexStorage
 {
-    private const string SecureDirectorySddl = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)";
+    internal const string SecureDirectorySddl = "O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)";
     private const uint FileListDirectory = 0x0001;
     private const uint FileReadAttributes = 0x0080;
     private const uint ReadControl = 0x00020000;
@@ -58,6 +76,32 @@ public static class PrivilegedIndexStorage
         "Quail");
 
     public static string IndexesPath => Path.Combine(RootPath, "Indexes");
+
+    public static string MaintenanceTargetsPath => Path.Combine(RootPath, "maintenance-targets.json");
+
+    public static string MaintenanceHealthPath => Path.Combine(RootPath, "maintenance-health.json");
+
+    public static PrivilegedMachineStateLease AcquireMachineState()
+    {
+        var resources = new List<IDisposable>();
+        try
+        {
+            var commonApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            resources.Add(OpenDirectoryWithoutReparse(commonApplicationData));
+            resources.Add(OpenOrCreateSecureDirectory(RootPath));
+            ValidateMachineStateFiles();
+            return new PrivilegedMachineStateLease(resources);
+        }
+        catch
+        {
+            for (var index = resources.Count - 1; index >= 0; index--)
+            {
+                resources[index].Dispose();
+            }
+
+            throw;
+        }
+    }
 
     public static PrivilegedIndexStorageLease Acquire(string volumeIdentity)
     {
@@ -110,6 +154,20 @@ public static class PrivilegedIndexStorage
             databasePath + ".building-wal",
             databasePath + ".building-shm",
             databasePath + ".previous"
+        })
+        {
+            ValidateNotReparseIfPresent(path);
+        }
+    }
+
+    internal static void ValidateMachineStateFiles()
+    {
+        foreach (var path in new[]
+        {
+            MaintenanceTargetsPath,
+            MaintenanceTargetsPath + ".previous",
+            MaintenanceHealthPath,
+            MaintenanceHealthPath + ".previous"
         })
         {
             ValidateNotReparseIfPresent(path);

@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Quail.App\AppLog.cs" Link="App\AppLog.cs" />
-    <Compile Include="..\..\src\Quail.App\IndexFreshness.cs" Link="App\IndexFreshness.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerWindowLayout.cs" Link="App\IndexManagerWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerActionAvailability.cs" Link="App\IndexManagerActionAvailability.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
@@ -23,6 +22,7 @@
     <Compile Include="..\..\src\Quail.App\NativeMethods.cs" Link="App\NativeMethods.cs" />
     <Compile Include="..\..\src\Quail.App\LatestSearchCoordinator.cs" Link="App\LatestSearchCoordinator.cs" />
     <Compile Include="..\..\src\Quail.App\SearchRuntime.cs" Link="App\SearchRuntime.cs" />
+    <Compile Include="..\..\src\Quail.App\FileSystemSearchComposition.cs" Link="App\FileSystemSearchComposition.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceTrace.cs" Link="App\SearchPerformanceTrace.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceScenario.cs" Link="App\SearchPerformanceScenario.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceRenderWaiter.cs" Link="App\SearchPerformanceRenderWaiter.cs" />

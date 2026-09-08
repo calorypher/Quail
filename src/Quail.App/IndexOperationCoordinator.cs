@@ -23,7 +23,10 @@ internal sealed class IndexOperationCoordinator
     public bool HasRunningOperations { get { lock (_gate) return _running.Count != 0; } }
     public IReadOnlyList<RunningIndexOperation> Running { get { lock (_gate) return _running.Values.ToArray(); } }
 
-    public Task<AdminOperationResult> StartAsync(AdminIndexOperation operation, IndexCatalogEntry entry)
+    public Task<AdminOperationResult> StartAsync(
+        AdminIndexOperation operation,
+        IndexCatalogEntry entry,
+        bool enableAfterBuild = true)
     {
         var snapshot = _catalog.GetEntrySnapshot(entry.VolumeIdentity)
             ?? throw new InvalidOperationException("The configured index no longer exists.");
@@ -36,7 +39,7 @@ internal sealed class IndexOperationCoordinator
         }
 
         Changed?.Invoke();
-        _ = ExecuteAsync(operation, snapshot.Entry, snapshot.Revision, completion);
+        _ = ExecuteAsync(operation, snapshot.Entry, snapshot.Revision, enableAfterBuild, completion);
         return completion.Task;
     }
 
@@ -44,13 +47,14 @@ internal sealed class IndexOperationCoordinator
         AdminIndexOperation operation,
         IndexCatalogEntry entry,
         long entryRevision,
+        bool enableAfterBuild,
         TaskCompletionSource<AdminOperationResult> completion)
     {
         AdminOperationResult result;
         try
         {
             result = await _run(operation, entry);
-            if (result.Success && !result.RebuildRequired && operation == AdminIndexOperation.Build)
+            if (result.Success && !result.RebuildRequired && operation == AdminIndexOperation.Build && enableAfterBuild)
             {
                 try
                 {
@@ -62,6 +66,23 @@ internal sealed class IndexOperationCoordinator
                     {
                         Success = false,
                         Detail = $"Build completed, but the catalog could not be updated: {exception.Message}",
+                        Status = "Error"
+                    };
+                }
+            }
+
+            if (result.Success && !result.RebuildRequired && operation == AdminIndexOperation.Unregister)
+            {
+                try
+                {
+                    await _catalog.RemoveAsync(entry.VolumeIdentity);
+                }
+                catch (Exception exception)
+                {
+                    result = result with
+                    {
+                        Success = false,
+                        Detail = $"Unregister completed, but the user catalog could not be updated: {exception.Message}",
                         Status = "Error"
                     };
                 }
