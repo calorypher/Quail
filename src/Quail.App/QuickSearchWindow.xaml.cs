@@ -42,9 +42,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private Win32WindowHook? _windowHook;
     private TrayIconController? _trayIcon;
     private readonly HotkeyCaptureSession _hotkeyCaptureSession = new();
-    private HotkeyDefinition _registeredHotkey;
     private HotkeyDefinition _captureOriginalHotkey;
-    private bool _isHotkeyRegistered;
+    private HotkeyRegistration? _hotkeyRegistration;
     private bool _overlayVisible;
     private bool _exiting;
     private int _visibleReadyCount;
@@ -52,11 +51,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private int _selectedResultIndex = -1;
     private QuickSearchOverlayMode _overlayMode = QuickSearchOverlayMode.Expanded;
     private bool _shellIconFailureLogged;
+    private string? _startupHotkeyError;
     private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
 
     internal string CurrentTheme => _settings.Theme;
     internal ShellSettings CurrentSettings => _settings;
     internal bool IsHotkeyCaptureActive => _hotkeyCaptureSession.IsActive;
+    internal string? StartupHotkeyError => _startupHotkeyError;
 
     internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showSettings)
     {
@@ -108,9 +109,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
         NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         _windowHook = new Win32WindowHook(_windowHandle, OnWindowMessage);
+        _hotkeyRegistration = new HotkeyRegistration(
+            hotkey => NativeMethods.RegisterHotKey(_windowHandle, HotkeyId, hotkey.Modifiers, hotkey.VirtualKey),
+            () => NativeMethods.UnregisterHotKey(_windowHandle, HotkeyId));
         if (!TryRegisterHotkey(_settings.Hotkey, out var error))
         {
-            throw new InvalidOperationException(error);
+            _startupHotkeyError = HotkeyStartupLifecycle.UnavailableMessage;
+            AppLog.Write($"Initial hotkey registration failed but startup continues: {error}");
         }
 
         _trayIcon = new TrayIconController(_windowHandle);
@@ -118,7 +123,10 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         {
             AppLog.Write("Tray integration is unavailable in this desktop session; the resident shell remains active.");
         }
-        AppLog.Write($"Hotkey registered: {_registeredHotkey.DisplayText}.");
+        if (_hotkeyRegistration.IsRegistered)
+        {
+            AppLog.Write($"Hotkey registered: {_hotkeyRegistration.Registered.DisplayText}.");
+        }
 
         if (_options.ShowOnStart)
         {
@@ -163,10 +171,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _exiting = true;
         _trayIcon?.Dispose();
         _trayIcon = null;
-        if (_windowHandle != 0 && _isHotkeyRegistered)
+        if (_windowHandle != 0 && _hotkeyRegistration?.IsRegistered == true)
         {
             NativeMethods.UnregisterHotKey(_windowHandle, HotkeyId);
-            _isHotkeyRegistered = false;
         }
         _windowHook?.Dispose();
         _windowHook = null;
@@ -277,35 +284,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private bool TryRegisterHotkey(string value, out string error)
     {
-        error = string.Empty;
-        if (!HotkeyDefinition.TryParse(value, out var requested))
+        var registration = _hotkeyRegistration ?? throw new InvalidOperationException("Hotkey registration is unavailable.");
+        if (registration.TryRegister(value, out error))
         {
-            error = "Hotkey must use Ctrl, Alt, Shift, or Win plus one letter, digit, or Space.";
-            return false;
+            HotkeyText.Text = registration.Registered.DisplayText;
+            return true;
         }
-        if (_isHotkeyRegistered)
-        {
-            NativeMethods.UnregisterHotKey(_windowHandle, HotkeyId);
-            _isHotkeyRegistered = false;
-        }
-        if (!NativeMethods.RegisterHotKey(_windowHandle, HotkeyId, requested.Modifiers, requested.VirtualKey))
-        {
-            var restored = false;
-            if (_registeredHotkey.VirtualKey != 0)
-            {
-                restored = NativeMethods.RegisterHotKey(_windowHandle, HotkeyId, _registeredHotkey.Modifiers, _registeredHotkey.VirtualKey);
-            }
-            _isHotkeyRegistered = restored;
-            error = restored
-                ? "That hotkey is unavailable. The previous Quail hotkey remains active."
-                : "That hotkey is unavailable, and Quail could not restore the previous hotkey.";
-            AppLog.Write($"Hotkey registration failed: {requested.DisplayText}; previous hotkey restored={restored}.");
-            return false;
-        }
-        _registeredHotkey = requested;
-        _isHotkeyRegistered = true;
-        HotkeyText.Text = requested.DisplayText;
-        return true;
+
+        var requested = HotkeyDefinition.TryParse(value, out var parsed) ? parsed.DisplayText : value;
+        AppLog.Write($"Hotkey registration failed: {requested}; previous hotkey restored={registration.IsRegistered}.");
+        return false;
     }
 
     private void ShowSettings() => _showSettings();
@@ -320,6 +308,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
         _hotkeyCaptureSession.CompleteSave();
         _settings = proposed;
+        _startupHotkeyError = null;
         ApplyTheme(proposed.Theme);
         await _settingsStore.SaveAsync(proposed);
         return null;
@@ -332,7 +321,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             return;
         }
 
-        _captureOriginalHotkey = _registeredHotkey;
+        _captureOriginalHotkey = _hotkeyRegistration?.Registered ?? default;
         SuspendRegisteredHotkeyForCapture();
     }
 
@@ -346,37 +335,36 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void SuspendRegisteredHotkeyForCapture()
     {
-        if (!_isHotkeyRegistered || _registeredHotkey.VirtualKey == 0)
+        var registration = _hotkeyRegistration;
+        if (registration is null || !registration.IsRegistered || registration.Registered.VirtualKey == 0)
         {
             return;
         }
 
-        if (NativeMethods.UnregisterHotKey(_windowHandle, HotkeyId))
+        if (registration.Suspend())
         {
-            _isHotkeyRegistered = false;
-            AppLog.Write($"Hotkey capture suspended {_registeredHotkey.DisplayText}.");
+            AppLog.Write($"Hotkey capture suspended {registration.Registered.DisplayText}.");
         }
         else
         {
-            AppLog.Write($"Hotkey capture could not suspend {_registeredHotkey.DisplayText}; Win32 error {Marshal.GetLastWin32Error()}.");
+            AppLog.Write($"Hotkey capture could not suspend {registration.Registered.DisplayText}; Win32 error {Marshal.GetLastWin32Error()}.");
         }
     }
 
     internal bool RestoreHotkeyAfterCapture()
     {
-        if (!_hotkeyCaptureSession.IsActive || _isHotkeyRegistered || _captureOriginalHotkey.VirtualKey == 0)
+        var registration = _hotkeyRegistration;
+        if (registration is null || !_hotkeyCaptureSession.IsActive || registration.IsRegistered || _captureOriginalHotkey.VirtualKey == 0)
         {
             _hotkeyCaptureSession.CompleteCancel(true);
             return true;
         }
 
-        if (NativeMethods.RegisterHotKey(_windowHandle, HotkeyId, _captureOriginalHotkey.Modifiers, _captureOriginalHotkey.VirtualKey))
+        if (registration.Restore(_captureOriginalHotkey))
         {
-            _registeredHotkey = _captureOriginalHotkey;
-            _isHotkeyRegistered = true;
-            HotkeyText.Text = _registeredHotkey.DisplayText;
+            HotkeyText.Text = registration.Registered.DisplayText;
             _hotkeyCaptureSession.CompleteCancel(true);
-            AppLog.Write($"Hotkey capture restored {_registeredHotkey.DisplayText}.");
+            AppLog.Write($"Hotkey capture restored {registration.Registered.DisplayText}.");
             return true;
         }
 
@@ -806,22 +794,15 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated &&
-            QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(false, _hotkeyCaptureSession.IsActive))
-        {
-            RestoreHotkeyAfterCapture();
-            return;
-        }
-
         if (args.WindowActivationState != WindowActivationState.Deactivated ||
-            !QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, false, _exiting))
+            !QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, _exiting))
         {
             return;
         }
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, false, _exiting) &&
+            if (QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, _exiting) &&
                 NativeMethods.GetForegroundWindow() != _windowHandle)
             {
                 HideOverlay("deactivated");

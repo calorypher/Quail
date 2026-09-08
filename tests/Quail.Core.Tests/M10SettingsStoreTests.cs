@@ -13,6 +13,7 @@ public sealed class M10SettingsStoreTests : IDisposable
         var settings = await CreateStore().LoadAsync();
 
         Assert.Equal(ShellSettings.Default, settings);
+        Assert.Equal("Alt+Space", settings.Hotkey);
     }
 
     [Fact]
@@ -50,6 +51,19 @@ public sealed class M10SettingsStoreTests : IDisposable
         var settings = await CreateStore().LoadAsync();
 
         Assert.Equal(ShellSettings.Default, settings);
+        Assert.Equal("Alt+Space", settings.Hotkey);
+    }
+
+    [Fact]
+    public async Task LoadAsync_PreservesExistingValidPreviousDefaultWithoutMigration()
+    {
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(SettingsPath, "{\"Hotkey\":\"Ctrl+Alt+Space\",\"Theme\":\"Light\"}");
+
+        var settings = await CreateStore().LoadAsync();
+
+        Assert.Equal("Ctrl+Alt+Space", settings.Hotkey);
+        Assert.Equal("Light", settings.Theme);
     }
 
     public void Dispose()

@@ -59,37 +59,26 @@ public sealed class M11QuickSearchOverlayLayoutTests
     [Fact]
     public void Deactivation_hides_normal_visible_quick_search()
     {
-        Assert.True(QuickSearchLifecycle.ShouldHideOnDeactivation(overlayVisible: true, settingsDialogActive: false, exiting: false));
+        Assert.True(QuickSearchLifecycle.ShouldHideOnDeactivation(overlayVisible: true, exiting: false));
     }
 
     [Fact]
-    public void Deactivation_does_not_hide_host_while_settings_are_active()
+    public void Deactivation_does_not_hide_quick_search_while_exiting()
     {
-        Assert.False(QuickSearchLifecycle.ShouldHideOnDeactivation(overlayVisible: true, settingsDialogActive: true, exiting: false));
+        Assert.False(QuickSearchLifecycle.ShouldHideOnDeactivation(overlayVisible: true, exiting: true));
     }
+}
 
-    [Fact]
-    public void Repeated_summon_activates_visible_settings_without_compact_reset()
+public sealed class SettingsWindowLayoutTests
+{
+    [Theory]
+    [InlineData(96u, 920, 680)]
+    [InlineData(144u, 1380, 1020)]
+    public void Initial_size_scales_with_current_window_dpi(uint dpi, int width, int height)
     {
-        Assert.Equal(
-            QuickSearchSummonBehavior.ActivateExistingSettings,
-            QuickSearchLifecycle.GetSummonBehavior(overlayVisible: true, settingsDialogActive: true));
-        Assert.False(QuickSearchLifecycle.ShouldToggleOverlayFromHotkey(settingsDialogActive: true));
-    }
+        var actual = SettingsWindowLayout.InitialSizeToPhysical(dpi);
 
-    [Fact]
-    public void Opening_settings_from_hidden_overlay_still_uses_normal_summon()
-    {
-        Assert.Equal(
-            QuickSearchSummonBehavior.ShowOverlay,
-            QuickSearchLifecycle.GetSummonBehavior(overlayVisible: false, settingsDialogActive: true));
-    }
-
-    [Fact]
-    public void Settings_deactivation_restores_an_active_hotkey_capture_only()
-    {
-        Assert.True(QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(settingsDialogActive: true, hotkeyCaptureActive: true));
-        Assert.False(QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(settingsDialogActive: true, hotkeyCaptureActive: false));
-        Assert.False(QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(settingsDialogActive: false, hotkeyCaptureActive: true));
+        Assert.Equal(width, actual.Width);
+        Assert.Equal(height, actual.Height);
     }
 }

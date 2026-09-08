@@ -7,6 +7,7 @@ using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using Windows.Graphics;
 
 namespace Quail.App;
 
@@ -21,12 +22,15 @@ internal sealed class SettingsWindow : Window
     private readonly Func<bool> _isHotkeyCaptureActive;
     private readonly MaintenanceStateStore _maintenanceState = new();
     private readonly Frame _content = new();
+    private readonly Grid _windowRoot = new();
+    private NavigationView? _navigation;
     private ShellSettings _settings;
     private TextBox? _hotkeyBox;
     private ComboBox? _themeBox;
     private ToggleSwitch? _startupToggle;
     private TextBlock? _generalError;
     private bool _closing;
+    private bool _initialSizeApplied;
 
     public SettingsWindow(
         IndexCatalogController catalog,
@@ -36,6 +40,7 @@ internal sealed class SettingsWindow : Window
         Action beginHotkeyCapture,
         Func<bool> restoreHotkey,
         IStartupRegistration? startup = null,
+        string? startupHotkeyError = null,
         Func<bool>? isHotkeyCaptureActive = null)
     {
         _catalog = catalog;
@@ -46,8 +51,11 @@ internal sealed class SettingsWindow : Window
         _restoreHotkey = restoreHotkey;
         _isHotkeyCaptureActive = isHotkeyCaptureActive ?? (() => false);
         _startup = startup ?? new StartupRegistration();
+        _initialGeneralError = startupHotkeyError;
         Title = "Quail Settings";
-        Content = CreateRoot();
+        _windowRoot.Style = Application.Current.Resources["QuailIndexRootStyle"] as Style;
+        _windowRoot.Children.Add(CreateRoot());
+        Content = _windowRoot;
         ApplyTheme(settings.Theme);
         _operations.Changed += OnOperationsChanged;
         Closed += (_, _) =>
@@ -71,10 +79,21 @@ internal sealed class SettingsWindow : Window
     public void ActivateSettings()
     {
         Activate();
-        if (AppWindow.Size.Width == 0)
+        if (!_initialSizeApplied)
         {
-            AppWindow.Resize(new Windows.Graphics.SizeInt32(920, 680));
+            DispatcherQueue.TryEnqueue(ApplyInitialSize);
         }
+    }
+
+    private string? _initialGeneralError;
+
+    private void ApplyInitialSize()
+    {
+        if (_initialSizeApplied) return;
+        var dpi = NativeMethods.GetDpiForWindow(WindowNative.GetWindowHandle(this));
+        var size = SettingsWindowLayout.InitialSizeToPhysical(dpi == 0 ? 96u : dpi);
+        AppWindow.Resize(new SizeInt32(size.Width, size.Height));
+        _initialSizeApplied = true;
     }
 
     public void ShowIndexingMessage(string message)
@@ -85,17 +104,17 @@ internal sealed class SettingsWindow : Window
 
     private UIElement CreateRoot()
     {
-        var navigation = new NavigationView
+        _navigation = new NavigationView
         {
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
             Content = _content
         };
-        navigation.MenuItems.Add(new NavigationViewItem { Content = "General", Tag = "general", Icon = new SymbolIcon(Symbol.Setting) });
-        navigation.MenuItems.Add(new NavigationViewItem { Content = "Indexing", Tag = "indexing", Icon = new SymbolIcon(Symbol.Folder) });
-        navigation.MenuItems.Add(new NavigationViewItem { Content = "About", Tag = "about", Icon = new SymbolIcon(Symbol.Help) });
-        navigation.SelectionChanged += (_, args) =>
+        _navigation.MenuItems.Add(new NavigationViewItem { Content = "General", Tag = "general", Icon = new SymbolIcon(Symbol.Setting) });
+        _navigation.MenuItems.Add(new NavigationViewItem { Content = "Indexing", Tag = "indexing", Icon = new SymbolIcon(Symbol.Folder) });
+        _navigation.MenuItems.Add(new NavigationViewItem { Content = "About", Tag = "about", Icon = new SymbolIcon(Symbol.Help) });
+        _navigation.SelectionChanged += (_, args) =>
         {
             if (args.SelectedItem is NavigationViewItem item && item.Tag is string page)
             {
@@ -103,9 +122,9 @@ internal sealed class SettingsWindow : Window
                 Navigate(page);
             }
         };
-        navigation.SelectedItem = navigation.MenuItems[0];
+        _navigation.SelectedItem = _navigation.MenuItems[0];
         Navigate("general");
-        return navigation;
+        return _navigation;
     }
 
     private void Navigate(string page, string? message = null)
@@ -143,6 +162,7 @@ internal sealed class SettingsWindow : Window
         _generalError = Description(string.Empty);
         _generalError.Visibility = Visibility.Collapsed;
         panel.Children.Add(_generalError);
+        ShowGeneralError(_initialGeneralError);
         return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
 
@@ -156,6 +176,7 @@ internal sealed class SettingsWindow : Window
             return;
         }
         _settings = proposed.Normalize();
+        _initialGeneralError = null;
         ApplyTheme(_settings.Theme);
         RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Saved);
         ShowGeneralError(null);
@@ -277,7 +298,9 @@ internal sealed class SettingsWindow : Window
     private void ApplyTheme(string theme)
     {
         var requested = theme switch { "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default };
-        if (Content is FrameworkElement root) root.RequestedTheme = requested;
+        _windowRoot.RequestedTheme = requested;
+        if (_navigation is not null) _navigation.RequestedTheme = requested;
+        _content.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(WindowNative.GetWindowHandle(this), NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
