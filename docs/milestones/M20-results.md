@@ -507,7 +507,7 @@ correction pass is the cleanup and sanity result above: `Healthy`/trusted at
 checkpoint `27586976`, with the protected database preserved and the canonical
 VM repository clean at `5fc29ac589c8c19abd54131af122e0eac52dbb59`.
 
-Focused independent delta re-review must evaluate the three final-QA corrections
-before any merge recommendation. The only user-owned product check is the visual
+Focused independent delta re-review of the three final-QA corrections passed.
+The only remaining gate before merge is explicit user approval. The only user-owned product check is the visual
 interactive UAC/window smoke noted above. The sleep/resume case is an explicit
 Quail-Lab environment limitation, not a product PASS. No M21 work is included.
