@@ -2,12 +2,13 @@
 
 ## Status
 
-**IMPLEMENTATION AND PHASE B VERIFICATION COMPLETE — PR candidate ready for
-independent adversarial review and final project QA.**
+**FINAL-QA CORRECTIONS COMPLETE — PR candidate ready for focused independent
+delta re-review.**
 
-The implementation and its planned Quail-Lab campaign are complete and published
-as PR #21. M20 is not merge-approved: independent adversarial review and
-independent project QA remain external acceptance gates.
+The implementation, Phase B campaign, and three corrections requested by the
+first independent final-QA pass are published as PR #21. M20 is not
+merge-approved: focused independent delta re-review remains an external
+acceptance gate.
 
 ## Baseline and preparation
 
@@ -308,12 +309,14 @@ committed checkpoint without rebuilding and returned to `Healthy`/trusted. A
   health-read path while maintenance was active. PID 5928 left Running, SCM
   recorded event 7031, recovery started PID 4684, and the service resumed healthy
   maintenance from checkpoint `26594800` to `26595136`.
-- A Windows restart test stopped maintenance, retained checkpoint `26598976`,
-  created a disposable change during downtime, and rebooted the guest. Automatic
-  Delayed Start correctly required longer than the first 60-second observation;
-  without another reboot or state repair, the bounded follow-up observed PID
-  4260, `Healthy`/trusted at checkpoint `26600192`, and Search returned the
-  downtime file.
+- The initial Windows restart test explicitly stopped maintenance, retained
+  checkpoint `26598976`, created a disposable change during downtime, and
+  rebooted the guest. Automatic Delayed Start correctly required longer than the
+  first 60-second observation; without another reboot or state repair, the
+  bounded follow-up observed PID 4260, `Healthy`/trusted at checkpoint
+  `26600192`, and Search returned the downtime file. This is retained as
+  pre-stopped downtime evidence only; it did not exercise the normal
+  `ServiceBase.OnShutdown` path.
 - `powercfg /a` showed that this Hyper-V Generation 2 guest exposes no S1, S2,
   S3, hibernation, S0 low-power idle, hybrid sleep, or fast-startup path. One
   capability attempt was therefore recorded as an environment limitation; VM
@@ -411,11 +414,13 @@ LocalSystem Automatic (Delayed Start), 5-second/30-second recovery actions, the
 SCM DACL, and healthy maintenance. The lab was returned to the installed state
 required for final QA.
 
-Final verification after the last code change:
+Final verification after the final-QA code changes:
 
-- focused incremental/M20 boundary tests: PASS, 46/46;
-- service lifecycle/composition tests: PASS, 10/10;
-- `dotnet test Quail.sln -c Release --no-restore`: PASS, 261 Core tests and 10
+- focused machine-state tests: PASS, including a held production snapshot
+  overlapping atomic replacement;
+- focused bootstrap/operation tests: PASS, 28/28;
+- service lifecycle/composition tests: PASS, 13/13;
+- `dotnet test Quail.sln -c Release --no-restore`: PASS, 270 Core tests and 13
   service tests, zero failures;
 - `dotnet build Quail.sln -c Release --no-restore`: PASS, zero warnings and zero
   errors;
@@ -426,14 +431,71 @@ Final verification after the last code change:
 Final package from the verified candidate:
 
 - payload files: 66;
-- payload bytes: 45,430,034;
-- installer bytes: 10,201,656;
+- payload bytes: 45,431,386;
+- installer bytes: 10,202,196;
 - staged/installed service DLL SHA-256:
-  `30de37bb23857ede138035934cd782efdbac0554619007d5c30095c794690a0c`;
+  `e148b558e2209e99b71817846ecdaf3986b661a051f0a19fd6281fa42b1044cc`;
 - staged/installed filesystem DLL SHA-256:
-  `c79d0b3e2f94332100ad3cf8a63966b8a3f9c4414709d4c7d42987c94631131c`;
+  `10d801bee06f05bcdd66644827526067248b0d641e3026c885e04b4bd490d0a5`;
 - installer SHA-256:
-  `6e9b7794c6050018432af5f18690592756c3136817b6ffbd586b5386cd8e7a52`.
+  `24b1249dc905e9c9e38fbe93b019888274aa88ee799750a9b7ebc73b4e0c3f08`.
+
+## Final-QA correction pass
+
+Independent final QA reviewed commit
+`4429170c7dda09e8a300c0707e5a4ca10ed6f1a4` and requested three bounded
+corrections. They were implemented as separate published commits:
+
+- `fd48b0a` allows protected machine-state readers to share delete access and
+  publishes replacement snapshots through `File.Replace`. A reader therefore
+  retains a coherent old snapshot while the service atomically publishes the
+  new one; filesystem ACLs remain the write authority.
+- `1912582` makes Index Manager distinguish a registered machine target from an
+  unregistered one. An existing complete database without a target now selects
+  administrator-authorized `Build`/`RegisterAndBuild`, while a registered
+  complete database still selects Rebuild. Existing user enablement is preserved
+  on bootstrap failure, cancellation, and success.
+- `818f585` enables Windows shutdown notifications and routes `OnShutdown`
+  through the same bounded, idempotent controlled cancellation path as
+  `OnStop`. Normal shutdown does not claim the runtime terminal-failure callback
+  and cannot double-stop or double-dispose the lifecycle.
+
+The focused Quail-Lab machine-state overlap used the exact installed
+`Quail.FileSystem.dll` (SHA-256
+`10d801bee06f05bcdd66644827526067248b0d641e3026c885e04b4bd490d0a5`).
+It held generation 3 `Healthy`/trusted health open while controlled service stop
+published `Unavailable`/untrusted. The write completed without a sharing
+violation, the held old snapshot remained readable and coherent, and restart
+returned to `Healthy`/trusted.
+
+The complete-but-unregistered fixture began with the healthy target and used the
+production administrator Unregister operation. The machine target disappeared,
+the protected database remained `Complete` with unchanged SHA-256, and the user
+catalog and `EnabledForSearch=false` preference remained unchanged. The final
+Index Manager selection was `Build` with no automatic preference change;
+RegisterAndBuild returned 0, restored `Healthy`/trusted maintenance at checkpoint
+`27585088`, and made the disposable result searchable. Deletion was also caught
+up, and the preference remained false.
+
+The normal-shutdown test began at PID 4488 with the service Running and health
+`Healthy`/trusted at checkpoint `27585200`. No service stop command was issued
+before `shutdown.exe /r`. At startup, before Automatic (Delayed Start), a
+one-shot SYSTEM observation recorded the service Stopped and persisted health
+`Unavailable`, `TrustedForSearch=false`, reason `service-stopped`, at the same
+checkpoint. Delayed start created PID 5132, revalidated the journal and returned
+to `Healthy`/trusted at checkpoint `27586416`. A file created by the startup
+observation became searchable after catch-up; its deletion was subsequently
+caught up. This is the distinct normal Windows shutdown/reboot evidence missing
+from the earlier pre-stopped restart test.
+
+The final installed-payload sanity made and removed one disposable file through
+ordinary direct read-only Search. Cleanup left no M20 scheduled tasks,
+`D:\m20-*` artifacts, or final-QA/Phase-B probe directories. The service remained
+Running as LocalSystem with delayed automatic start, `Healthy`/trusted at
+checkpoint `27586976`; the protected database and the user's disabled preference
+were preserved. The canonical VM repository remained clean at
+`5fc29ac589c8c19abd54131af122e0eac52dbb59`, and Hyper-V checkpoints were not
+modified.
 
 ## Remaining external gates
 
@@ -445,8 +507,7 @@ present, and the canonical VM repository was clean at
 `5fc29ac589c8c19abd54131af122e0eac52dbb59`. Hyper-V checkpoints were not
 modified.
 
-Independent adversarial review and independent final project QA must evaluate the
-published PR before any merge recommendation. The only user-owned product check
-is the visual interactive UAC/window smoke noted above. The sleep/resume case is
-an explicit Quail-Lab environment limitation, not a product PASS. No M21 work is
-included.
+Focused independent delta re-review must evaluate the three final-QA corrections
+before any merge recommendation. The only user-owned product check is the visual
+interactive UAC/window smoke noted above. The sleep/resume case is an explicit
+Quail-Lab environment limitation, not a product PASS. No M21 work is included.
