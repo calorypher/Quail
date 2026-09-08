@@ -104,6 +104,8 @@ const
   RequiredVcRedist = '{#VcRedistMinimumVersion}';
   QuailUninstallRegistryKey = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{D67D6288-D90A-429F-9FFD-D1EE472E5D43}_is1';
   MaintenanceServiceName = 'QuailMaintenance';
+  UserRunKey = 'Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  UserRunValue = 'Quail';
   SC_MANAGER_CONNECT = $0001;
   SC_MANAGER_CREATE_SERVICE = $0002;
   SERVICE_CHANGE_CONFIG = $0002;
@@ -728,6 +730,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
+    RegDeleteValue(HKCU, UserRunKey, UserRunValue);
     if not StopMaintenanceService then
       RaiseException('The Quail maintenance service did not stop within 30 seconds.');
     if MaintenanceServiceExists and not RunSc('delete ' + MaintenanceServiceName) then

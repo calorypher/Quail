@@ -25,7 +25,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly SearchRuntime _searchRuntime;
     private readonly Action _exitApplication;
-    private readonly Action _showIndexManager;
+    private readonly Action _showSettings;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
     private readonly SearchPerformanceScenario? _searchPerformanceScenario;
@@ -52,19 +52,19 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private int _selectedResultIndex = -1;
     private QuickSearchOverlayMode _overlayMode = QuickSearchOverlayMode.Expanded;
     private bool _shellIconFailureLogged;
-    private bool _settingsDialogActive;
     private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
 
     internal string CurrentTheme => _settings.Theme;
+    internal ShellSettings CurrentSettings => _settings;
 
-    internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showIndexManager)
+    internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showSettings)
     {
         _options = options;
         _settingsStore = settingsStore;
         _searchRuntime = searchRuntime;
         _settings = settings;
         _exitApplication = exitApplication;
-        _showIndexManager = showIndexManager;
+        _showSettings = showSettings;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
         _searchPerformanceScenario = options.SearchPerformanceScenarioPath is null
@@ -134,14 +134,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         if (_exiting)
         {
-            return;
-        }
-
-        if (QuickSearchLifecycle.GetSummonBehavior(_overlayVisible, _settingsDialogActive) == QuickSearchSummonBehavior.ActivateExistingSettings)
-        {
-            Activate();
-            NativeMethods.SetForegroundWindow(_windowHandle);
-            AppLog.Write("Summon activated existing Settings dialog.");
             return;
         }
 
@@ -269,11 +261,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         if (message == NativeMethods.WmHotKey && (int)wParam == HotkeyId)
         {
-            if (!QuickSearchLifecycle.ShouldToggleOverlayFromHotkey(_settingsDialogActive))
-            {
-                ShowOverlay();
-            }
-            else if (_overlayVisible)
+            if (_overlayVisible)
             {
                 HideOverlay("hotkey-toggle");
             }
@@ -319,50 +307,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         return true;
     }
 
-    private async void ShowSettings()
-    {
-        if (_settingsDialogActive)
-        {
-            return;
-        }
+    private void ShowSettings() => _showSettings();
 
-        _settingsDialogActive = true;
-        if (!_overlayVisible)
-        {
-            ShowOverlay();
-        }
-
-        var manageIndexesRequested = false;
-        try
-        {
-            await ApplySettingsHostLayoutAsync();
-            var settingsSurface = new SettingsSurface(_settings, TryApplySettingsAsync, BeginHotkeyCapture, RestoreHotkeyAfterCapture);
-            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            settingsSurface.Closed += () => closed.TrySetResult();
-            SettingsHost.Children.Add(settingsSurface);
-            SettingsHost.Visibility = Visibility.Visible;
-            EmitSettingsLayoutEvent("settings-opened");
-            await closed.Task;
-            manageIndexesRequested = settingsSurface.ManageIndexesRequested;
-        }
-        finally
-        {
-            SettingsHost.Children.Clear();
-            SettingsHost.Visibility = Visibility.Collapsed;
-            _settingsDialogActive = false;
-            await ApplyOverlayModeAsync(QuickSearchOverlayLayout.ForQuery(QueryBox.Text.Trim()), forceResize: true);
-            QueryBox.Focus(FocusState.Programmatic);
-            EmitSettingsLayoutEvent("settings-closed");
-        }
-        if (manageIndexesRequested)
-        {
-            HideOverlay("manage-indexes");
-            _showIndexManager();
-            _pipe.Emit(new { @event = "settings-manage-indexes" });
-        }
-    }
-
-    private async Task<string?> TryApplySettingsAsync(ShellSettings proposed)
+    internal async Task<string?> TryApplySettingsAsync(ShellSettings proposed)
     {
         proposed = proposed.Normalize();
         if (!TryRegisterHotkey(proposed.Hotkey, out var error))
@@ -377,7 +324,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         return null;
     }
 
-    private void BeginHotkeyCapture()
+    internal void BeginHotkeyCapture()
     {
         if (!_hotkeyCaptureSession.Begin())
         {
@@ -414,7 +361,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
     }
 
-    private bool RestoreHotkeyAfterCapture()
+    internal bool RestoreHotkeyAfterCapture()
     {
         if (!_hotkeyCaptureSession.IsActive || _isHotkeyRegistered || _captureOriginalHotkey.VirtualKey == 0)
         {
@@ -583,10 +530,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         {
             _searchPerformanceRenderWaiter.ObserveProcessedInput(query, _queryGeneration);
         }
-        if (!_settingsDialogActive)
-        {
-            ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
-        }
+        ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
         if (string.IsNullOrWhiteSpace(query))
         {
             InvalidateSearches();
@@ -862,21 +806,21 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated &&
-            QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(_settingsDialogActive, _hotkeyCaptureSession.IsActive))
+            QuickSearchLifecycle.ShouldRestoreHotkeyOnSettingsDeactivation(false, _hotkeyCaptureSession.IsActive))
         {
             RestoreHotkeyAfterCapture();
             return;
         }
 
         if (args.WindowActivationState != WindowActivationState.Deactivated ||
-            !QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, _settingsDialogActive, _exiting))
+            !QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, false, _exiting))
         {
             return;
         }
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, _settingsDialogActive, _exiting) &&
+            if (QuickSearchLifecycle.ShouldHideOnDeactivation(_overlayVisible, false, _exiting) &&
                 NativeMethods.GetForegroundWindow() != _windowHandle)
             {
                 HideOverlay("deactivated");

@@ -12,6 +12,7 @@
     <Compile Include="..\..\src\Quail.App\AppLog.cs" Link="App\AppLog.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerWindowLayout.cs" Link="App\IndexManagerWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\IndexManagerActionAvailability.cs" Link="App\IndexManagerActionAvailability.cs" />
+    <Compile Include="..\..\src\Quail.App\IndexingActionPolicy.cs" Link="App\IndexingActionPolicy.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
     <Compile Include="..\..\src\Quail.App\IndexOperationCoordinator.cs" Link="App\IndexOperationCoordinator.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsHotkeyRestoreGuard.cs" Link="App\SettingsHotkeyRestoreGuard.cs" />
@@ -33,6 +34,7 @@
     <Compile Include="..\..\src\Quail.App\QuickSearchLifecycle.cs" Link="App\QuickSearchLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\ShortQueryDeferrer.cs" Link="App\ShortQueryDeferrer.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsStore.cs" Link="App\SettingsStore.cs" />
+    <Compile Include="..\..\src\Quail.App\StartupRegistration.cs" Link="App\StartupRegistration.cs" />
     <Compile Include="..\..\src\Quail.App\ShellSettings.cs" Link="App\ShellSettings.cs" />
     <Compile Include="..\..\src\Quail.App\TrayCallback.cs" Link="App\TrayCallback.cs" />
   </ItemGroup>

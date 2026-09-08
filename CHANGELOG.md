@@ -5,6 +5,8 @@
 ### Added
 
 - Filesystem indexes are maintained continuously by a protected LocalSystem service, with direct read-only Quick Search, restart/downtime catch-up, explicit fail-closed recovery, and no routine Refresh or UAC for normal changes.
+- A unified standalone Settings window now combines General settings, index administration, maintenance status, and About information.
+- Quail can launch on Windows sign-in through an owned per-user startup registration.
 
 ### Changed
 

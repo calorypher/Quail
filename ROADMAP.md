@@ -387,6 +387,8 @@ Acceptance boundary:
 
 ### M21 — Unified Settings & Launch on Startup
 
+**Status: IMPLEMENTATION VERIFICATION PASS — ready for independent QA.**
+
 **Goal:** remove routine development-tool friction from startup and index administration.
 
 Scope:

@@ -24,3 +24,26 @@ public sealed class IndexManagerActionAvailabilityTests
         Assert.Equal(expectedEnableAfterBuild, actual.EnableAfterBuild);
     }
 }
+
+public sealed class IndexingActionPolicyTests
+{
+    [Theory]
+    [InlineData(IndexState.Complete, true, null, true, false)]
+    [InlineData(IndexState.Absent, false, 0, false, true)]
+    [InlineData(IndexState.Complete, false, 0, false, false)]
+    [InlineData(IndexState.RebuildRequired, true, 1, false, false)]
+    [InlineData(IndexState.Incomplete, true, 1, false, false)]
+    public void Makes_rebuild_a_recovery_action_not_healthy_freshness_workflow(
+        IndexState state,
+        bool registered,
+        int? primary,
+        bool secondaryRebuild,
+        bool enableAfterBuild)
+    {
+        var actual = IndexingActionPolicy.For(state, registered);
+
+        Assert.Equal(primary is null ? null : (AdminIndexOperation)primary.Value, actual.PrimaryOperation);
+        Assert.Equal(secondaryRebuild, actual.ShowSecondaryRebuild);
+        Assert.Equal(enableAfterBuild, actual.EnableAfterBuild);
+    }
+}

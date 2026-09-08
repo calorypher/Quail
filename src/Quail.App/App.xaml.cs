@@ -12,7 +12,7 @@ public sealed partial class App : Application
     private SearchRuntime? _searchRuntime;
     private SingleInstanceCoordinator? _singleInstance;
     private QuickSearchWindow? _window;
-    private IndexManagerWindow? _indexManager;
+    private SettingsWindow? _settingsWindow;
 
     public App()
     {
@@ -37,7 +37,7 @@ public sealed partial class App : Application
             await _indexCatalog.LoadAsync();
             _indexOperations = new IndexOperationCoordinator(_indexCatalog);
             _searchRuntime = FileSystemSearchComposition.Create(_options, _indexCatalog);
-            _window = new QuickSearchWindow(_options, _settingsStore, _searchRuntime, settings, ExitApplication, ShowIndexManager);
+            _window = new QuickSearchWindow(_options, _settingsStore, _searchRuntime, settings, ExitApplication, ShowSettings);
             _singleInstance.ActivationRequested += () => _window.DispatcherQueue.TryEnqueue(_window.ShowOverlay);
             await _window.InitializeAsync();
             AppLog.Write("Primary instance initialized.");
@@ -53,13 +53,13 @@ public sealed partial class App : Application
     {
         if (_indexOperations?.HasRunningOperations == true)
         {
-            ShowIndexManager();
-            _indexManager?.ShowMessage("Finish the running index operation before exiting Quail.");
+            ShowSettings();
+            _settingsWindow?.ShowIndexingMessage("Finish the running index operation before exiting Quail.");
             return;
         }
 
-        _indexManager?.Close();
-        _indexManager = null;
+        _settingsWindow?.Close();
+        _settingsWindow = null;
         _window?.Dispose();
         _window = null;
         _searchRuntime?.Dispose();
@@ -69,18 +69,22 @@ public sealed partial class App : Application
         Exit();
     }
 
-    private void ShowIndexManager()
+    private void ShowSettings()
     {
-        if (_indexManager is not null)
+        if (_settingsWindow is not null)
         {
-            _indexManager.ActivateManager();
+            _settingsWindow.ActivateSettings();
             return;
         }
-        _indexManager = new IndexManagerWindow(
+        var window = _window ?? throw new InvalidOperationException("Quick Search is unavailable.");
+        _settingsWindow = new SettingsWindow(
             _indexCatalog,
             _indexOperations ?? throw new InvalidOperationException("Index operation coordination is unavailable."),
-            _window?.CurrentTheme ?? "System");
-        _indexManager.ClosedByUser += () => _indexManager = null;
-        _indexManager.ActivateManager();
+            window.CurrentSettings,
+            window.TryApplySettingsAsync,
+            window.BeginHotkeyCapture,
+            window.RestoreHotkeyAfterCapture);
+        _settingsWindow.ClosedByUser += () => _settingsWindow = null;
+        _settingsWindow.ActivateSettings();
     }
 }
