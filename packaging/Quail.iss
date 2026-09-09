@@ -116,6 +116,7 @@ const
   SERVICE_WIN32_OWN_PROCESS = $00000010;
   SERVICE_AUTO_START = $00000002;
   SERVICE_ERROR_NORMAL = $00000001;
+  SERVICE_CONFIG_DELAYED_AUTO_START_INFO = $00000003;
   SERVICE_NO_CHANGE = $FFFFFFFF;
   SERVICE_STOPPED = $00000001;
   SERVICE_RUNNING = $00000004;
@@ -129,6 +130,10 @@ type
     ServiceSpecificExitCode: Cardinal;
     CheckPoint: Cardinal;
     WaitHint: Cardinal;
+  end;
+
+  TServiceDelayedAutoStartInfo = record
+    DelayedAutostart: LongBool;
   end;
 
 function OpenSCManager(MachineName, DatabaseName: Integer; DesiredAccess: Cardinal): THandle;
@@ -151,6 +156,9 @@ function ChangeServiceConfig(Service: THandle; ServiceType, StartType,
   Dependencies: Integer; ServiceStartName: String; Password: Integer;
   DisplayName: String): Boolean;
   external 'ChangeServiceConfigW@advapi32.dll stdcall';
+function ChangeServiceConfig2(Service: THandle; InfoLevel: Cardinal;
+  var Info: TServiceDelayedAutoStartInfo): Boolean;
+  external 'ChangeServiceConfig2W@advapi32.dll stdcall';
 
 function OpenMaintenanceService(DesiredAccess: Cardinal): THandle;
 var
@@ -238,6 +246,7 @@ function CreateOrConfigureMaintenanceService(const BinaryPath: String;
 var
   Manager: THandle;
   Service: THandle;
+  DelayedAutoStart: TServiceDelayedAutoStartInfo;
 begin
   Result := False;
   Created := False;
@@ -262,7 +271,9 @@ begin
 
     if Service <> 0 then
     begin
-      if Created then Result := True;
+      DelayedAutoStart.DelayedAutostart := False;
+      Result := (Created or Result) and ChangeServiceConfig2(Service,
+        SERVICE_CONFIG_DELAYED_AUTO_START_INFO, DelayedAutoStart);
       CloseServiceHandle(Service);
     end;
   finally
@@ -278,8 +289,7 @@ begin
   BinaryPath := '"' + ExpandConstant('{app}\Quail.MaintenanceService.exe') + '"';
   if not CreateOrConfigureMaintenanceService(BinaryPath, Created) then
     RaiseException('Could not create or configure the Quail maintenance service.');
-  if not RunSc('config ' + MaintenanceServiceName + ' start= delayed-auto') or
-     not RunSc('sdset ' + MaintenanceServiceName + ' D:P(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;LCSWLOCRRC;;;AU)') or
+  if not RunSc('sdset ' + MaintenanceServiceName + ' D:P(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;LCSWLOCRRC;;;AU)') or
      not RunSc('failure ' + MaintenanceServiceName + ' reset= 86400 actions= restart/5000/restart/30000/none/0') or
      not RunSc('failureflag ' + MaintenanceServiceName + ' 1') or
      not RunSc('start ' + MaintenanceServiceName) or

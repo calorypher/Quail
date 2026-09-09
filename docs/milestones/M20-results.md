@@ -512,3 +512,18 @@ The user provided explicit merge approval, and PR #21 merged to `main` as
 is the visual interactive UAC/window smoke noted above. The sleep/resume case
 is an explicit Quail-Lab environment limitation, not a product PASS. No M21
 work is included.
+
+## Post-M20 M21 startup correction
+
+The Automatic (Delayed Start) and trusted-health search coupling recorded above
+are historical M20 evidence. M21 reboot acceptance found that the delayed
+service start left an otherwise complete compatible read-only index unavailable
+to ordinary Search until catch-up. The bounded M21 correction changes the
+canonical steady-state contract: the LocalSystem service remains the sole writer,
+while ordinary Search reads the protected SQLite snapshot directly and remains
+available through transient unavailable, retrying, or catching-up maintenance
+health. Only a proven invalid state, including explicit maintenance
+`RebuildRequired`, incomplete status, or identity/schema/read validation failure,
+removes the source. The M21 installer correction also explicitly clears the SCM
+DelayedAutoStart flag on fresh install and same-version replacement. Its final
+verification evidence is recorded in `M21-results.md`.

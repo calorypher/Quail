@@ -490,7 +490,7 @@ public sealed class M12DynamicSourceGenerationTests
     }
 
     [Fact]
-    public async Task Trusted_to_untrusted_search_refresh_removes_path_and_invalidates_generation()
+    public async Task Transient_untrusted_maintenance_refresh_keeps_path_and_search_generation()
     {
         using var started = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -525,16 +525,16 @@ public sealed class M12DynamicSourceGenerationTests
         coordinator.Request("query");
         Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
         trusted = false;
-        Assert.Empty(controller.GetActivePathsForSearch());
+        Assert.Equal([entry.DatabasePath], controller.GetActivePathsForSearch());
         release.Set();
         await completed.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.NotNull(observed);
-        Assert.False(observed!.IsCurrent);
+        Assert.True(observed!.IsCurrent);
     }
 
     [Fact]
-    public async Task Untrusted_to_trusted_search_refresh_adds_path()
+    public async Task Catching_up_untrusted_maintenance_keeps_path_without_source_change()
     {
         var trusted = false;
         var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
@@ -551,13 +551,13 @@ public sealed class M12DynamicSourceGenerationTests
         await controller.LoadAsync();
         var changes = 0;
         controller.ActivePathsChanged += () => changes++;
-        Assert.Empty(controller.ActivePaths);
+        Assert.Equal([entry.DatabasePath], controller.ActivePaths);
 
         trusted = true;
         var paths = controller.GetActivePathsForSearch();
 
         Assert.Equal([entry.DatabasePath], paths);
-        Assert.Equal(1, changes);
+        Assert.Equal(0, changes);
     }
 
     [Fact]
@@ -587,7 +587,7 @@ public sealed class M12DynamicSourceGenerationTests
     }
 
     [Fact]
-    public async Task Normal_search_runtime_rechecks_health_before_source_availability()
+    public async Task Normal_search_runtime_keeps_source_available_during_unavailable_maintenance()
     {
         var trusted = true;
         var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
@@ -608,11 +608,55 @@ public sealed class M12DynamicSourceGenerationTests
 
         Assert.True(runtime.HasSources());
         trusted = false;
-        Assert.False(runtime.HasSources());
+        Assert.True(runtime.HasSources());
         trusted = true;
         Assert.True(runtime.HasSources());
 
-        Assert.Equal(2, sourceChanges);
+        Assert.Equal(0, sourceChanges);
+    }
+
+    [Fact]
+    public async Task Proven_rebuild_required_maintenance_refresh_removes_path_and_invalidates_generation()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var completed = new SemaphoreSlim(0);
+        SearchCompletion? observed = null;
+        var rebuildRequired = false;
+        var entry = M12TransactionalCatalogTests.Entry(new("volume-a", "D:\\", "NTFS", "A"), enabled: true);
+        var store = new FaultInjectingCatalogStore(new(1, [entry]));
+        var controller = new IndexCatalogController(
+            store,
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", "A"),
+            _ => M12TransactionalCatalogTests.Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = rebuildRequired ? MaintenanceHealthState.RebuildRequired : MaintenanceHealthState.Healthy,
+                TrustedForSearch = !rebuildRequired
+            });
+        await controller.LoadAsync();
+        using var coordinator = new LatestSearchCoordinator(_ =>
+        {
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(5));
+            return [];
+        });
+        controller.ActivePathsChanged += coordinator.Invalidate;
+        coordinator.Completed += completion =>
+        {
+            observed = completion;
+            completed.Release();
+        };
+
+        coordinator.Request("query");
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+        rebuildRequired = true;
+        Assert.Empty(controller.GetActivePathsForSearch());
+        release.Set();
+        await completed.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.NotNull(observed);
+        Assert.False(observed!.IsCurrent);
     }
 
     [Fact]
@@ -723,6 +767,46 @@ public sealed class M12CatalogActivePathTests : IDisposable
         Assert.Equal([_entry.DatabasePath], controller.ActivePaths);
     }
 
+    [Theory]
+    [InlineData(MaintenanceHealthState.CatchingUp)]
+    [InlineData(MaintenanceHealthState.Retrying)]
+    [InlineData(MaintenanceHealthState.Unavailable)]
+    public async Task Transient_untrusted_maintenance_health_keeps_complete_index_searchable(MaintenanceHealthState state)
+    {
+        var controller = await LoadAsync(
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", ""),
+            _ => Complete("volume-a"),
+            identity => M12TransactionalCatalogTests.TrustedHealth(identity) with
+            {
+                State = state,
+                TrustedForSearch = false
+            });
+
+        Assert.Equal([_entry.DatabasePath], controller.ActivePaths);
+    }
+
+    [Fact]
+    public async Task Missing_maintenance_health_keeps_complete_index_searchable()
+    {
+        var controller = await LoadAsync(
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", ""),
+            _ => Complete("volume-a"),
+            _ => null);
+
+        Assert.Equal([_entry.DatabasePath], controller.ActivePaths);
+    }
+
+    [Fact]
+    public async Task Maintenance_health_read_failure_keeps_complete_index_searchable()
+    {
+        var controller = await LoadAsync(
+            _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", ""),
+            _ => Complete("volume-a"),
+            _ => throw new IOException("Injected maintenance health read failure."));
+
+        Assert.Equal([_entry.DatabasePath], controller.ActivePaths);
+    }
+
     [Fact]
     public async Task Rebuild_required_reevaluation_removes_source_without_restart()
     {
@@ -747,7 +831,7 @@ public sealed class M12CatalogActivePathTests : IDisposable
     }
 
     [Fact]
-    public async Task Untrusted_service_health_excludes_an_otherwise_complete_index()
+    public async Task Rebuild_required_service_health_excludes_an_otherwise_complete_index()
     {
         var controller = await LoadAsync(
             _ => new VolumeDescriptor("volume-a", "D:\\", "NTFS", ""),

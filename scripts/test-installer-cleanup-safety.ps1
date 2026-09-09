@@ -59,6 +59,18 @@ foreach ($requiredToken in @(
     }
 }
 
+foreach ($requiredToken in @(
+    'SERVICE_CONFIG_DELAYED_AUTO_START_INFO = $00000003',
+    'ChangeServiceConfig2W@advapi32.dll',
+    'DelayedAutoStart.DelayedAutostart := False',
+    'SERVICE_CONFIG_DELAYED_AUTO_START_INFO, DelayedAutoStart')) {
+    if ($installerScript -notlike "*$requiredToken*") {
+        throw "Maintenance-service automatic-start contract token is missing: $requiredToken"
+    }
+}
+
+Assert-DoesNotMatch "(?im)RunSc\('config ' \+ MaintenanceServiceName \+ ' start= delayed-auto'\)" 'Packaging must not configure QuailMaintenance for delayed automatic start.'
+
 if ($installerScript -match "TargetPath := ExpandConstant\('\{app\}'\);") {
     throw 'PATH mutation must not derive its entry from the selected application directory.'
 }
