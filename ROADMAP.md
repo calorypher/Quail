@@ -385,9 +385,9 @@ Acceptance boundary:
 - background work is practically idle when there are no changes;
 - independent security/integrity review passes for the implemented boundary.
 
-### M21 — Unified Settings & Launch on Startup
+### M21 — Unified Settings & Launch on Startup — COMPLETE
 
-**Status: IMPLEMENTATION VERIFICATION PASS — ready for independent QA.**
+**Status: COMPLETE — full QA and user acceptance passed; PR #23 is ready for merge subject to explicit user approval.**
 
 **Goal:** remove routine development-tool friction from startup and index administration.
 

@@ -2,9 +2,7 @@
 
 ## Status
 
-**IMPLEMENTATION AND INSTALLED-STATE VERIFICATION PASS — ready for focused independent re-review.**
-
-User-owned visual Settings and real sign-out/login smoke remain pending final acceptance checks.
+**COMPLETE — full QA and user acceptance PASS; ready for merge.**
 
 ## Preparation
 
@@ -62,7 +60,11 @@ Real reboot acceptance found two connected daily-use failures in the then-final 
 - Windows UI automation was unavailable in this Codex session because its trusted RPC service was not configured. Consequently, the visible Settings size, Light/Dark/System appearance, and displayed startup/hotkey-conflict status remain user-owned manual acceptance rather than an automated PASS.
 - `git diff --check` — PASS before the final commit.
 
-## Pending user-owned smoke
+## Final user acceptance
 
-- Open installed Settings and confirm its initial size, General/Indexing/About only, Light/Dark/System presentation including native title bar, one Settings instance, normal theme/hotkey behavior, understandable index health, and the stable unavailable-hotkey warning if a conflict is deliberately induced.
-- On the installed candidate, enable launch on startup, Exit Quail, perform real sign-out/login or reboot/login, and confirm one resident/tray-ready Quail instance with no automatic Quick Search overlay; disable startup and confirm it does not start at the next login. Repeat this real-login acceptance after the reboot/startup correction.
+- User-owned installed-candidate acceptance passed: Settings visual behavior remained correct, including the intended initial size, Light/Dark/System presentation, native title bar, and the General/Indexing/About surface.
+- Launch Quail with Windows passed a real reboot/login check: exactly one resident Quail instance started, Quick Search did not open automatically, and the configured global hotkey worked.
+- Search was available immediately after login without the former approximately two-minute maintenance gap. `QuailMaintenance` ran as normal Automatic service; while it was controlled-stopped, the existing complete/compatible index remained searchable and Settings correctly showed transient maintenance unavailability; after restart, maintenance returned to Healthy/Up to date.
+- After disabling Launch Quail with Windows, exiting Quail, and performing another real reboot/login, Quail did not start automatically.
+
+User acceptance is complete. This milestone remains ready for merge subject to explicit user approval.
