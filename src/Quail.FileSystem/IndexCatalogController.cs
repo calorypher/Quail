@@ -169,16 +169,26 @@ public sealed class IndexCatalogController
             }
 
             var status = _readStatus(entry.DatabasePath);
-            var health = _readMaintenanceHealth(entry.VolumeIdentity);
-            return status.State == IndexState.Complete &&
-                   health is { TrustedForSearch: true } &&
-                   health.State != MaintenanceHealthState.RebuildRequired &&
-                   string.Equals(status.VolumeIdentity, entry.VolumeIdentity, StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(status.VolumeIdentity, currentVolume.StableIdentity, StringComparison.OrdinalIgnoreCase);
+            if (status.State != IndexState.Complete ||
+                !string.Equals(status.VolumeIdentity, entry.VolumeIdentity, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(status.VolumeIdentity, currentVolume.StableIdentity, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             return false;
+        }
+
+        try
+        {
+            return _readMaintenanceHealth(entry.VolumeIdentity)?.State != MaintenanceHealthState.RebuildRequired;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
+        {
+            // A maintenance-health read is advisory unless it proves continuity was lost.
+            return true;
         }
     }
 

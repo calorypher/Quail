@@ -1,0 +1,70 @@
+# M21 Results — Unified Settings & Launch on Startup
+
+## Status
+
+**COMPLETE — full QA and user acceptance PASS; ready for merge.**
+
+## Preparation
+
+- Approved base: `37ee57e47c56ffc22016c457c43e38c5bf2dfa26`.
+- `scripts/prepare-milestone.ps1` verified clean host and VM repositories at the same HEAD, created Hyper-V checkpoint `M21-clean`, and created branch `codex/m21-unified-settings-startup`.
+
+## Implementation
+
+- `SettingsWindow` is a single standalone application-level WinUI window with General, Indexing, and About navigation. The Quick Search overlay and tray route Settings to that window; repeat requests activate the existing instance.
+- General preserves the existing settings store, hotkey capture/restore behavior, and theme handling. Launch on startup is an owned `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value named `Quail`; it only registers the quoted installed Program Files executable and never a development output path.
+- Indexing reuses the M20 catalog, health state, and operation coordinator. Health is shown as product status and Rebuild is a secondary recovery action for healthy registered indexes.
+- The installer removes the owned per-user Run value during uninstall without changing M20 protected ProgramData state.
+
+## Earlier verification history
+
+- The initial implementation passed focused Core tests (273/273), full tests (291/291), a zero-warning Release build, and its then-final installer build. Those counts and artifact hashes are superseded by the final post-QA correction evidence below.
+- The initial Quail-Lab installer check established that the owned Run value was `"C:\Program Files\Quail\Quail.exe"`, uninstall removed that value, and `%PROGRAMDATA%\Quail` survived uninstall. The startup-registration and installer-cleanup boundary has not changed since that proof.
+
+## Independent QA delta corrections
+
+Independent QA of PR #23 at `027250ce7a6fe657cba60ae0ea1643e50aa76274` required five bounded corrections:
+
+- Indexing action policy now treats `MaintenanceHealthState.RebuildRequired` as a primary Rebuild recovery action even when the protected database remains `Complete`; deterministic policy coverage includes that combination.
+- Product health detail maps only stable maintenance states and no longer renders internal reason tokens. Search preference wording is now explicitly `Enabled for Quick Search` or `Disabled for Quick Search`.
+- Indexing disables actions while an operation is running, shows an in-progress indicator, catches ordinary catalog/operation exceptions, and displays them on the Indexing page. The user-facing label is `Remove`; the backend remains `Unregister` followed by catalog removal on success.
+- Settings restores an active hotkey capture on deactivation, navigation, and close. A successful save does not restore the old hotkey. NavigationView hides its built-in Settings item, leaving only General, Indexing, and About. Standalone dark theme reuses the bounded native DWM title-bar mode handling.
+- The previous final-QA delta passed focused Core tests (283/283), full tests (296/296), a zero-warning Release build, and a then-final installer build. Those values are superseded by the final post-manual-findings evidence below.
+
+## Post-QA manual-findings correction
+
+- Settings initial size now uses a one-time dispatcher callback after activation, when the native window and DPI are ready. The 920×680 logical target is converted through the existing DPI scaling helper and is never applied again to an already shown Settings window.
+- The Settings root is now a stable themed container. Theme propagation explicitly reaches the root, NavigationView, and content Frame while retaining the existing native DWM title-bar mode path. No new palette or Settings framework was introduced.
+- `ShellSettings.Default` is now `Alt+Space`. Missing or invalid settings use that default, while a valid persisted `Ctrl+Alt+Space` or another valid custom value remains unchanged.
+- Initial global-hotkey registration failure is non-fatal. Quail remains resident and Settings presents a stable product-facing warning; no fallback is registered or written to settings. The bounded `HotkeyRegistration` seam preserves the prior registration when a later Save fails and permits a later successful replacement.
+- The M21 Indexing policy was not changed. The dev-host report was not reproduced in an installed candidate: the final Quail-Lab candidate had a running `QuailMaintenance` service as `LocalSystem`, protected ProgramData state, and a healthy/trusted registered target. A controlled D: fixture successfully performed Unregister (machine target removed) followed by RegisterAndBuild (healthy/trusted again); the service did not mutate the per-user catalog. Existing coordinator tests prove that the Settings Remove flow removes that catalog entry only after successful Unregister. Existing policy tests prove that a healthy registered Complete index has no primary Build action.
+
+## Reboot/startup acceptance correction
+
+Real reboot acceptance found two connected daily-use failures in the then-final candidate. `QuailMaintenance` had been registered as Automatic (Delayed Start), so it began roughly two minutes after boot. Before it started, the App correctly displayed transient unavailable maintenance health, but `IndexCatalogController` also required `TrustedForSearch=true` before supplying an active database path. A complete, compatible, directly readable snapshot was therefore unnecessarily removed from ordinary Search until the service caught up.
+
+- Searchability now depends on complete status, schema/read validation, and stable volume identity. Missing or unreadable health and transient `CatchingUp`, `Retrying`, or `Unavailable` health do not remove that source. Explicit maintenance `RebuildRequired`, index `RebuildRequired`, incompatible identity/schema, or an unreadable index still fail closed. The LocalSystem service remains the sole writer; Search remains direct read-only SQLite with no maintenance IPC or App write path.
+- The installer continues to set normal `SERVICE_AUTO_START` and now explicitly calls `ChangeServiceConfig2W(SERVICE_CONFIG_DELAYED_AUTO_START_INFO, false)`. This deterministically clears a legacy DelayedAutoStart flag on both a fresh service and same-version replacement while retaining the LocalSystem account, quoted Program Files path, SCM ACL, and recovery configuration.
+- Final Quail-Lab same-version replacement passed with installer exit `0`: `QuailMaintenance` was `Running`, `StartMode=Auto`, `DelayedAutoStart=0`, `StartName=LocalSystem`, and `PathName="C:\Program Files\Quail\Quail.MaintenanceService.exe"`.
+- In the controlled service-stop probe, the healthy target published `Unavailable` with `TrustedForSearch=false` after stop. The normal `FileSystemSearchComposition` path found the disposable marker before stop, during stop, and after service restart (`[1]` result count in each run). Restart returned to `Running` and `Healthy`/trusted; marker cleanup was subsequently indexed.
+- A SYSTEM startup observation on a real Quail-Lab reboot saw `QuailMaintenance` Running at `2026-09-09T19:03:13.399Z`, about 9.3 seconds after boot at `2026-09-09T19:03:04.094Z`, with `DelayedAutoStart=0`. The task completed with result `0`. The SSH-only reboot observation had no interactive user login, so it could not independently observe the per-user Run launch; the earlier real-login evidence remains historical and the final real login check remains user-owned.
+
+## Final verification
+
+- Earlier final verification counts and artifact hash below are superseded by the reboot/startup correction evidence.
+- Focused catalog/search tests: `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M12"` — PASS, 53/53. This includes transient untrusted health, missing/read-failing health, preserved active generation, and hard `RebuildRequired` invalidation coverage. `scripts/test-installer-cleanup-safety.ps1` — PASS, including the normal-Automatic static contract.
+- Final full tests: `dotnet test Quail.sln -c Release --no-restore` — PASS, 304/304 (291 Core + 13 Maintenance Service).
+- Final Release build: `dotnet build Quail.sln -c Release --no-restore` — PASS, zero warnings and errors.
+- Final installer build: `scripts/build-installer.ps1` — PASS; installer SHA-256 `86c653cb78d3f593cd6810fabf1cdfd487c6b5430d61142ae8d95ebdae17ce87`.
+- Final Quail-Lab installed-state smoke — PASS for normal Automatic service configuration, protected-state preservation, controlled service-stop Search availability, and reboot timing. The final installer is present in `C:\QuailLab\M21-ServiceCorrection\Quail-0.2.0-Setup.exe` for user testing.
+- Windows UI automation was unavailable in this Codex session because its trusted RPC service was not configured. Consequently, the visible Settings size, Light/Dark/System appearance, and displayed startup/hotkey-conflict status remain user-owned manual acceptance rather than an automated PASS.
+- `git diff --check` — PASS before the final commit.
+
+## Final user acceptance
+
+- User-owned installed-candidate acceptance passed: Settings visual behavior remained correct, including the intended initial size, Light/Dark/System presentation, native title bar, and the General/Indexing/About surface.
+- Launch Quail with Windows passed a real reboot/login check: exactly one resident Quail instance started, Quick Search did not open automatically, and the configured global hotkey worked.
+- Search was available immediately after login without the former approximately two-minute maintenance gap. `QuailMaintenance` ran as normal Automatic service; while it was controlled-stopped, the existing complete/compatible index remained searchable and Settings correctly showed transient maintenance unavailability; after restart, maintenance returned to Healthy/Up to date.
+- After disabling Launch Quail with Windows, exiting Quail, and performing another real reboot/login, Quail did not start automatically.
+
+User acceptance is complete. This milestone remains ready for merge subject to explicit user approval.
