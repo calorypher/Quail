@@ -194,6 +194,18 @@ This does not require a runtime loader today. During early development, `Quail.A
 
 Dynamic loading should be introduced only when a concrete product/deployment need exists. Physical optionality of first-party modules does not by itself commit Quail to third-party plugins or a public SDK.
 
+## Deployment and filesystem indexing modes
+
+Windows deployment should support a preferred machine/full experience and, later, a limited no-admin per-user experience without making either installation scope part of Core search semantics.
+
+Machine/full mode uses protected machine indexes and a privileged service-backed NTFS/MFT/USN maintenance path for eligible local volumes. Per-user/limited mode is intended to use only resources accessible to the current user and a non-privileged enumeration/change-tracking path. The exact user-mode watcher/reconciliation mechanism must be selected from implementation evidence rather than frozen in advance.
+
+Installation mode and indexing strategy are separate concerns. A future machine/full installation must still be able to use the non-service user-mode filesystem backend for targets such as network shares where privileged local-volume MFT/USN semantics do not apply.
+
+Search must remain independent from the Windows Service. The service is a filesystem maintenance/write mechanism for the machine-mode backend, not a search broker or prerequisite for source-neutral Quail behavior.
+
+The detailed restored pre-implementation direction is recorded in `docs/deployment-indexing-modes.md`. It is future work after 0.3 and does not broaden the active 0.3 release.
+
 ## Frontend and interface boundaries
 
 The long-term architecture also requires **frontend interchangeability**.
@@ -259,5 +271,7 @@ This document records the strategic north star, not a committed implementation s
 Quail 0.2 is the current public baseline. Quail 0.3 has an approved M15-M24 release plan focused on a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. M15 additionally establishes the source-neutral dependency direction needed for future heterogeneous and physically optional first-party sources without implementing a runtime plugin/loading framework.
 
 Frontend interchangeability and CLI/Core parity are approved post-0.3 architectural directions. They do not add scope to Quail 0.3, but the first suitable post-0.3 planning cycle should schedule source-neutral orchestration extraction before a second frontend/shared search surface would otherwise duplicate it.
+
+The machine/full plus per-user/limited deployment/indexing direction is restored pre-implementation planning material. Quail 0.3 completes only the machine/full path; per-user/limited deployment and the reusable non-service filesystem indexing path are future roadmap work with version assignment intentionally unfrozen.
 
 File identity/history is directional work after the 0.3 filesystem-usability foundation. Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases. Later sequencing should continue to change when measured behavior and real usage provide better evidence.

@@ -523,6 +523,8 @@ Unless an approved milestone finds a narrow prerequisite, 0.3 does not implement
 - content indexing;
 - full NTFS file identity/history/lineage product features;
 - deleted-item retention/history UX;
+- per-user/limited installation or no-admin deployment mode;
+- the general non-service user-mode folder/network indexing backend intended for later deployment modes and network targets;
 - application-provider/launcher expansion as a release goal;
 - public/dynamic plugin framework;
 - runtime source/module discovery/loading as an M15 deliverable;
@@ -536,6 +538,21 @@ Unless an approved milestone finds a narrow prerequisite, 0.3 does not implement
 - AI features;
 - enterprise deployment machinery without a concrete requirement;
 - exhaustive compatibility machinery for arbitrary historical development-release installation variants.
+
+## Post-0.3 — Deployment / Filesystem Indexing Modes — DIRECTIONAL, VERSION UNFROZEN
+
+The pre-implementation decision from 2026-08-20 is restored as an explicit future roadmap direction in `docs/deployment-indexing-modes.md`. This is not new post-freeze scope and does not change the Quail 0.3 boundary.
+
+The approved direction is:
+
+- **Machine / full mode** remains the preferred/default experience. It is the path completed by 0.3: per-machine `Program Files` installation, administrator-approved privileged setup, protected machine indexes/configuration, and a LocalSystem service using the NTFS/MFT/USN backend for eligible local volumes.
+- **Per-user / limited mode** is a future no-admin alternative installed for the current user, expected under `%LOCALAPPDATA%\Programs\Quail`, with no Windows Service dependency and with indexing limited to resources the user can access. Its filesystem path requires non-privileged enumeration plus evidence-selected user-mode change tracking rather than privileged whole-volume MFT/USN maintenance.
+- Do not freeze `FileSystemWatcher` as the only implementation. Select the user-mode tracking mechanism after correctness and lifecycle verification.
+- Installation scope and indexing backend are separate concerns. A future full/machine installation must also be able to use the non-service user-mode filesystem backend for targets such as network shares where the privileged local-volume backend is inappropriate.
+- **Search must not depend on the Windows Service.** The service is a machine-mode filesystem maintenance/write mechanism, while ordinary Search remains source-neutral and reads compatible searchable state without service IPC.
+- The long-term UX should allow changing between machine/full and per-user/limited deployment without a manual uninstall/reinstall workflow. Exact installer/service/ACL/shortcut migration is deferred; rebuilding filesystem indexes during a mode transition is acceptable.
+
+The exact release assignment remains open. This work is a candidate for an early post-0.3 release, potentially 0.4, but must be scheduled alongside file identity/history and other post-0.3 priorities rather than silently changing the already directional 0.4 scope.
 
 ## 0.4 — File Identity & History — DIRECTIONAL
 
@@ -603,7 +620,9 @@ A source such as Google Drive or Gmail can later validate OAuth/account handling
 
 ### Network file search
 
-Selected SMB/network shares may later become a distinct filesystem-like source with explicit stale/unavailable behavior and controlled refresh. NTFS/USN guarantees must not be assumed for remote shares.
+Selected SMB/network shares may later use the non-service user-mode filesystem indexing path restored in `docs/deployment-indexing-modes.md`. Their enumeration, change detection, reconciliation, stale/unavailable behavior, credentials, and performance must be verified independently; local NTFS/MFT/USN guarantees must not be assumed.
+
+Whether network shares are ultimately presented as a distinct filesystem-like source, a FileSystem target type, or another bounded concept remains intentionally unfrozen. A machine/full Quail installation must not require network targets to use the privileged local-volume service backend merely because that backend is present.
 
 ### Update automation
 
@@ -635,6 +654,8 @@ Physical optionality of first-party source modules is a separate concern from pu
 - Preserve future physical optionality of first-party sources without introducing runtime loading before it is needed.
 - Extract broader shared provider contracts only when multiple real sources demonstrate the need; avoid speculative frameworks.
 - Preserve source-native identity where useful rather than forcing one universal identifier model.
+- Keep Search independent from a particular maintenance process or Windows Service; privileged services are source/backend-specific writers, not a universal search prerequisite.
+- Keep deployment scope separate from indexing strategy so a full installation can still use unprivileged/user-mode indexing for targets that require it.
 - Avoid regular full rescans and aggressive polling during healthy operation.
 - Do not elevate the interactive launcher UI merely to access NTFS internals.
 - Keep privileged/background responsibilities narrow and explicitly justified.
