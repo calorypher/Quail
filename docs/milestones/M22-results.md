@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — bounded independent-QA corrections are verified. Do not merge until independent QA and user acceptance are complete.**
+**ACTIVE — user-owned manual smoke passed the primary Full Search workflow. Two bounded window corrections are verified in code and require a short user re-test. Do not merge until that re-test and independent QA are complete.**
 
 ## Preparation
 
@@ -44,6 +44,19 @@
 - Independent QA correction: Clear filters now restores the disabled direction
   control to `Default`. Attribute fixtures independently prove Hidden-only,
   System-only, and Read-only-only filter bits.
+- User-owned manual smoke before the bounded window correction: the primary Full
+  Search workflow passed, including query transfer, singleton lifecycle, native
+  window behavior, filters, sorts, actions, and result presentation. It found
+  that first-open Full Search positioning needed centering on the Quick Search
+  monitor and that Collapse placed the Quick Search caret at the query start.
+- Bounded window correction: a newly created Full Search window moves to the
+  current Quick Search monitor before its DPI-scaled initial size is applied,
+  then centers once in that monitor's work area before activation. Existing
+  session position is never recentered on later activation, restore, or
+  Collapse/Expand.
+- Bounded window correction: Full-to-Quick query transfer retains the exact
+  text and explicitly collapses the selection at the end before focusing the
+  Quick Search query field.
 
 ## Verification
 
@@ -69,6 +82,8 @@
   path: the Release `Quail.exe --show-on-start --test-exit-after-visible-ready-count 1`
   process exited with code 0. No installer, service, reboot, or benchmark campaign
   was rerun because M22 does not change those boundaries.
+- Window-focused correction verification: `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M11QuickSearchOverlayLayoutTests|FullyQualifiedName~M22FullSearchTests"` — **29/29 PASS**.
+- Release App rebuild after the window correction: `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**.
 
 ### Independent-QA performance evidence
 
@@ -106,4 +121,18 @@ two-scenario regression check, not a repeated historical M16 8x3 campaign.
 
 ## User-owned manual UI smoke
 
-Pending. Follow the checklist in `M22.md` before user acceptance.
+Primary Full Search workflow: **PASS before the bounded window correction**.
+
+Short re-test required:
+
+1. The first Full Search open is centered on the same monitor as the Quick Search that expanded it.
+2. Collapse returns Quick Search with the caret after the transferred query (`query|`).
+
+### Deferred M23 UX follow-up from user acceptance
+
+Do not implement these items in M22:
+
+1. Allow Full Search to enter Settings without returning to Quick Search.
+2. Replace the separate sort and direction controls with sortable result-column headers.
+3. Add appropriate Quick Search context-menu secondary actions comparable to Full Search.
+4. Polish the still-raw Full Search visual layout in M23.

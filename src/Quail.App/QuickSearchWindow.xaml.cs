@@ -175,6 +175,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         CenterActualWindowOnMonitor(targetMonitor, GetWindowRect());
         var queryChanged = !string.Equals(QueryBox.Text, query, StringComparison.Ordinal);
         QueryBox.Text = query;
+        QueryBox.SelectionStart = QueryBox.Text.Length;
+        QueryBox.SelectionLength = 0;
         Activate();
         NativeMethods.SetForegroundWindow(_windowHandle);
         _overlayVisible = true;
@@ -188,6 +190,14 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     }
 
     internal void HideForFullSearch() => HideOverlay("expand-full-search");
+
+    internal nint GetCurrentMonitor()
+    {
+        var rect = GetWindowRect();
+        return NativeMethods.MonitorFromPoint(
+            new NativeMethods.Point { X = rect.Left, Y = rect.Top },
+            NativeMethods.MonitorDefaultToNearest);
+    }
 
     public void Dispose()
     {
@@ -433,9 +443,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         var windowRect = GetWindowRect();
         var width = windowRect.Right - windowRect.Left;
         var height = windowRect.Bottom - windowRect.Top;
-        AppWindow.Move(new PointInt32(
-            info.Work.Left + ((info.Work.Right - info.Work.Left - width) / 2),
-            info.Work.Top + ((info.Work.Bottom - info.Work.Top - height) / 2)));
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            info.Work.Left,
+            info.Work.Top,
+            info.Work.Right - info.Work.Left,
+            info.Work.Bottom - info.Work.Top,
+            new PhysicalSize(width, height));
+        AppWindow.Move(new PointInt32(position.X, position.Y));
     }
 
     private void QueueVisibleReadyAfterRender()
@@ -530,7 +544,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
         var width = windowRect.Right - windowRect.Left;
         var height = windowRect.Bottom - windowRect.Top;
-        AppWindow.Move(new PointInt32(info.Work.Left + ((info.Work.Right - info.Work.Left - width) / 2), info.Work.Top + ((info.Work.Bottom - info.Work.Top - height) / 2)));
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            info.Work.Left,
+            info.Work.Top,
+            info.Work.Right - info.Work.Left,
+            info.Work.Bottom - info.Work.Top,
+            new PhysicalSize(width, height));
+        AppWindow.Move(new PointInt32(position.X, position.Y));
     }
 
     private void OnQueryChanged(object sender, TextChangedEventArgs args)

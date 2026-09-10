@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -20,6 +21,7 @@ internal sealed partial class FullSearchWindow : Window
     private readonly SearchApplicationService _searchService;
     private readonly LatestSearchCoordinator _searchCoordinator;
     private readonly Action<string> _collapse;
+    private readonly nint _initialMonitor;
     private readonly ObservableCollection<FullSearchResultItem> _results = [];
     private nint _windowHandle;
     private long _uiGeneration;
@@ -32,11 +34,13 @@ internal sealed partial class FullSearchWindow : Window
     public FullSearchWindow(
         SearchRuntime searchRuntime,
         string theme,
-        Action<string> collapse)
+        Action<string> collapse,
+        nint initialMonitor)
     {
         _searchRuntime = searchRuntime ?? throw new ArgumentNullException(nameof(searchRuntime));
         _searchService = searchRuntime.Search;
         _collapse = collapse ?? throw new ArgumentNullException(nameof(collapse));
+        _initialMonitor = initialMonitor;
         _searchCoordinator = LatestSearchCoordinator.ForRequests(
             (SearchRequest request) => _searchService.Search(request),
             lane: SearchExecutionLane.Interactive);
@@ -69,12 +73,12 @@ internal sealed partial class FullSearchWindow : Window
         {
             presenter.Restore();
         }
-        Activate();
-        NativeMethods.SetForegroundWindow(_windowHandle);
         if (!_initialSizeApplied)
         {
-            DispatcherQueue.TryEnqueue(ApplyInitialSize);
+            ApplyInitialSize();
         }
+        Activate();
+        NativeMethods.SetForegroundWindow(_windowHandle);
 
         var transferredQuery = FullSearchLifecycle.TransferQuery(query);
         var queryChanged = !string.Equals(QueryBox.Text, transferredQuery, StringComparison.Ordinal);
@@ -121,10 +125,50 @@ internal sealed partial class FullSearchWindow : Window
             return;
         }
 
+        MoveToInitialMonitor();
+        NativeMethods.DwmFlush();
         var dpi = NativeMethods.GetDpiForWindow(_windowHandle);
         var size = FullSearchWindowLayout.InitialSizeToPhysical(dpi == 0 ? 96u : dpi);
         AppWindow.Resize(new SizeInt32(size.Width, size.Height));
+        CenterOnInitialMonitor();
         _initialSizeApplied = true;
+    }
+
+    private void MoveToInitialMonitor()
+    {
+        if (_initialMonitor == 0)
+        {
+            return;
+        }
+
+        var info = new NativeMethods.MonitorInfo { Size = (uint)Marshal.SizeOf<NativeMethods.MonitorInfo>() };
+        if (NativeMethods.GetMonitorInfo(_initialMonitor, ref info))
+        {
+            AppWindow.Move(new PointInt32(info.Work.Left, info.Work.Top));
+        }
+    }
+
+    private void CenterOnInitialMonitor()
+    {
+        if (_initialMonitor == 0)
+        {
+            return;
+        }
+
+        var info = new NativeMethods.MonitorInfo { Size = (uint)Marshal.SizeOf<NativeMethods.MonitorInfo>() };
+        if (!NativeMethods.GetMonitorInfo(_initialMonitor, ref info) ||
+            !NativeMethods.GetWindowRect(_windowHandle, out var windowRect))
+        {
+            return;
+        }
+
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            info.Work.Left,
+            info.Work.Top,
+            info.Work.Right - info.Work.Left,
+            info.Work.Bottom - info.Work.Top,
+            new PhysicalSize(windowRect.Right - windowRect.Left, windowRect.Bottom - windowRect.Top));
+        AppWindow.Move(new PointInt32(position.X, position.Y));
     }
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)

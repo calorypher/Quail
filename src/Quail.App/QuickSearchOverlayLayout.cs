@@ -32,8 +32,19 @@ internal static class QuickSearchOverlayLayout
         ScaleToPhysical(Width, dpi),
         ScaleToPhysical(SettingsHeight, dpi));
 
+    public static PhysicalPoint CenterInWorkArea(
+        int workLeft,
+        int workTop,
+        int workWidth,
+        int workHeight,
+        PhysicalSize windowSize) => new(
+        workLeft + ((workWidth - windowSize.Width) / 2),
+        workTop + ((workHeight - windowSize.Height) / 2));
+
     internal static int ScaleToPhysical(int logicalPixels, uint dpi) =>
         checked((int)Math.Round(logicalPixels * (double)dpi / DefaultDpi, MidpointRounding.AwayFromZero));
 }
 
 internal readonly record struct PhysicalSize(int Width, int Height);
+
+internal readonly record struct PhysicalPoint(int X, int Y);

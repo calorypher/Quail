@@ -106,10 +106,12 @@ public sealed partial class App : Application
         var quickSearch = _window ?? throw new InvalidOperationException("Quick Search is unavailable.");
         if (FullSearchLifecycle.ShouldCreateWindow(_fullSearchWindow is not null))
         {
+            var initialMonitor = quickSearch.GetCurrentMonitor();
             _fullSearchWindow = new FullSearchWindow(
                 _searchRuntime ?? throw new InvalidOperationException("Search is unavailable."),
                 quickSearch.CurrentTheme,
-                CollapseFullSearch);
+                CollapseFullSearch,
+                initialMonitor);
             _fullSearchWindow.ClosedByUser += () => _fullSearchWindow = null;
         }
 
