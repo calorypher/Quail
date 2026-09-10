@@ -24,6 +24,7 @@
           <ColumnDefinition Width="24" />
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="FeatherImage" Width="20" Height="20" VerticalAlignment="Center" />
         <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" KeyDown="OnQueryKeyDown">
@@ -38,7 +39,10 @@
             <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
           </TextBox.Resources>
         </TextBox>
-        <Button x:Name="SettingsButton" Grid.Column="2" Click="OnSettingsClicked" ToolTipService.ToolTip="Settings" Background="Transparent" BorderThickness="0" Padding="6">
+        <Button x:Name="FullSearchButton" Grid.Column="2" Click="OnFullSearchClicked" ToolTipService.ToolTip="Open Full Search" Background="Transparent" BorderThickness="0" Padding="6">
+          <FontIcon Glyph="&#xE740;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+        </Button>
+        <Button x:Name="SettingsButton" Grid.Column="3" Click="OnSettingsClicked" ToolTipService.ToolTip="Settings" Background="Transparent" BorderThickness="0" Padding="6">
           <FontIcon Glyph="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
         </Button>
     </Grid>

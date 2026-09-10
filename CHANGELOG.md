@@ -4,6 +4,7 @@
 
 ### Added
 
+- Full Search v1 adds a persistent, resizable filesystem result browser with larger bounded result sets, structured sorting and filters, keyboard navigation, reveal, and copy-path actions over the same Core search path as Quick Search.
 - Filesystem indexes are maintained continuously by a protected LocalSystem service, with direct read-only Quick Search, restart/downtime catch-up, explicit fail-closed recovery, and no routine Refresh or UAC for normal changes.
 - A unified standalone Settings window now combines General settings, index administration, maintenance status, and About information.
 - Quail can launch on Windows sign-in through an owned per-user startup registration.

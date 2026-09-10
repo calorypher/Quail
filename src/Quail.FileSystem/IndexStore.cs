@@ -509,16 +509,21 @@ public sealed class IndexStore
         using var snapshot = connection.BeginTransaction(deferred: true);
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
-        if (nameQuery.Length <= 2 && IsUnfiltered(query))
+        if (query.SortField == FileSearchSortField.Relevance && nameQuery.Length <= 2 && IsUnfiltered(query))
         {
             return ShortQueryIndex.Search(connection, nameQuery, query.Limit, context);
         }
 
         using var command = CreateSearchCandidateCommand(connection, query, nameQuery, extension);
         using var reader = command.ExecuteReader();
-        return ShortQueryIndex.RankCandidates(connection, ReadCandidates(), nameQuery, query.Limit, context);
+        if (query.SortField != FileSearchSortField.Relevance)
+        {
+            return RankFieldCandidates(connection, reader, query, context);
+        }
 
-        IEnumerable<(long RowId, string Name)> ReadCandidates()
+        return ShortQueryIndex.RankCandidates(connection, ReadRelevanceCandidates(), nameQuery, query.Limit, context);
+
+        IEnumerable<(long RowId, string Name)> ReadRelevanceCandidates()
         {
             while (reader.Read())
             {
@@ -526,6 +531,75 @@ public sealed class IndexStore
             }
         }
     }
+
+    private static IReadOnlyList<FileSearchResult> RankFieldCandidates(
+        SqliteConnection connection,
+        SqliteDataReader reader,
+        FileSearchQuery query,
+        FileSearchRankingContext context)
+    {
+        if (query.SortField == FileSearchSortField.Path)
+        {
+            return RankPathCandidates(connection, reader, query, context);
+        }
+
+        var comparer = Comparer<SearchFieldCandidate>.Create((left, right) =>
+            FileSearchSorting.CompareFieldCandidate(left, right, query));
+        var worstFirst = Comparer<SearchFieldCandidate>.Create((left, right) => comparer.Compare(right, left));
+        var selected = new PriorityQueue<long, SearchFieldCandidate>(worstFirst);
+        while (reader.Read())
+        {
+            var candidate = ReadFieldCandidate(reader);
+            if (selected.Count < query.Limit)
+            {
+                selected.Enqueue(candidate.RowId, candidate);
+            }
+            else if (selected.TryPeek(out _, out var worst) && comparer.Compare(candidate, worst) < 0)
+            {
+                selected.DequeueEnqueue(candidate.RowId, candidate);
+            }
+        }
+
+        return selected.UnorderedItems
+            .Select(item => ShortQueryIndex.ReadResult(connection, item.Element))
+            .Order(Comparer<FileSearchResult>.Create((left, right) => FileSearchSorting.Compare(left, right, query, context)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<FileSearchResult> RankPathCandidates(
+        SqliteConnection connection,
+        SqliteDataReader reader,
+        FileSearchQuery query,
+        FileSearchRankingContext context)
+    {
+        var comparer = Comparer<FileSearchResult>.Create((left, right) => FileSearchSorting.Compare(left, right, query, context));
+        var worstFirst = Comparer<FileSearchResult>.Create((left, right) => comparer.Compare(right, left));
+        var selected = new PriorityQueue<FileSearchResult, FileSearchResult>(worstFirst);
+        while (reader.Read())
+        {
+            var candidate = ShortQueryIndex.ReadResult(connection, reader.GetInt64(0));
+            if (selected.Count < query.Limit)
+            {
+                selected.Enqueue(candidate, candidate);
+            }
+            else if (selected.TryPeek(out _, out var worst) && comparer.Compare(candidate, worst) < 0)
+            {
+                selected.DequeueEnqueue(candidate, candidate);
+            }
+        }
+
+        return selected.UnorderedItems
+            .Select(item => item.Element)
+            .Order(comparer)
+            .ToArray();
+    }
+
+    private static SearchFieldCandidate ReadFieldCandidate(SqliteDataReader reader) => new(
+        reader.GetInt64(0),
+        reader.GetString(1),
+        new NativeFileId((byte[])reader[2]),
+        reader.IsDBNull(3) ? null : reader.GetInt64(3),
+        reader.IsDBNull(4) ? null : reader.GetInt64(4));
 
     private static SqliteCommand CreateSearchCandidateCommand(
         SqliteConnection connection,
@@ -537,7 +611,7 @@ public sealed class IndexStore
         var entry = "namespace_entries";
         command.CommandText = nameQuery.Length >= 3
             ? $"""
-                SELECT {entry}.rowid, {entry}.name
+                SELECT {entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size, {entry}.last_write_time_utc
                 FROM search_entries
                 JOIN namespace_entries ON {entry}.rowid = search_entries.rowid
                 WHERE search_entries MATCH $match
@@ -553,7 +627,7 @@ public sealed class IndexStore
                 ;
                 """
             : $"""
-                SELECT {entry}.rowid, {entry}.name
+                SELECT {entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size, {entry}.last_write_time_utc
                 FROM namespace_entries
                 WHERE instr(lower({entry}.name), lower($query)) > 0
                   AND ($type = 0 OR ($type = 1 AND ({entry}.attributes & $directoryAttribute) = 0) OR ($type = 2 AND ({entry}.attributes & $directoryAttribute) != 0))
@@ -1090,6 +1164,13 @@ public sealed class IndexStore
 
         return normalized.ToLowerInvariant();
     }
+
+    internal readonly record struct SearchFieldCandidate(
+        long RowId,
+        string Name,
+        NativeFileId FileId,
+        long? LogicalSize,
+        long? LastWriteTimeUtcFileTime);
 
     private static string? GetExtension(string name)
     {

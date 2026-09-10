@@ -387,7 +387,7 @@ Acceptance boundary:
 
 ### M21 — Unified Settings & Launch on Startup — COMPLETE
 
-**Status: COMPLETE — full QA and user acceptance passed; PR #23 is ready for merge subject to explicit user approval.**
+**Status: COMPLETE / MERGED — full QA and user acceptance passed; PR #23 merged to `main` as `cf2697d68d2d323004bd86fd627e6fa4927ba5ec`.**
 
 **Goal:** remove routine development-tool friction from startup and index administration.
 
@@ -410,7 +410,9 @@ Acceptance boundary:
 - index health from M20 is understandable without exposing unnecessary service internals;
 - recovery actions exist but are not the normal freshness workflow.
 
-### M22 — Full Search v1
+### M22 — Full Search v1 — ACTIVE
+
+**Status: ACTIVE — implementation handoff is ready for independent QA on `codex/m22-full-search-v1`; user-owned manual UI smoke remains pending.**
 
 **Goal:** add the first persistent result-browser surface for workflows that exceed the transient Quick Search list.
 
