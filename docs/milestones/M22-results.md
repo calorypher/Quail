@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — user-owned manual smoke passed the primary Full Search workflow. Two bounded window corrections are verified in code and require a short user re-test. Do not merge until that re-test and independent QA are complete.**
+**COMPLETE — independent QA and user acceptance PASS; ready for merge subject to explicit user approval.**
 
 ## Preparation
 
@@ -119,14 +119,17 @@ the same index on clean `1ead33c3d0eb60a25c74406b6c6e81a1d16536ba`:
 The harness reported zero queue wait for all six samples. This is a bounded
 two-scenario regression check, not a repeated historical M16 8x3 campaign.
 
-## User-owned manual UI smoke
+## Final acceptance
 
-Primary Full Search workflow: **PASS before the bounded window correction**.
-
-Short re-test required:
-
-1. The first Full Search open is centered on the same monitor as the Quick Search that expanded it.
-2. Collapse returns Quick Search with the caret after the transferred query (`query|`).
+- Independent QA: **PASS**.
+- Initial QA blocker concerning the Relevance candidate projection was corrected;
+  the bounded performance evidence remains **PASS**.
+- Primary manual Full Search UI smoke: **PASS**, including the result surface,
+  lifecycle, filters, sorting, actions, keyboard behavior, and empty/no-result
+  states.
+- Post-smoke correction re-test: initial Full Search centering on the Quick
+  Search monitor **PASS**; caret placement after Collapse (`query|`) **PASS**.
+- Final assessment: **M22 COMPLETE — ready for merge subject to explicit user approval.**
 
 ### Deferred M23 UX follow-up from user acceptance
 

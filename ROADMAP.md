@@ -410,9 +410,9 @@ Acceptance boundary:
 - index health from M20 is understandable without exposing unnecessary service internals;
 - recovery actions exist but are not the normal freshness workflow.
 
-### M22 — Full Search v1 — ACTIVE
+### M22 — Full Search v1 — COMPLETE
 
-**Status: ACTIVE — implementation handoff is ready for independent QA on `codex/m22-full-search-v1`; user-owned manual UI smoke remains pending.**
+**Status: COMPLETE — independent QA and user acceptance PASS; ready for merge subject to explicit user approval.**
 
 **Goal:** add the first persistent result-browser surface for workflows that exceed the transient Quick Search list.
 
