@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — implementation handoff is ready for independent QA. Do not merge until independent QA and user acceptance are complete.**
+**ACTIVE — bounded independent-QA corrections are verified. Do not merge until independent QA and user acceptance are complete.**
 
 ## Preparation
 
@@ -37,14 +37,23 @@
   the final tick before the next local day, including DST-sensitive boundaries.
   Created metadata, schema changes, service, installer, and M23 work remain
   absent.
+- Independent QA correction: the M18 Relevance candidate stream again projects
+  exactly `rowid,name`; Name, Size, Modified, and Path field sorts have their
+  own narrow candidate projections. This preserves the existing Relevance
+  candidate-completeness/ranking path without a schema or ranking-policy change.
+- Independent QA correction: Clear filters now restores the disabled direction
+  control to `Default`. Attribute fixtures independently prove Hidden-only,
+  System-only, and Read-only-only filter bits.
 
 ## Verification
 
-- Focused M22 tests: `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests"` — **12/12 PASS**.
+- Focused M22 tests after the independent-QA correction: `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests"` — **14/14 PASS**.
+- Affected ranking/search coverage after the independent-QA correction:
+  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~FileSearchRankingTests|FullyQualifiedName~M18RelevanceTests|FullyQualifiedName~MultiIndexSearchTests"` — **44/44 PASS**.
 - Final small ranking/supersession regression guard after the field-sort
   tie-break correction: `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~FileSearchRankingTests|FullyQualifiedName~M18RelevanceTests|FullyQualifiedName~M11ShortQueryDeferrerTests|FullyQualifiedName~M13BSearchSchedulingTests"` — **50/50 PASS**.
-- Final full Release suite: `dotnet test Quail.sln -c Release --no-restore` —
-  **303/303 Core tests and 13/13 Maintenance Service tests PASS**. The final
+- Final full Release suite after the independent-QA correction: `dotnet test Quail.sln -c Release --no-restore` —
+  **305/305 Core tests and 13/13 Maintenance Service tests PASS**. The final
   run used the authorized host context because the sandbox prevents the existing
   M21 HKCU startup-registration fixtures from creating their disposable keys.
 - Final App build: `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**; Release XAML provenance check passed.
@@ -60,6 +69,40 @@
   path: the Release `Quail.exe --show-on-start --test-exit-after-visible-ready-count 1`
   process exited with code 0. No installer, service, reboot, or benchmark campaign
   was rerun because M22 does not change those boundaries.
+
+### Independent-QA performance evidence
+
+The existing M17 production-measure helper gained optional `--sort` and
+`--limit` diagnostics only; it continues to call production `IndexStore.Search`.
+No CLI product option, persistent format, ranking policy, or benchmark framework
+was added. The local raw outputs remain ignored under `artifacts/m22/`.
+
+The preserved complete frozen-C index has **850,688 records** and
+**411,049,984 bytes**. A non-sensitive broad query class at Full Search's
+1,000-result bound produced these direct-store samples on clean commit
+`1ead33c3d0eb60a25c74406b6c6e81a1d16536ba`:
+
+| Sort | Samples ms | Median ms | Result | Conclusion |
+| --- | ---: | ---: | ---: | --- |
+| Relevance | 217.536, 149.735, 167.471 | 167.471 | 1,000 | Expected bounded relevance work; no regression signal. |
+| Name | 127.407, 98.785, 87.915 | 98.785 | 1,000 | Practical. |
+| Path | 587.175, 531.856, 354.425 | 531.856 | 1,000 | Perceptible but subsecond; not a multi-second blocker. |
+
+Path sorting reconstructs candidate paths before top-K selection, so it is not
+as cheap as Name. The measured subsecond result on the representative corpus
+does not justify a schema/indexing redesign; no further optimization was added.
+
+The canonical M16 harness was then run only for the local non-sensitive
+`ordinary-name` and `broad-result` scenarios, three repetitions each, against
+the same index on clean `1ead33c3d0eb60a25c74406b6c6e81a1d16536ba`:
+
+| Scenario | Samples input-to-first-text ms | Median ms | Target / guardrail | Result |
+| --- | ---: | ---: | ---: | --- |
+| ordinary-name | 15.524, 16.308, 14.401 | 15.524 | <= 50 / <= 100 | PASS |
+| broad-result | 88.398, 86.773, 78.164 | 86.773 | <= 150 / <= 250 | PASS |
+
+The harness reported zero queue wait for all six samples. This is a bounded
+two-scenario regression check, not a repeated historical M16 8x3 campaign.
 
 ## User-owned manual UI smoke
 
