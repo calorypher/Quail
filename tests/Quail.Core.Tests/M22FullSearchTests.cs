@@ -131,19 +131,19 @@ public sealed class M22FullSearchTests : IDisposable
             ["normal-item.log", "other-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(MinimumSize: 20)));
         Assert.Equal(
-            ["hidden-item.TXT"],
+            ["hidden-item.TXT", "hidden-only-item.txt", "read-only-item.txt", "system-only-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(ModifiedBeforeUtcFileTime: TimeOne)));
         Assert.Equal(
             ["normal-item.log", "other-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(ModifiedAfterUtcFileTime: TimeTwo)));
         Assert.Equal(
-            ["hidden-item.TXT"],
+            ["hidden-item.TXT", "hidden-only-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(Hidden: true)));
         Assert.Equal(
-            ["hidden-item.TXT"],
+            ["hidden-item.TXT", "system-only-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(System: true)));
         Assert.Equal(
-            ["hidden-item.TXT"],
+            ["hidden-item.TXT", "read-only-item.txt"],
             Search(service, new FileSystemSearchRequestDetails(ReadOnly: true)));
         Assert.Throws<ArgumentException>(() => service.Search(new SearchRequest(
             "item",
@@ -237,6 +237,19 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
+    public void Relevance_candidates_keep_the_m18_lightweight_projection()
+    {
+        var projection = IndexStore.GetSearchCandidateProjection(
+            FileSearchSortField.Relevance,
+            "namespace_entries");
+
+        Assert.Equal("namespace_entries.rowid, namespace_entries.name", projection);
+        Assert.DoesNotContain("file_id", projection, StringComparison.Ordinal);
+        Assert.DoesNotContain("logical_size", projection, StringComparison.Ordinal);
+        Assert.DoesNotContain("last_write_time_utc", projection, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Equal_field_values_use_file_id_then_source_identity_globally()
     {
         var alpha = BuildSortStore("alpha.db", @"X:\\", [
@@ -322,6 +335,19 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
+    public void Relevance_direction_uses_the_default_presentation()
+    {
+        Assert.False(FullSearchSortPresentation.IsDirectionEnabled(FullSearchSortField.Relevance));
+        Assert.Equal("Default", FullSearchSortPresentation.GetDirectionLabel(
+            FullSearchSortField.Relevance,
+            descending: true));
+        Assert.True(FullSearchSortPresentation.IsDirectionEnabled(FullSearchSortField.Size));
+        Assert.Equal("↑ Ascending", FullSearchSortPresentation.GetDirectionLabel(
+            FullSearchSortField.Size,
+            descending: false));
+    }
+
+    [Fact]
     public async Task Structured_coordinator_request_supersedes_same_text_with_older_filters()
     {
         using var firstStarted = new ManualResetEventSlim();
@@ -386,12 +412,18 @@ public sealed class M22FullSearchTests : IDisposable
                 sink(new NamespaceRecord(Id(4), folder, "normal-item.log", 0, 0, 2));
                 sink(new NamespaceRecord(Id(5), folder, "unknown-item.bin", 0, 0, 2));
                 sink(new NamespaceRecord(Id(6), root, "item-folder", 0x10, 0, 2));
+                sink(new NamespaceRecord(Id(7), folder, "hidden-only-item.txt", 0x2, 0, 2));
+                sink(new NamespaceRecord(Id(8), folder, "system-only-item.txt", 0x4, 0, 2));
+                sink(new NamespaceRecord(Id(9), folder, "read-only-item.txt", 0x1, 0, 2));
             },
             checkpoint: new IncrementalCheckpoint(1, 2, 0, 0),
             acquireMetadata: record => record.Name switch
             {
                 "hidden-item.TXT" => new FileMetadata(10, TimeOne),
                 "normal-item.log" => new FileMetadata(20, TimeTwo),
+                "hidden-only-item.txt" => new FileMetadata(11, TimeOne),
+                "system-only-item.txt" => new FileMetadata(12, TimeOne),
+                "read-only-item.txt" => new FileMetadata(13, TimeOne),
                 _ => new FileMetadata(null, null)
             });
         return store;

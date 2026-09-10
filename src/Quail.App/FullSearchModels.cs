@@ -11,6 +11,17 @@ internal enum FullSearchSortDirection { Ascending, Descending }
 
 internal enum FullSearchSizeUnit { KB, MB, GB }
 
+internal static class FullSearchSortPresentation
+{
+    public static bool IsDirectionEnabled(FullSearchSortField field) =>
+        field != FullSearchSortField.Relevance;
+
+    public static string GetDirectionLabel(FullSearchSortField field, bool descending) =>
+        !IsDirectionEnabled(field)
+            ? "Default"
+            : descending ? "↓ Descending" : "↑ Ascending";
+}
+
 internal sealed record FullSearchCriteria(
     FullSearchEntryType EntryType,
     string? Extension,

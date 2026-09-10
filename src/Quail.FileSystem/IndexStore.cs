@@ -549,7 +549,7 @@ public sealed class IndexStore
         var selected = new PriorityQueue<long, SearchFieldCandidate>(worstFirst);
         while (reader.Read())
         {
-            var candidate = ReadFieldCandidate(reader);
+            var candidate = ReadFieldCandidate(reader, query.SortField);
             if (selected.Count < query.Limit)
             {
                 selected.Enqueue(candidate.RowId, candidate);
@@ -594,12 +594,31 @@ public sealed class IndexStore
             .ToArray();
     }
 
-    private static SearchFieldCandidate ReadFieldCandidate(SqliteDataReader reader) => new(
-        reader.GetInt64(0),
-        reader.GetString(1),
-        new NativeFileId((byte[])reader[2]),
-        reader.IsDBNull(3) ? null : reader.GetInt64(3),
-        reader.IsDBNull(4) ? null : reader.GetInt64(4));
+    private static SearchFieldCandidate ReadFieldCandidate(
+        SqliteDataReader reader,
+        FileSearchSortField sortField)
+    {
+        var rowId = reader.GetInt64(0);
+        var name = reader.GetString(1);
+        var fileId = new NativeFileId((byte[])reader[2]);
+        return sortField switch
+        {
+            FileSearchSortField.Name => new SearchFieldCandidate(rowId, name, fileId, null, null),
+            FileSearchSortField.Size => new SearchFieldCandidate(
+                rowId,
+                name,
+                fileId,
+                reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                null),
+            FileSearchSortField.Modified => new SearchFieldCandidate(
+                rowId,
+                name,
+                fileId,
+                null,
+                reader.IsDBNull(3) ? null : reader.GetInt64(3)),
+            _ => throw new ArgumentOutOfRangeException(nameof(sortField))
+        };
+    }
 
     private static SqliteCommand CreateSearchCandidateCommand(
         SqliteConnection connection,
@@ -609,9 +628,10 @@ public sealed class IndexStore
     {
         var command = connection.CreateCommand();
         var entry = "namespace_entries";
+        var candidateProjection = GetSearchCandidateProjection(query.SortField, entry);
         command.CommandText = nameQuery.Length >= 3
             ? $"""
-                SELECT {entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size, {entry}.last_write_time_utc
+                SELECT {candidateProjection}
                 FROM search_entries
                 JOIN namespace_entries ON {entry}.rowid = search_entries.rowid
                 WHERE search_entries MATCH $match
@@ -627,7 +647,7 @@ public sealed class IndexStore
                 ;
                 """
             : $"""
-                SELECT {entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size, {entry}.last_write_time_utc
+                SELECT {candidateProjection}
                 FROM namespace_entries
                 WHERE instr(lower({entry}.name), lower($query)) > 0
                   AND ($type = 0 OR ($type = 1 AND ({entry}.attributes & $directoryAttribute) = 0) OR ($type = 2 AND ({entry}.attributes & $directoryAttribute) != 0))
@@ -658,6 +678,16 @@ public sealed class IndexStore
         command.Parameters.AddWithValue("$systemAttribute", (long)FileAttributeSystem);
         return command;
     }
+
+    internal static string GetSearchCandidateProjection(FileSearchSortField sortField, string entry) => sortField switch
+    {
+        FileSearchSortField.Relevance => $"{entry}.rowid, {entry}.name",
+        FileSearchSortField.Name => $"{entry}.rowid, {entry}.name, {entry}.file_id",
+        FileSearchSortField.Size => $"{entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size",
+        FileSearchSortField.Modified => $"{entry}.rowid, {entry}.name, {entry}.file_id, {entry}.last_write_time_utc",
+        FileSearchSortField.Path => $"{entry}.rowid",
+        _ => throw new ArgumentOutOfRangeException(nameof(sortField), "Unknown filesystem search sort field.")
+    };
 
     private static bool IsUnfiltered(FileSearchQuery query) =>
         query.EntryType == SearchEntryType.Any &&

@@ -170,22 +170,23 @@ internal sealed partial class FullSearchWindow : Window
             return;
         }
 
-        SortDirectionButton.IsEnabled = SortBox.SelectedIndex != 0;
-        if (SortBox.SelectedIndex == 0)
+        var sortField = (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0);
+        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(sortField);
+        if (!SortDirectionButton.IsEnabled)
         {
             SortDirectionButton.IsChecked = false;
-            SortDirectionButton.Content = "Default";
         }
-        else
-        {
-            SortDirectionButton.Content = SortDirectionButton.IsChecked == true ? "↓ Descending" : "↑ Ascending";
-        }
+        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
+            sortField,
+            SortDirectionButton.IsChecked == true);
         ApplySearch();
     }
 
     private void OnSortDirectionChanged(object sender, RoutedEventArgs args)
     {
-        SortDirectionButton.Content = SortDirectionButton.IsChecked == true ? "↓ Descending" : "↑ Ascending";
+        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
+            (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0),
+            SortDirectionButton.IsChecked == true);
         ApplySearch();
     }
 
@@ -205,8 +206,10 @@ internal sealed partial class FullSearchWindow : Window
         ReadOnlyBox.IsChecked = false;
         SortBox.SelectedIndex = 0;
         SortDirectionButton.IsChecked = false;
-        SortDirectionButton.IsEnabled = false;
-        SortDirectionButton.Content = "↑ Ascending";
+        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(FullSearchSortField.Relevance);
+        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
+            FullSearchSortField.Relevance,
+            descending: false);
         _controlsReady = true;
         ApplySearch();
     }
