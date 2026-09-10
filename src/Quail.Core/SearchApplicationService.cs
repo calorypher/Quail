@@ -30,4 +30,28 @@ internal sealed class SearchApplicationService
         ArgumentNullException.ThrowIfNull(action);
         action.Open();
     }
+
+    public bool CanReveal(SearchResultAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return action.CanReveal;
+    }
+
+    public void Reveal(SearchResultAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        action.Reveal();
+    }
+
+    public bool CanCopyText(SearchResultAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return action.CanCopyText;
+    }
+
+    public string GetCopyText(SearchResultAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return action.GetCopyText();
+    }
 }

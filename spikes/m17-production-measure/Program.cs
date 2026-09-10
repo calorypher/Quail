@@ -170,6 +170,16 @@ internal static class Program
         var fullSearch = options.Values.GetValueOrDefault("mode") == "full";
         var indexPath = Require(options, "index");
         var outputPath = Require(options, "output");
+        var sortField = options.Values.TryGetValue("sort", out var sortValue)
+            ? ParseSearchSort(sortValue)
+            : FileSearchSortField.Relevance;
+        var limit = options.Values.TryGetValue("limit", out var limitValue)
+            ? int.Parse(limitValue, System.Globalization.CultureInfo.InvariantCulture)
+            : sortValue is null ? IndexStore.DefaultSearchResultLimit : IndexStore.MaximumSearchResultLimit;
+        if (limit is < 1 or > IndexStore.MaximumSearchResultLimit)
+        {
+            throw new ArgumentException($"--limit must be between 1 and {IndexStore.MaximumSearchResultLimit}.");
+        }
         var queries = Require(options, "queries")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var repetitions = options.Values.TryGetValue("repetitions", out var repetitionsValue)
@@ -192,7 +202,7 @@ internal static class Program
                 var stopwatch = Stopwatch.StartNew();
                 var allocationStart = GC.GetAllocatedBytesForCurrentThread();
                 var results = fullSearch
-                    ? store.Search(new FileSearchQuery(query), context)
+                    ? store.Search(new FileSearchQuery(query, Limit: limit, SortField: sortField), context)
                     : ShortQueryIndex.Search(connection, query, 50, context);
                 stopwatch.Stop();
                 samples.Add(new
@@ -212,6 +222,8 @@ internal static class Program
             kind = fullSearch ? "production-index-store-search" : "m17-production-short-query-search",
             indexPath = Path.GetFullPath(indexPath),
             repetitions,
+            sortField = sortField.ToString(),
+            limit,
             samples,
             note = fullSearch
                 ? "Production IndexStore.Search, including open/readiness, retrieval, ranking and selected paths. Excludes App/Core/UI scheduling and rendering."
@@ -219,6 +231,16 @@ internal static class Program
         });
         return 0;
     }
+
+    private static FileSearchSortField ParseSearchSort(string value) => value.ToLowerInvariant() switch
+    {
+        "relevance" => FileSearchSortField.Relevance,
+        "name" => FileSearchSortField.Name,
+        "path" => FileSearchSortField.Path,
+        "size" => FileSearchSortField.Size,
+        "modified" => FileSearchSortField.Modified,
+        _ => throw new ArgumentException("--sort must be relevance, name, path, size, or modified.")
+    };
 
     private static int ProfileSearch(Options options)
     {

@@ -26,6 +26,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private readonly SearchRuntime _searchRuntime;
     private readonly Action _exitApplication;
     private readonly Action _showSettings;
+    private readonly Action<string> _showFullSearch;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
     private readonly SearchPerformanceScenario? _searchPerformanceScenario;
@@ -59,7 +60,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     internal bool IsHotkeyCaptureActive => _hotkeyCaptureSession.IsActive;
     internal string? StartupHotkeyError => _startupHotkeyError;
 
-    internal QuickSearchWindow(AppLaunchOptions options, SettingsStore settingsStore, SearchRuntime searchRuntime, ShellSettings settings, Action exitApplication, Action showSettings)
+    internal event Action<string>? ThemeChanged;
+
+    internal QuickSearchWindow(
+        AppLaunchOptions options,
+        SettingsStore settingsStore,
+        SearchRuntime searchRuntime,
+        ShellSettings settings,
+        Action exitApplication,
+        Action showSettings,
+        Action<string> showFullSearch)
     {
         _options = options;
         _settingsStore = settingsStore;
@@ -67,6 +77,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _settings = settings;
         _exitApplication = exitApplication;
         _showSettings = showSettings;
+        _showFullSearch = showFullSearch;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
         _searchPerformanceScenario = options.SearchPerformanceScenarioPath is null
@@ -141,6 +152,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     public void ShowOverlay()
     {
+        ShowOverlayCore(string.Empty);
+    }
+
+    internal void ShowOverlayWithQuery(string query)
+    {
+        ShowOverlayCore(query ?? string.Empty);
+    }
+
+    private void ShowOverlayCore(string query)
+    {
         if (_exiting)
         {
             return;
@@ -152,13 +173,30 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         ApplyOverlayMode(QuickSearchOverlayMode.Compact, recenter: false, forceResize: true, animateExpandedContent: false);
         NativeMethods.DwmFlush();
         CenterActualWindowOnMonitor(targetMonitor, GetWindowRect());
-        QueryBox.Text = string.Empty;
+        var queryChanged = !string.Equals(QueryBox.Text, query, StringComparison.Ordinal);
+        QueryBox.Text = query;
+        QueryBox.SelectionStart = QueryBox.Text.Length;
+        QueryBox.SelectionLength = 0;
         Activate();
         NativeMethods.SetForegroundWindow(_windowHandle);
         _overlayVisible = true;
         QueryBox.Focus(FocusState.Programmatic);
+        if (!queryChanged)
+        {
+            ApplySearch();
+        }
         AppLog.Write("Summon requested.");
         QueueVisibleReadyAfterRender();
+    }
+
+    internal void HideForFullSearch() => HideOverlay("expand-full-search");
+
+    internal nint GetCurrentMonitor()
+    {
+        var rect = GetWindowRect();
+        return NativeMethods.MonitorFromPoint(
+            new NativeMethods.Point { X = rect.Left, Y = rect.Top },
+            NativeMethods.MonitorDefaultToNearest);
     }
 
     public void Dispose()
@@ -310,6 +348,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _settings = proposed;
         _startupHotkeyError = null;
         ApplyTheme(proposed.Theme);
+        ThemeChanged?.Invoke(proposed.Theme);
         await _settingsStore.SaveAsync(proposed);
         return null;
     }
@@ -404,9 +443,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         var windowRect = GetWindowRect();
         var width = windowRect.Right - windowRect.Left;
         var height = windowRect.Bottom - windowRect.Top;
-        AppWindow.Move(new PointInt32(
-            info.Work.Left + ((info.Work.Right - info.Work.Left - width) / 2),
-            info.Work.Top + ((info.Work.Bottom - info.Work.Top - height) / 2)));
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            info.Work.Left,
+            info.Work.Top,
+            info.Work.Right - info.Work.Left,
+            info.Work.Bottom - info.Work.Top,
+            new PhysicalSize(width, height));
+        AppWindow.Move(new PointInt32(position.X, position.Y));
     }
 
     private void QueueVisibleReadyAfterRender()
@@ -501,7 +544,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
         var width = windowRect.Right - windowRect.Left;
         var height = windowRect.Bottom - windowRect.Top;
-        AppWindow.Move(new PointInt32(info.Work.Left + ((info.Work.Right - info.Work.Left - width) / 2), info.Work.Top + ((info.Work.Bottom - info.Work.Top - height) / 2)));
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            info.Work.Left,
+            info.Work.Top,
+            info.Work.Right - info.Work.Left,
+            info.Work.Bottom - info.Work.Top,
+            new PhysicalSize(width, height));
+        AppWindow.Move(new PointInt32(position.X, position.Y));
     }
 
     private void OnQueryChanged(object sender, TextChangedEventArgs args)
@@ -790,6 +839,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private void OnSettingsClicked(object sender, RoutedEventArgs args)
     {
         ShowSettings();
+    }
+
+    private void OnFullSearchClicked(object sender, RoutedEventArgs args)
+    {
+        var query = QueryBox.Text;
+        HideForFullSearch();
+        _showFullSearch(query);
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)

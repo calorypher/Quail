@@ -45,6 +45,19 @@ public sealed class M11QuickSearchOverlayLayoutTests
         Assert.Equal(expectedHeight, actual.Height);
     }
 
+    [Fact]
+    public void Centers_a_window_within_its_monitor_work_area()
+    {
+        var position = QuickSearchOverlayLayout.CenterInWorkArea(
+            workLeft: 1920,
+            workTop: 40,
+            workWidth: 2560,
+            workHeight: 1400,
+            windowSize: new PhysicalSize(1180, 760));
+
+        Assert.Equal(new PhysicalPoint(2610, 360), position);
+    }
+
     [Theory]
     [InlineData(96u, 800, 500)]
     [InlineData(144u, 1200, 750)]

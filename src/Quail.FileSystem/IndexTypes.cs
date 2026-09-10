@@ -132,6 +132,30 @@ internal readonly record struct SyncFailureClassification(
 
 public enum SearchEntryType { Any, File, Directory }
 
+public enum FileSearchSortField { Relevance, Name, Path, Size, Modified }
+
+public enum FileSearchSortDirection { Ascending, Descending }
+
+internal sealed record FileSystemSearchRequestDetails(
+    SearchEntryType EntryType = SearchEntryType.Any,
+    string? Extension = null,
+    long? MinimumSize = null,
+    long? MaximumSize = null,
+    long? ModifiedAfterUtcFileTime = null,
+    long? ModifiedBeforeUtcFileTime = null,
+    bool Hidden = false,
+    bool ReadOnly = false,
+    bool System = false,
+    FileSearchSortField SortField = FileSearchSortField.Relevance,
+    FileSearchSortDirection SortDirection = FileSearchSortDirection.Ascending) : Quail.Core.ISearchRequestDetails;
+
+internal sealed record FileSystemSearchResultDetails(
+    string? FullPath,
+    bool IsDirectory,
+    long? LogicalSize,
+    long? LastWriteTimeUtcFileTime,
+    uint Attributes) : Quail.Core.ISearchResultDetails;
+
 public sealed record FileSearchQuery(
     string NameQuery,
     SearchEntryType EntryType = SearchEntryType.Any,
@@ -143,7 +167,9 @@ public sealed record FileSearchQuery(
     long? ModifiedBeforeUtcFileTime = null,
     bool Hidden = false,
     bool ReadOnly = false,
-    bool System = false);
+    bool System = false,
+    FileSearchSortField SortField = FileSearchSortField.Relevance,
+    FileSearchSortDirection SortDirection = FileSearchSortDirection.Ascending);
 
 public sealed record FileSearchResult(
     NativeFileId FileId,

@@ -13,6 +13,7 @@ public sealed partial class App : Application
     private SingleInstanceCoordinator? _singleInstance;
     private QuickSearchWindow? _window;
     private SettingsWindow? _settingsWindow;
+    private FullSearchWindow? _fullSearchWindow;
 
     public App()
     {
@@ -37,7 +38,15 @@ public sealed partial class App : Application
             await _indexCatalog.LoadAsync();
             _indexOperations = new IndexOperationCoordinator(_indexCatalog);
             _searchRuntime = FileSystemSearchComposition.Create(_options, _indexCatalog);
-            _window = new QuickSearchWindow(_options, _settingsStore, _searchRuntime, settings, ExitApplication, ShowSettings);
+            _window = new QuickSearchWindow(
+                _options,
+                _settingsStore,
+                _searchRuntime,
+                settings,
+                ExitApplication,
+                ShowSettings,
+                ShowFullSearch);
+            _window.ThemeChanged += OnThemeChanged;
             _singleInstance.ActivationRequested += () => _window.DispatcherQueue.TryEnqueue(_window.ShowOverlay);
             await _window.InitializeAsync();
             AppLog.Write("Primary instance initialized.");
@@ -60,6 +69,8 @@ public sealed partial class App : Application
 
         _settingsWindow?.Close();
         _settingsWindow = null;
+        _fullSearchWindow?.Close();
+        _fullSearchWindow = null;
         _window?.Dispose();
         _window = null;
         _searchRuntime?.Dispose();
@@ -89,4 +100,31 @@ public sealed partial class App : Application
         _settingsWindow.ClosedByUser += () => _settingsWindow = null;
         _settingsWindow.ActivateSettings();
     }
+
+    private void ShowFullSearch(string query)
+    {
+        var quickSearch = _window ?? throw new InvalidOperationException("Quick Search is unavailable.");
+        if (FullSearchLifecycle.ShouldCreateWindow(_fullSearchWindow is not null))
+        {
+            var initialMonitor = quickSearch.GetCurrentMonitor();
+            _fullSearchWindow = new FullSearchWindow(
+                _searchRuntime ?? throw new InvalidOperationException("Search is unavailable."),
+                quickSearch.CurrentTheme,
+                CollapseFullSearch,
+                initialMonitor);
+            _fullSearchWindow.ClosedByUser += () => _fullSearchWindow = null;
+        }
+
+        _fullSearchWindow!.ActivateSearch(query, quickSearch.CurrentTheme);
+    }
+
+    private void CollapseFullSearch(string query)
+    {
+        if (FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.Collapse))
+        {
+            _window?.ShowOverlayWithQuery(query);
+        }
+    }
+
+    private void OnThemeChanged(string theme) => _fullSearchWindow?.ApplyTheme(theme);
 }

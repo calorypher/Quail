@@ -509,22 +509,115 @@ public sealed class IndexStore
         using var snapshot = connection.BeginTransaction(deferred: true);
         EnsureSearchable(connection);
         var context = rankingContext ?? FileSearchRankingContext.ForCurrentMachine();
-        if (nameQuery.Length <= 2 && IsUnfiltered(query))
+        if (query.SortField == FileSearchSortField.Relevance && nameQuery.Length <= 2 && IsUnfiltered(query))
         {
             return ShortQueryIndex.Search(connection, nameQuery, query.Limit, context);
         }
 
         using var command = CreateSearchCandidateCommand(connection, query, nameQuery, extension);
         using var reader = command.ExecuteReader();
-        return ShortQueryIndex.RankCandidates(connection, ReadCandidates(), nameQuery, query.Limit, context);
+        if (query.SortField != FileSearchSortField.Relevance)
+        {
+            return RankFieldCandidates(connection, reader, query, context);
+        }
 
-        IEnumerable<(long RowId, string Name)> ReadCandidates()
+        return ShortQueryIndex.RankCandidates(connection, ReadRelevanceCandidates(), nameQuery, query.Limit, context);
+
+        IEnumerable<(long RowId, string Name)> ReadRelevanceCandidates()
         {
             while (reader.Read())
             {
                 yield return (reader.GetInt64(0), reader.GetString(1));
             }
         }
+    }
+
+    private static IReadOnlyList<FileSearchResult> RankFieldCandidates(
+        SqliteConnection connection,
+        SqliteDataReader reader,
+        FileSearchQuery query,
+        FileSearchRankingContext context)
+    {
+        if (query.SortField == FileSearchSortField.Path)
+        {
+            return RankPathCandidates(connection, reader, query, context);
+        }
+
+        var comparer = Comparer<SearchFieldCandidate>.Create((left, right) =>
+            FileSearchSorting.CompareFieldCandidate(left, right, query));
+        var worstFirst = Comparer<SearchFieldCandidate>.Create((left, right) => comparer.Compare(right, left));
+        var selected = new PriorityQueue<long, SearchFieldCandidate>(worstFirst);
+        while (reader.Read())
+        {
+            var candidate = ReadFieldCandidate(reader, query.SortField);
+            if (selected.Count < query.Limit)
+            {
+                selected.Enqueue(candidate.RowId, candidate);
+            }
+            else if (selected.TryPeek(out _, out var worst) && comparer.Compare(candidate, worst) < 0)
+            {
+                selected.DequeueEnqueue(candidate.RowId, candidate);
+            }
+        }
+
+        return selected.UnorderedItems
+            .Select(item => ShortQueryIndex.ReadResult(connection, item.Element))
+            .Order(Comparer<FileSearchResult>.Create((left, right) => FileSearchSorting.Compare(left, right, query, context)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<FileSearchResult> RankPathCandidates(
+        SqliteConnection connection,
+        SqliteDataReader reader,
+        FileSearchQuery query,
+        FileSearchRankingContext context)
+    {
+        var comparer = Comparer<FileSearchResult>.Create((left, right) => FileSearchSorting.Compare(left, right, query, context));
+        var worstFirst = Comparer<FileSearchResult>.Create((left, right) => comparer.Compare(right, left));
+        var selected = new PriorityQueue<FileSearchResult, FileSearchResult>(worstFirst);
+        while (reader.Read())
+        {
+            var candidate = ShortQueryIndex.ReadResult(connection, reader.GetInt64(0));
+            if (selected.Count < query.Limit)
+            {
+                selected.Enqueue(candidate, candidate);
+            }
+            else if (selected.TryPeek(out _, out var worst) && comparer.Compare(candidate, worst) < 0)
+            {
+                selected.DequeueEnqueue(candidate, candidate);
+            }
+        }
+
+        return selected.UnorderedItems
+            .Select(item => item.Element)
+            .Order(comparer)
+            .ToArray();
+    }
+
+    private static SearchFieldCandidate ReadFieldCandidate(
+        SqliteDataReader reader,
+        FileSearchSortField sortField)
+    {
+        var rowId = reader.GetInt64(0);
+        var name = reader.GetString(1);
+        var fileId = new NativeFileId((byte[])reader[2]);
+        return sortField switch
+        {
+            FileSearchSortField.Name => new SearchFieldCandidate(rowId, name, fileId, null, null),
+            FileSearchSortField.Size => new SearchFieldCandidate(
+                rowId,
+                name,
+                fileId,
+                reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                null),
+            FileSearchSortField.Modified => new SearchFieldCandidate(
+                rowId,
+                name,
+                fileId,
+                null,
+                reader.IsDBNull(3) ? null : reader.GetInt64(3)),
+            _ => throw new ArgumentOutOfRangeException(nameof(sortField))
+        };
     }
 
     private static SqliteCommand CreateSearchCandidateCommand(
@@ -535,9 +628,10 @@ public sealed class IndexStore
     {
         var command = connection.CreateCommand();
         var entry = "namespace_entries";
+        var candidateProjection = GetSearchCandidateProjection(query.SortField, entry);
         command.CommandText = nameQuery.Length >= 3
             ? $"""
-                SELECT {entry}.rowid, {entry}.name
+                SELECT {candidateProjection}
                 FROM search_entries
                 JOIN namespace_entries ON {entry}.rowid = search_entries.rowid
                 WHERE search_entries MATCH $match
@@ -553,7 +647,7 @@ public sealed class IndexStore
                 ;
                 """
             : $"""
-                SELECT {entry}.rowid, {entry}.name
+                SELECT {candidateProjection}
                 FROM namespace_entries
                 WHERE instr(lower({entry}.name), lower($query)) > 0
                   AND ($type = 0 OR ($type = 1 AND ({entry}.attributes & $directoryAttribute) = 0) OR ($type = 2 AND ({entry}.attributes & $directoryAttribute) != 0))
@@ -584,6 +678,16 @@ public sealed class IndexStore
         command.Parameters.AddWithValue("$systemAttribute", (long)FileAttributeSystem);
         return command;
     }
+
+    internal static string GetSearchCandidateProjection(FileSearchSortField sortField, string entry) => sortField switch
+    {
+        FileSearchSortField.Relevance => $"{entry}.rowid, {entry}.name",
+        FileSearchSortField.Name => $"{entry}.rowid, {entry}.name, {entry}.file_id",
+        FileSearchSortField.Size => $"{entry}.rowid, {entry}.name, {entry}.file_id, {entry}.logical_size",
+        FileSearchSortField.Modified => $"{entry}.rowid, {entry}.name, {entry}.file_id, {entry}.last_write_time_utc",
+        FileSearchSortField.Path => $"{entry}.rowid",
+        _ => throw new ArgumentOutOfRangeException(nameof(sortField), "Unknown filesystem search sort field.")
+    };
 
     private static bool IsUnfiltered(FileSearchQuery query) =>
         query.EntryType == SearchEntryType.Any &&
@@ -1090,6 +1194,13 @@ public sealed class IndexStore
 
         return normalized.ToLowerInvariant();
     }
+
+    internal readonly record struct SearchFieldCandidate(
+        long RowId,
+        string Name,
+        NativeFileId FileId,
+        long? LogicalSize,
+        long? LastWriteTimeUtcFileTime);
 
     private static string? GetExtension(string name)
     {

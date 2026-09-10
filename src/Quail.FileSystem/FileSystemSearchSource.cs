@@ -27,9 +27,23 @@ internal sealed class FileSystemSearchSource : ISearchSource
     public IReadOnlyList<SearchResult> Search(SearchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var details = request.Details as FileSystemSearchRequestDetails ?? new FileSystemSearchRequestDetails();
         var results = MultiIndexSearch.Search(
             _paths().Select(path => new IndexStore(path)),
-            new FileSearchQuery(request.Query, Limit: request.Limit));
+            new FileSearchQuery(
+                request.Query,
+                details.EntryType,
+                details.Extension,
+                request.Limit,
+                details.MinimumSize,
+                details.MaximumSize,
+                details.ModifiedAfterUtcFileTime,
+                details.ModifiedBeforeUtcFileTime,
+                details.Hidden,
+                details.ReadOnly,
+                details.System,
+                details.SortField,
+                details.SortDirection));
 
         return results
             .Select(result => Project(result.SourceIdentity, result.Result))
@@ -69,16 +83,25 @@ internal sealed class FileSystemSearchSource : ISearchSource
 
     private SearchResult Project(string databasePath, FileSearchResult result)
     {
-        var action = new FileSystemSearchAction(databasePath, result.FileId);
+        var action = new FileSystemSearchAction(databasePath, result.FileId, result.IsDirectory);
         var isDirectory = result.IsDirectory;
         return new SearchResult(
-            new SearchResultAction(() => Open(action)),
+            new SearchResultAction(
+                () => Open(action),
+                result.FullPath is null ? null : () => Reveal(action),
+                result.FullPath is null ? null : () => result.FullPath),
             result.Name,
             result.FullPath,
             isDirectory ? "Folder" : "File",
             FormatMetadata(result),
             isDirectory ? "folder" : result.Extension?.ToUpperInvariant() ?? "file",
-            isDirectory ? FolderFallbackIconGlyph : FileFallbackIconGlyph);
+            isDirectory ? FolderFallbackIconGlyph : FileFallbackIconGlyph,
+            new FileSystemSearchResultDetails(
+                result.FullPath,
+                result.IsDirectory,
+                result.LogicalSize,
+                result.LastWriteTimeUtcFileTime,
+                result.Attributes));
     }
 
     private void Open(FileSystemSearchAction action)
@@ -95,6 +118,22 @@ internal sealed class FileSystemSearchSource : ISearchSource
         }
 
         _opener.Open(store, action.FileId);
+    }
+
+    private void Reveal(FileSystemSearchAction action)
+    {
+        var store = _paths()
+            .Select(path => new IndexStore(path))
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.DatabasePath,
+                action.DatabasePath,
+                StringComparison.OrdinalIgnoreCase));
+        if (store is null)
+        {
+            throw new InvalidOperationException("The result source is no longer configured.");
+        }
+
+        _opener.Reveal(store, action.FileId, action.IsDirectory);
     }
 
     private static string FormatMetadata(FileSearchResult result)
@@ -121,4 +160,4 @@ internal sealed class FileSystemSearchSource : ISearchSource
     }
 }
 
-internal sealed record FileSystemSearchAction(string DatabasePath, NativeFileId FileId);
+internal sealed record FileSystemSearchAction(string DatabasePath, NativeFileId FileId, bool IsDirectory);

@@ -1473,7 +1473,7 @@ internal static class ShortQueryIndex
         return (current.Flags & 1) != 0;
     }
 
-    private static FileSearchResult ReadResult(SqliteConnection connection, long rowId)
+    internal static FileSearchResult ReadResult(SqliteConnection connection, long rowId)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT file_id,name,attributes,logical_size,last_write_time_utc FROM namespace_entries WHERE rowid=$rowid;";

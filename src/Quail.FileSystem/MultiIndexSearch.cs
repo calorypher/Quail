@@ -22,21 +22,21 @@ public static class MultiIndexSearch
         var candidates = indexes.SelectMany(store => store.Search(query, context)
             .Select(result => new IndexedFileSearchResult(store.DatabasePath, result)));
         return candidates
-            .OrderBy(candidate => candidate, new IndexedFileSearchResultComparer(query.NameQuery, context))
+            .OrderBy(candidate => candidate, new IndexedFileSearchResultComparer(query, context))
             .ThenBy(candidate => candidate.SourceIdentity, StringComparer.Ordinal)
             .Take(query.Limit)
             .ToArray();
     }
 }
 
-internal sealed class IndexedFileSearchResultComparer(string query, FileSearchRankingContext context) : IComparer<IndexedFileSearchResult>
+internal sealed class IndexedFileSearchResultComparer(FileSearchQuery query, FileSearchRankingContext context) : IComparer<IndexedFileSearchResult>
 {
     public int Compare(IndexedFileSearchResult? left, IndexedFileSearchResult? right)
     {
         if (ReferenceEquals(left, right)) return 0;
         if (left is null) return -1;
         if (right is null) return 1;
-        return FileSearchRanking.Compare(left.Result, right.Result, query, context);
+        return FileSearchSorting.Compare(left.Result, right.Result, query, context);
     }
 }
 
@@ -90,6 +90,107 @@ internal static class Utf8Comparison
 public interface IWindowsShellLauncher
 {
     void Open(string path);
+
+    void Reveal(string path, bool isDirectory) => Open(path);
+}
+
+internal static class FileSearchSorting
+{
+    public static int Compare(
+        FileSearchResult left,
+        FileSearchResult right,
+        FileSearchQuery query,
+        FileSearchRankingContext context)
+    {
+        if (query.SortField == FileSearchSortField.Relevance)
+        {
+            return FileSearchRanking.Compare(left, right, query.NameQuery, context);
+        }
+
+        var comparison = query.SortField switch
+        {
+            FileSearchSortField.Name => ApplyDirection(CompareText(left.Name, right.Name), query.SortDirection),
+            FileSearchSortField.Path => CompareNullableText(left.FullPath, right.FullPath, query.SortDirection),
+            FileSearchSortField.Size => CompareNullable(left.LogicalSize, right.LogicalSize, query.SortDirection),
+            FileSearchSortField.Modified => CompareNullable(left.LastWriteTimeUtcFileTime, right.LastWriteTimeUtcFileTime, query.SortDirection),
+            _ => throw new ArgumentOutOfRangeException(nameof(query), "Unknown filesystem search sort field.")
+        };
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareText(left.Name, right.Name);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        return StringComparer.Ordinal.Compare(left.FileId.ToString(), right.FileId.ToString());
+    }
+
+    public static int CompareFieldCandidate(
+        IndexStore.SearchFieldCandidate left,
+        IndexStore.SearchFieldCandidate right,
+        FileSearchQuery query)
+    {
+        var comparison = query.SortField switch
+        {
+            FileSearchSortField.Name => ApplyDirection(CompareText(left.Name, right.Name), query.SortDirection),
+            FileSearchSortField.Size => CompareNullable(left.LogicalSize, right.LogicalSize, query.SortDirection),
+            FileSearchSortField.Modified => CompareNullable(left.LastWriteTimeUtcFileTime, right.LastWriteTimeUtcFileTime, query.SortDirection),
+            _ => throw new ArgumentOutOfRangeException(nameof(query), "The selected sort requires materialized paths.")
+        };
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareText(left.Name, right.Name);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        return StringComparer.Ordinal.Compare(left.FileId.ToString(), right.FileId.ToString());
+    }
+
+    private static int CompareNullable(long? left, long? right, FileSearchSortDirection direction)
+    {
+        if (left is null)
+        {
+            return right is null ? 0 : 1;
+        }
+        if (right is null)
+        {
+            return -1;
+        }
+
+        return ApplyDirection(left.Value.CompareTo(right.Value), direction);
+    }
+
+    private static int CompareNullableText(string? left, string? right, FileSearchSortDirection direction)
+    {
+        if (left is null)
+        {
+            return right is null ? 0 : 1;
+        }
+        if (right is null)
+        {
+            return -1;
+        }
+
+        return ApplyDirection(CompareText(left, right), direction);
+    }
+
+    private static int CompareText(string left, string right)
+    {
+        var comparison = SqliteNoCaseComparer.Instance.Compare(left, right);
+        return comparison != 0 ? comparison : Utf8BinaryComparer.Instance.Compare(left, right);
+    }
+
+    private static int ApplyDirection(int comparison, FileSearchSortDirection direction) =>
+        direction == FileSearchSortDirection.Descending ? -comparison : comparison;
 }
 
 public sealed class WindowsShellLauncher : IWindowsShellLauncher
@@ -100,6 +201,31 @@ public sealed class WindowsShellLauncher : IWindowsShellLauncher
         if (process is null)
         {
             throw new InvalidOperationException("Windows Shell could not open the selected result.");
+        }
+    }
+
+    public void Reveal(string path, bool isDirectory)
+    {
+        var target = isDirectory ? Directory.GetParent(path)?.FullName : path;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            throw new InvalidOperationException("The containing folder is unavailable.");
+        }
+
+        if (isDirectory)
+        {
+            Open(target);
+            return;
+        }
+
+        var process = Process.Start(new ProcessStartInfo("explorer.exe")
+        {
+            UseShellExecute = true,
+            Arguments = $"/select,\"{target.Replace("\"", "\"\"")}\""
+        });
+        if (process is null)
+        {
+            throw new InvalidOperationException("Windows Explorer could not reveal the selected result.");
         }
     }
 }
@@ -124,5 +250,21 @@ public sealed class IndexedEntryOpener
         if (!_pathExists(resolution.Path))
             throw new FileNotFoundException("Indexed path is missing or unavailable.", resolution.Path);
         _shell.Open(resolution.Path);
+    }
+
+    public void Reveal(IndexStore store, NativeFileId fileId, bool isDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        var resolution = store.ResolveOpenPath(fileId);
+        if (!resolution.Success || string.IsNullOrWhiteSpace(resolution.Path))
+        {
+            throw new InvalidOperationException($"Indexed entry cannot be resolved: {resolution.Diagnostic ?? "unknown path error"}");
+        }
+        if (!_pathExists(resolution.Path))
+        {
+            throw new FileNotFoundException("Indexed path is missing or unavailable.", resolution.Path);
+        }
+
+        _shell.Reveal(resolution.Path, isDirectory);
     }
 }
