@@ -44,6 +44,7 @@ internal sealed partial class FullSearchWindow : Window
     private long _queryFocusRequest;
     private bool _queryFocusPending;
     private int _queryFocusAttemptCount;
+    private long _queryFocusLoadedRequest;
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
@@ -130,6 +131,7 @@ internal sealed partial class FullSearchWindow : Window
         QueryBox.Text = transferredQuery;
         QueryBox.SelectionStart = QueryBox.Text.Length;
         QueryBox.SelectionLength = 0;
+        CancelPendingLoadedFocus();
         var focusRequest = ++_queryFocusRequest;
         _queryFocusPending = true;
         _queryFocusAttemptCount = 0;
@@ -157,6 +159,7 @@ internal sealed partial class FullSearchWindow : Window
         _uiGeneration++;
         _queryFocusPending = false;
         _queryFocusAttemptCount = 0;
+        CancelPendingLoadedFocus();
         CancelBusy();
         _searchCoordinator.Invalidate();
         SetFullKeyState(SearchKeyState.None);
@@ -277,18 +280,29 @@ internal sealed partial class FullSearchWindow : Window
                 return;
             }
 
-            _queryFocusAttemptCount++;
-            QueryBox.SelectionStart = QueryBox.Text.Length;
-            QueryBox.SelectionLength = 0;
             AppLog.Write($"Full diagnostic: before XamlRoot read request={request} loaded={QueryBox.IsLoaded}.");
             var xamlRoot = QueryBox.XamlRoot;
             AppLog.Write($"Full diagnostic: XamlRoot null={xamlRoot is null} request={request}.");
+            if (!FullSearchLifecycle.IsQueryBoxReady(QueryBox.IsLoaded, xamlRoot is not null))
+            {
+                AppLog.Write($"Full diagnostic: awaiting QueryBox.Loaded request={request} attempt={_queryFocusAttemptCount}.");
+                WaitForQueryBoxLoaded(request);
+                return;
+            }
+
+            _queryFocusAttemptCount++;
+            QueryBox.SelectionStart = QueryBox.Text.Length;
+            QueryBox.SelectionLength = 0;
             AppLog.Write($"Full diagnostic: before QueryBox.Focus request={request}.");
             var focusResult = QueryBox.Focus(FocusState.Programmatic);
             AppLog.Write($"Full diagnostic: after QueryBox.Focus result={focusResult} request={request}.");
-            AppLog.Write($"Full diagnostic: before FocusManager.GetFocusedElement request={request}.");
-            var ownsKeyboardFocus = ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), QueryBox);
-            AppLog.Write($"Full diagnostic: after FocusManager.GetFocusedElement ownsFocus={ownsKeyboardFocus} request={request}.");
+            var ownsKeyboardFocus = false;
+            if (focusResult)
+            {
+                AppLog.Write($"Full diagnostic: before FocusManager.GetFocusedElement request={request}.");
+                ownsKeyboardFocus = ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), QueryBox);
+                AppLog.Write($"Full diagnostic: after FocusManager.GetFocusedElement ownsFocus={ownsKeyboardFocus} request={request}.");
+            }
             if (FullSearchLifecycle.ShouldCompleteDeferredQueryFocus(ownsKeyboardFocus))
             {
                 _queryFocusPending = false;
@@ -307,6 +321,46 @@ internal sealed partial class FullSearchWindow : Window
                 QueueDeferredQueryFocus(request);
             }
         });
+    }
+
+    private void WaitForQueryBoxLoaded(long request)
+    {
+        if (_queryFocusLoadedRequest != 0)
+        {
+            _queryFocusLoadedRequest = request;
+            return;
+        }
+
+        _queryFocusLoadedRequest = request;
+        QueryBox.Loaded += OnQueryBoxLoaded;
+    }
+
+    private void OnQueryBoxLoaded(object sender, RoutedEventArgs args)
+    {
+        var request = _queryFocusLoadedRequest;
+        CancelPendingLoadedFocus();
+        AppLog.Write($"Full diagnostic: QueryBox.Loaded request={request} xamlRootNull={QueryBox.XamlRoot is null}.");
+        if (request != 0 && FullSearchLifecycle.ShouldApplyDeferredQueryFocus(
+                _queryFocusPending,
+                _visible,
+                _closed,
+                request,
+                _queryFocusRequest,
+                _queryFocusAttemptCount))
+        {
+            QueueDeferredQueryFocus(request);
+        }
+    }
+
+    private void CancelPendingLoadedFocus()
+    {
+        if (_queryFocusLoadedRequest == 0)
+        {
+            return;
+        }
+
+        QueryBox.Loaded -= OnQueryBoxLoaded;
+        _queryFocusLoadedRequest = 0;
     }
 
     private void OnSearchInputChanged(object sender, object args)
@@ -723,6 +777,7 @@ internal sealed partial class FullSearchWindow : Window
         _closed = true;
         _visible = false;
         _queryFocusPending = false;
+        CancelPendingLoadedFocus();
         _uiGeneration++;
         CancelBusy();
         _searchRuntime.SourcesChanged -= OnSourcesChanged;

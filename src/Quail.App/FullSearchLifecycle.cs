@@ -15,6 +15,9 @@ internal static class FullSearchLifecycle
 
     public static string TransferQuery(string? query) => query ?? string.Empty;
 
+    public static bool IsQueryBoxReady(bool isLoaded, bool hasXamlRoot) =>
+        isLoaded && hasXamlRoot;
+
     public static bool ShouldApplyDeferredQueryFocus(
         bool isPending,
         bool isVisible,

@@ -19,6 +19,9 @@ public sealed class M23KeyboardLifecycleTests
     [Fact]
     public void Focus_request_requires_current_visible_window_and_actual_confirmation()
     {
+        Assert.False(FullSearchLifecycle.IsQueryBoxReady(isLoaded: false, hasXamlRoot: false));
+        Assert.False(FullSearchLifecycle.IsQueryBoxReady(isLoaded: true, hasXamlRoot: false));
+        Assert.True(FullSearchLifecycle.IsQueryBoxReady(isLoaded: true, hasXamlRoot: true));
         Assert.True(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(true, true, false, 4, 4, 0));
         Assert.True(FullSearchLifecycle.ShouldRetryDeferredQueryFocus(true, true, false, 4, 4, 1, queryBoxOwnsKeyboardFocus: false));
         Assert.False(FullSearchLifecycle.ShouldRetryDeferredQueryFocus(true, true, false, 4, 4, 2, queryBoxOwnsKeyboardFocus: false));
