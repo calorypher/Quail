@@ -32,6 +32,9 @@ internal sealed class SettingsWindow : Window
     private TextBlock? _generalError;
     private bool _closing;
     private bool _initialSizeApplied;
+    private nint _windowHandle;
+    private nint _applicationSmallIcon;
+    private nint _applicationLargeIcon;
 
     public SettingsWindow(
         IndexCatalogController catalog,
@@ -57,6 +60,11 @@ internal sealed class SettingsWindow : Window
         _windowRoot.Style = Application.Current.Resources["QuailIndexRootStyle"] as Style;
         _windowRoot.Children.Add(CreateRoot());
         Content = _windowRoot;
+        _windowHandle = WindowNative.GetWindowHandle(this);
+        _applicationSmallIcon = BrandingAssets.CreateApplicationSmallIcon();
+        _applicationLargeIcon = BrandingAssets.CreateApplicationLargeIcon();
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         ApplyTheme(settings.Theme);
         _operations.Changed += OnOperationsChanged;
         Closed += (_, _) =>
@@ -64,6 +72,16 @@ internal sealed class SettingsWindow : Window
             RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Closed);
             _closing = true;
             _operations.Changed -= OnOperationsChanged;
+            if (_applicationSmallIcon != 0)
+            {
+                NativeMethods.DestroyIcon(_applicationSmallIcon);
+                _applicationSmallIcon = 0;
+            }
+            if (_applicationLargeIcon != 0)
+            {
+                NativeMethods.DestroyIcon(_applicationLargeIcon);
+                _applicationLargeIcon = 0;
+            }
             ClosedByUser?.Invoke();
         };
         Activated += (_, args) =>
@@ -91,9 +109,25 @@ internal sealed class SettingsWindow : Window
     private void ApplyInitialSize()
     {
         if (_initialSizeApplied) return;
-        var dpi = NativeMethods.GetDpiForWindow(WindowNative.GetWindowHandle(this));
+        var dpi = NativeMethods.GetDpiForWindow(_windowHandle);
         var size = SettingsWindowLayout.InitialSizeToPhysical(dpi == 0 ? 96u : dpi);
         AppWindow.Resize(new SizeInt32(size.Width, size.Height));
+        if (NativeMethods.GetCursorPos(out var cursor))
+        {
+            var monitor = NativeMethods.MonitorFromPoint(cursor, NativeMethods.MonitorDefaultToNearest);
+            var info = new NativeMethods.MonitorInfo { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MonitorInfo>() };
+            if (monitor != 0 && NativeMethods.GetMonitorInfo(monitor, ref info) &&
+                NativeMethods.GetWindowRect(_windowHandle, out var windowRect))
+            {
+                var position = QuickSearchOverlayLayout.CenterInWorkArea(
+                    info.Work.Left,
+                    info.Work.Top,
+                    info.Work.Right - info.Work.Left,
+                    info.Work.Bottom - info.Work.Top,
+                    new PhysicalSize(windowRect.Right - windowRect.Left, windowRect.Bottom - windowRect.Top));
+                AppWindow.Move(new PointInt32(position.X, position.Y));
+            }
+        }
         _initialSizeApplied = true;
     }
 
@@ -110,6 +144,8 @@ internal sealed class SettingsWindow : Window
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            IsPaneToggleButtonVisible = false,
+            OpenPaneLength = 228,
             Content = _content
         };
         _navigation.MenuItems.Add(new NavigationViewItem { Content = "General", Tag = "general", Icon = new SymbolIcon(Symbol.Setting) });

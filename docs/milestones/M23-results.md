@@ -28,8 +28,10 @@ resources preserve a readable equivalent hierarchy for Light and System.
 ### Quick Search
 
 - The transient frameless header keeps the approved feather, integrates the
-  query field, shows a clear action only for non-empty queries, and provides
-  familiar Full Search and Settings actions.
+  query field, shows its only clear action only for non-empty queries, and
+  provides an explicitly labelled Expand action plus Settings. This removes the
+  visually ambiguous second X while preserving the existing dismiss lifecycle
+  and keyboard behaviour.
 - Result rows retain M22 ranking, keyboard behavior, icons, metadata, and
   two-line name/context hierarchy.
 - The context menu exposes only source-supported Open, Reveal, and Copy path
@@ -39,17 +41,27 @@ resources preserve a readable equivalent hierarchy for Light and System.
 
 ### Full Search
 
-- The application-owned header beneath the native caption adds Quail identity,
-  direct Settings access, and Collapse without changing native window behavior.
-- The default row contains Type, Extension, Modified dates, Add filter,
-  Relevance, and Clear all. Add filter toggles the existing Size and attribute
-  controls; no M22 criterion was removed or changed.
+- The application-owned title row now extends into the native caption area:
+  Quail identity, Settings, and Collapse share the top line with native caption
+  controls while preserving Windows resize, Snap, minimize, maximize, and close
+  behaviour.
+- The dominant search field is followed by a single compact default row: a
+  `Type` label plus `Any` / `Files` / `Folders`, Extension, Modified, Add
+  filter, Relevance, and Clear all. This prevents per-option `Type:` repetition
+  and the former Folders clipping. Modified opens an integrated, bounded date
+  range panel; its existing date semantics remain unchanged. Add filter still
+  toggles the existing Size and attribute controls; no M22 criterion was removed
+  or changed.
 - Name, Path, Size, and Modified headers sort ascending on first click and
   descending on repeated click. Relevance is restored explicitly by its button.
   Kind remains display-only.
 
 ### Settings
 
+- Settings now opens centered on the cursor monitor at its existing initial
+  size, and both titlebar icon sizes use the Quail feather identity.
+- The left navigation is a fixed compact 228-pixel pane with no toggle button,
+  returning visual priority to the General, Indexing, and About content.
 - General now represents existing startup, hotkey, and theme functionality as
   compact feature cards with aligned controls and a transactional Save action.
 - Indexing remains driven by the existing catalog, health, and action policies;
@@ -62,67 +74,60 @@ resources preserve a readable equivalent hierarchy for Light and System.
 All captures below are real physical-host WinApp evidence under the ignored
 `artifacts/m23/visual/` directory; they are intentionally not committed.
 
-### Checkpoint A — Quick Search
+### Correction pass — Quick Search
 
-- `quick-empty-dark.png`
-- `quick-populated-dark.png`
-- `quick-context-menu-dark.png`
+- `quick-populated-correction-dark.png`
 
-The compact empty state keeps the search field dominant. The populated state
-has six visible, two-line rows with calm metadata and a clearly stronger blue
-keyboard selection. The captured context menu contains supported Open, Open
-file location, Copy path, and Open in Full Search actions. Full-screen capture
-was required for the WinUI flyout.
+The populated capture verifies the feather, integrated query, single clear
+affordance, visibly named Expand action, and Settings button in the compact
+header. Existing M23 captures of the result hierarchy and context menu remain
+applicable because those paths were not changed.
 
-### Checkpoint B — Full Search
+### Correction pass — Full Search
 
-- `full-populated-dark.png`
-- `full-no-results-dark.png`
-- `full-advanced-filters-dark.png`
+- `full-populated-correction-dark.png`
+- `full-modified-filter-correction-dark.png`
 
-The application header, dominant query field, compact common-filter row, and
-information-dense result table follow the primary reference without replacing
-the native caption. Advanced controls appear only after Add filter. No-results
-status remains visible without decorative empty artwork.
+The populated-query capture verifies the application-owned header in the native
+caption line, dominant query field, and unclipped compact default filter row.
+The second capture shows the bounded Modified date-range interaction. Existing
+M23 captures of advanced filters, result-table behaviour, and no-results status
+remain applicable because their search semantics and controls were not changed.
 
-### Checkpoint C — Settings
+### Correction pass — Settings
 
-- `settings-general-dark.png`
-- `settings-indexing-dark.png`
-- `settings-about-dark.png`
+- `settings-general-correction-dark.png`
+- `settings-indexing-correction-dark.png`
+- `settings-about-correction-dark.png`
 
-General cards have the intended visual hierarchy and aligned controls. Indexing
-uses existing health/state data in readable cards rather than a service console.
-About is concise and shows the real assembly version, approved feather, and
-existing links.
+The General capture demonstrates the corrected 228-pixel navigation proportion,
+Quail feather titlebar icon, and main-content priority. Indexing and About
+confirm the information architecture remains intact.
 
-### Light, System, and DPI
+### Prior Light, System, and DPI evidence
 
 - `settings-general-light.png`
 - `full-populated-light.png`
 - `quick-populated-light.png`
 
-Light-mode text, selected rows, controls, borders, and focus treatment were
-visually inspected and remain readable. The temporary saved Light selection was
-restored to System after the smoke; the physical host was dark, so System was
-also covered by the Dark captures. User-owned high-DPI visual smoke: pending;
-host display scaling was not changed for this cosmetic milestone.
+The correction pass was limited to the dark-host visual composition above.
+Previously captured Light/System/DPI evidence remains applicable to unchanged
+shared resource treatments; user-owned high-DPI visual smoke remains pending.
 
 ## Verification
 
-- Focused M22/M23 Full Search, Quick layout, and scheduling regression guard:
-  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~M11QuickSearchOverlayLayoutTests|FullyQualifiedName~M13BSearchSchedulingTests"` — **42/42 PASS**.
-- Release App build after the M23 sort-card changes:
+- Focused Full Search test class, including the M23 Modified presentation guard:
+  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --filter FullyQualifiedName~M22FullSearchTests` — **16/16 PASS**.
+- Final Release App build after the correction pass:
   `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**.
 - Final full Release suite: `dotnet test Quail.sln -c Release --no-restore` —
-  **307/307 Core tests and 13/13 Maintenance Service tests PASS**.
-- Final Release App build: `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**.
+  **308/308 Core tests and 13/13 Maintenance Service tests PASS**.
 - `git diff --check` — **PASS**.
 - `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project references**, preserving the absence of a Core-to-FileSystem dependency; focused M22 coverage also asserts the compiled Core assembly has no FileSystem reference.
 
 ### Perceived latency guard
 
-Canonical `scripts/run-m16-benchmark.ps1` ran the existing local scenario file
+Canonical `scripts/run-m16-benchmark.ps1` previously ran the existing local scenario file
 for `ordinary-name` and `broad-result`, three repetitions each, with no resident
 Quail process and no rebuild:
 
@@ -131,9 +136,10 @@ Quail process and no rebuild:
 - broad-result median: **64.378 ms**; worst sample: **227.091 ms**.
 
 These remain inside the established M18 targets and per-sample guardrails
-(ordinary-name <= 50/100 ms; broad-result <= 150/250 ms). The final candidate
-does not show a busy-label or spinner flash for ordinary fast searches, and the
-captured selection is present with the returned rows.
+(ordinary-name <= 50/100 ms; broad-result <= 150/250 ms). The correction pass
+changes only XAML presentation, window chrome/positioning, and UI filter
+presentation; it does not change the search request, ranking, source dispatch,
+or result projection. A latency rerun is therefore not warranted.
 
 Changed C# and XAML were manually inspected for readable, ordinary multiline
 structure and the unchanged App-to-Core-to-FileSystem dependency direction.
@@ -147,8 +153,8 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 
 ## Remaining acceptance
 
-Implementation commit: `a4916536d1e00130f01f80f00a7e99b12f6886fe` on
-`codex/m23-ui-polish`.
+Correction-pass implementation is committed on `codex/m23-ui-polish`; the PR
+head identifies the exact revision.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.

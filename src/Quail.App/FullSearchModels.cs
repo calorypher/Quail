@@ -36,6 +36,12 @@ internal static class FullSearchSortInteraction
         (FullSearchSortField.Relevance, false);
 }
 
+internal static class FullSearchFilterPresentation
+{
+    public static string GetModifiedLabel(DateOnly? from, DateOnly? to) =>
+        from is null && to is null ? "Modified: Any" : "Modified: Custom range";
+}
+
 internal sealed record FullSearchCriteria(
     FullSearchEntryType EntryType,
     string? Extension,

@@ -370,6 +370,14 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
+    public void M23_modified_filter_presentation_is_compact_until_a_date_is_selected()
+    {
+        Assert.Equal("Modified: Any", FullSearchFilterPresentation.GetModifiedLabel(null, null));
+        Assert.Equal("Modified: Custom range", FullSearchFilterPresentation.GetModifiedLabel(new DateOnly(2026, 9, 1), null));
+        Assert.Equal("Modified: Custom range", FullSearchFilterPresentation.GetModifiedLabel(null, new DateOnly(2026, 9, 12)));
+    }
+
+    [Fact]
     public async Task Structured_coordinator_request_supersedes_same_text_with_older_filters()
     {
         using var firstStarted = new ManualResetEventSlim();

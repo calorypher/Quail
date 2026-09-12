@@ -27,6 +27,8 @@ internal sealed partial class FullSearchWindow : Window
     private readonly nint _initialMonitor;
     private readonly ObservableCollection<FullSearchResultItem> _results = [];
     private nint _windowHandle;
+    private nint _applicationSmallIcon;
+    private nint _applicationLargeIcon;
     private long _uiGeneration;
     private bool _visible;
     private bool _closed;
@@ -58,10 +60,26 @@ internal sealed partial class FullSearchWindow : Window
         ResultsList.ItemsSource = _results;
         Title = "Quail Full Search";
         _windowHandle = WindowNative.GetWindowHandle(this);
+        ConfigureApplicationHeader();
+        _applicationSmallIcon = BrandingAssets.CreateApplicationSmallIcon();
+        _applicationLargeIcon = BrandingAssets.CreateApplicationLargeIcon();
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         ApplyTheme(theme);
         AppWindow.Changed += OnAppWindowChanged;
         Closed += OnClosed;
         _controlsReady = true;
+    }
+
+    private void ConfigureApplicationHeader()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppHeader);
     }
 
     public event Action? ClosedByUser;
@@ -212,8 +230,33 @@ internal sealed partial class FullSearchWindow : Window
     private void OnNumberChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
         OnSearchInputChanged(sender, args);
 
-    private void OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args) =>
+    private void OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
+    {
+        UpdateModifiedFilterPresentation();
         OnSearchInputChanged(sender, args);
+    }
+
+    private void OnModifiedFilterClicked(object sender, RoutedEventArgs args)
+    {
+        ModifiedDatePanel.Visibility = ModifiedDatePanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void OnClearModifiedDatesClicked(object sender, RoutedEventArgs args)
+    {
+        _controlsReady = false;
+        ModifiedFromPicker.Date = null;
+        ModifiedToPicker.Date = null;
+        _controlsReady = true;
+        UpdateModifiedFilterPresentation();
+        ApplySearch();
+    }
+
+    private void UpdateModifiedFilterPresentation() =>
+        ModifiedFilterButton.Content = FullSearchFilterPresentation.GetModifiedLabel(
+            ToDateOnly(ModifiedFromPicker.Date),
+            ToDateOnly(ModifiedToPicker.Date));
 
     private void OnAddFilterClicked(object sender, RoutedEventArgs args)
     {
@@ -276,8 +319,10 @@ internal sealed partial class FullSearchWindow : Window
         ReadOnlyBox.IsChecked = false;
         (_sortField, _sortDescending) = FullSearchSortInteraction.RestoreRelevance();
         AdvancedFiltersPanel.Visibility = Visibility.Collapsed;
+        ModifiedDatePanel.Visibility = Visibility.Collapsed;
         AddFilterButton.Content = "Add filter";
         _controlsReady = true;
+        UpdateModifiedFilterPresentation();
         UpdateSortPresentation();
         ApplySearch();
     }
@@ -524,6 +569,16 @@ internal sealed partial class FullSearchWindow : Window
         _searchCoordinator.Completed -= OnSearchCompleted;
         _searchCoordinator.Dispose();
         AppWindow.Changed -= OnAppWindowChanged;
+        if (_applicationSmallIcon != 0)
+        {
+            NativeMethods.DestroyIcon(_applicationSmallIcon);
+            _applicationSmallIcon = 0;
+        }
+        if (_applicationLargeIcon != 0)
+        {
+            NativeMethods.DestroyIcon(_applicationLargeIcon);
+            _applicationLargeIcon = 0;
+        }
         ClosedByUser?.Invoke();
     }
 
