@@ -127,8 +127,9 @@ internal sealed partial class FullSearchWindow : Window
             ApplyInitialSize();
         }
         var transferredQuery = FullSearchLifecycle.TransferQuery(query);
-        var queryChanged = !string.Equals(QueryBox.Text, transferredQuery, StringComparison.Ordinal);
+        _controlsReady = false;
         QueryBox.Text = transferredQuery;
+        _controlsReady = true;
         QueryBox.SelectionStart = QueryBox.Text.Length;
         QueryBox.SelectionLength = 0;
         CancelPendingLoadedFocus();
@@ -142,10 +143,8 @@ internal sealed partial class FullSearchWindow : Window
         NativeMethods.SetForegroundWindow(_windowHandle);
         AppLog.Write($"Full diagnostic: before QueueDeferredQueryFocus request={focusRequest}.");
         QueueDeferredQueryFocus(focusRequest);
-        if (!queryChanged)
-        {
-            ApplySearch();
-        }
+        AppLog.Write($"Full diagnostic: applying transferred query request={focusRequest}.");
+        ApplySearch();
     }
 
     public void HideForCollapse()
