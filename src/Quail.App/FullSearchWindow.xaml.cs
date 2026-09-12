@@ -41,6 +41,8 @@ internal sealed partial class FullSearchWindow : Window
     private readonly DelayedBusyState _busyState = new();
     private readonly DispatcherQueueTimer _busyTimer;
     private long _busyGeneration;
+    private long _queryFocusRequest;
+    private bool _queryFocusPending;
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
@@ -76,6 +78,7 @@ internal sealed partial class FullSearchWindow : Window
         ApplyTheme(theme);
         AppWindow.Changed += OnAppWindowChanged;
         Closed += OnClosed;
+        Activated += OnWindowActivated;
         _controlsReady = true;
     }
 
@@ -111,14 +114,16 @@ internal sealed partial class FullSearchWindow : Window
         {
             ApplyInitialSize();
         }
-        Activate();
-        NativeMethods.SetForegroundWindow(_windowHandle);
-
         var transferredQuery = FullSearchLifecycle.TransferQuery(query);
         var queryChanged = !string.Equals(QueryBox.Text, transferredQuery, StringComparison.Ordinal);
         QueryBox.Text = transferredQuery;
         QueryBox.SelectionStart = QueryBox.Text.Length;
-        QueryBox.Focus(FocusState.Programmatic);
+        QueryBox.SelectionLength = 0;
+        var focusRequest = ++_queryFocusRequest;
+        _queryFocusPending = true;
+        Activate();
+        NativeMethods.SetForegroundWindow(_windowHandle);
+        QueueDeferredQueryFocus(focusRequest);
         if (!queryChanged)
         {
             ApplySearch();
@@ -134,6 +139,7 @@ internal sealed partial class FullSearchWindow : Window
 
         _visible = false;
         _uiGeneration++;
+        _queryFocusPending = false;
         CancelBusy();
         _searchCoordinator.Invalidate();
         SetFullKeyState(SearchKeyState.None);
@@ -227,6 +233,35 @@ internal sealed partial class FullSearchWindow : Window
             Math.Max(current.Width, minimum.Width),
             Math.Max(current.Height, minimum.Height)));
         _clampingSize = false;
+    }
+
+    private void OnWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState != WindowActivationState.Deactivated && _queryFocusPending)
+        {
+            QueueDeferredQueryFocus(_queryFocusRequest);
+        }
+    }
+
+    private void QueueDeferredQueryFocus(long request)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!FullSearchLifecycle.ShouldApplyDeferredQueryFocus(
+                    _queryFocusPending,
+                    _visible,
+                    _closed,
+                    request,
+                    _queryFocusRequest))
+            {
+                return;
+            }
+
+            _queryFocusPending = false;
+            QueryBox.SelectionStart = QueryBox.Text.Length;
+            QueryBox.SelectionLength = 0;
+            QueryBox.Focus(FocusState.Programmatic);
+        });
     }
 
     private void OnSearchInputChanged(object sender, object args)
@@ -635,6 +670,7 @@ internal sealed partial class FullSearchWindow : Window
         _searchCoordinator.Completed -= OnSearchCompleted;
         _searchCoordinator.Dispose();
         AppWindow.Changed -= OnAppWindowChanged;
+        Activated -= OnWindowActivated;
         if (_applicationSmallIcon != 0)
         {
             NativeMethods.DestroyIcon(_applicationSmallIcon);

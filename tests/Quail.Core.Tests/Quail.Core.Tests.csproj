@@ -40,6 +40,7 @@
     <Compile Include="..\..\src\Quail.App\ResultSelection.cs" Link="App\ResultSelection.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchOverlayLayout.cs" Link="App\QuickSearchOverlayLayout.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchInputPolicy.cs" Link="App\QuickSearchInputPolicy.cs" />
+    <Compile Include="..\..\src\Quail.App\QuickSearchFooterPresentation.cs" Link="App\QuickSearchFooterPresentation.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchLifecycle.cs" Link="App\QuickSearchLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\ShortQueryDeferrer.cs" Link="App\ShortQueryDeferrer.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsStore.cs" Link="App\SettingsStore.cs" />

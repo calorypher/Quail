@@ -45,6 +45,10 @@ resources preserve a readable equivalent hierarchy for Light and System.
   found` and `Try a different search term.` The footer remains available for
   operational notices and never duplicates that primary state. An empty query
   still collapses Quick to its compact search field.
+- Completed result sets now use the same footer when no transient action,
+  error, delayed busy, or source notice has priority: `1 result.`, normal
+  plural counts through 49, and `Showing top 50 results.` at the existing Core
+  request limit. Zero results still rely solely on the centered state.
 
 ### Full Search
 
@@ -71,6 +75,12 @@ resources preserve a readable equivalent hierarchy for Light and System.
   Maintenance health remains outside this condition: CatchingUp, Retrying,
   service Unavailable, missing health, and expected health-read failure still
   leave a complete compatible readable index searchable.
+- Quick-to-Full schedules a one-shot focus request on the existing Dispatcher
+  queue after activation. The request carries the latest activation token and
+  places an unselected caret at the end of the transferred query; stale,
+  hidden, or closed-window requests are ignored. This applies uniformly to a
+  first Full window, an existing hidden window, and a restored minimized window
+  without polling or arbitrary delay.
 
 ### Settings
 
@@ -116,6 +126,17 @@ host would require altering user-owned active index configuration. The exact
 precedence and presentation are covered by deterministic policy tests below;
 the final physical-host visual smoke of this particular state remains
 user-owned pending acceptance.
+
+### Final focus/footer correction pass
+
+No new physical-host capture was created for the focus and footer correction.
+The host application-control policy now blocks the freshly built
+`Quail.FileSystem.dll` before `Quail.exe` can create a window (`FileLoadException`,
+`0x800711C7`), so WinApp had no target for a post-build focus/count smoke. The
+existing evidence above remains applicable to the otherwise unchanged surfaces;
+the required fresh host verification of append-after-Expand, Collapse→Quick→Expand,
+footer count, and zero-result footer remains pending until the host policy allows
+the local build to start.
 
 ### Correction pass — Quick Search
 
@@ -167,6 +188,16 @@ shared resource treatments; user-owned high-DPI visual smoke remains pending.
   same environmental block. The last successful M23 candidate result for that
   unchanged suite remains **13/13 PASS**; this correction does not touch the
   service or its dependencies.
+- Final focus/footer correction Release build:
+  `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore`
+  — **PASS, 0 warnings, 0 errors**.
+- Focused and full Core Release runners were attempted after the final build,
+  but both were blocked before discovery because host application control denied
+  `tests/Quail.Core.Tests/bin/Release/net10.0-windows/Quail.FileSystem.dll`
+  (`FileLoadException`, `0x800711C7`). The exact same policy also prevents the
+  freshly built `Quail.exe` from starting, so Maintenance Service tests were not
+  retried; their code and dependencies remain untouched and prior **13/13 PASS**
+  evidence is retained.
 - `git diff --check` — **PASS**.
 - `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project references**, preserving the absence of a Core-to-FileSystem dependency; focused M22 coverage also asserts the compiled Core assembly has no FileSystem reference.
 
@@ -185,7 +216,9 @@ These remain inside the established M18 targets and per-sample guardrails
 changes only UI presentation/state policy and does not change the search request,
 ranking, source dispatch, or result projection. The delayed busy timer is
 non-blocking and starts after a request is already pending; a latency rerun is
-therefore not warranted.
+therefore not warranted. The final focus/footer correction likewise changes
+only deferred UI focus and local status-label selection, not the search request,
+ranking, source dispatch, or result projection.
 
 Changed C# and XAML were manually inspected for readable, ordinary multiline
 structure and the unchanged App-to-Core-to-FileSystem dependency direction.
@@ -199,8 +232,8 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 
 ## Remaining acceptance
 
-Key-state correction implementation is on `codex/m23-ui-polish`; the PR head
-will identify the exact revision after final verification.
+The final correction implementation is on `codex/m23-ui-polish`; the PR head
+identifies the exact revision after commit and push.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.

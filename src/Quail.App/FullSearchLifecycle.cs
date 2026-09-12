@@ -14,6 +14,14 @@ internal static class FullSearchLifecycle
         kind == FullSearchDismissKind.Collapse;
 
     public static string TransferQuery(string? query) => query ?? string.Empty;
+
+    public static bool ShouldApplyDeferredQueryFocus(
+        bool isPending,
+        bool isVisible,
+        bool isClosed,
+        long request,
+        long latestRequest) =>
+        isPending && isVisible && !isClosed && request == latestRequest;
 }
 
 internal enum FullSearchInputState

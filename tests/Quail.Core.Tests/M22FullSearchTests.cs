@@ -423,6 +423,11 @@ public sealed class M22FullSearchTests : IDisposable
         Assert.Equal("  exact query  ", FullSearchLifecycle.TransferQuery("  exact query  "));
         Assert.True(FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.Collapse));
         Assert.False(FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.NativeClose));
+        Assert.True(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: false, request: 2, latestRequest: 2));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: false, isVisible: true, isClosed: false, request: 2, latestRequest: 2));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: false, isClosed: false, request: 2, latestRequest: 2));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: true, request: 2, latestRequest: 2));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: false, request: 1, latestRequest: 2));
         Assert.Equal(FullSearchInputState.EmptyQuery, FullSearchInputPolicy.Evaluate(" ", true, true));
         Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate("query", false, true));
         Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate(" ", false, true));

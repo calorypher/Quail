@@ -745,7 +745,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 hasUsableSource: _searchRuntime.HasSources(),
                 resultCount: _visibleResults.Count);
             SetQuickKeyState(keyState);
-            StatusText.Text = sourceStatusNotice ?? string.Empty;
+            StatusText.Text = sourceStatusNotice ??
+                QuickSearchFooterPresentation.ResultCountLabel(_visibleResults.Count) ??
+                string.Empty;
             _searchTrace.RecordSourceStatus(
                 completion.UiGeneration,
                 completion.Generation,
