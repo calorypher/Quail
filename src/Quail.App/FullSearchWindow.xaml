@@ -94,7 +94,7 @@
     </Grid>
 
     <Grid Grid.Row="4">
-    <ListView x:Name="ResultsList" SelectionMode="Single" IsItemClickEnabled="False" IsSwipeEnabled="False" DoubleTapped="OnResultDoubleTapped" KeyDown="OnResultsKeyDown" RightTapped="OnResultRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
+    <ListView x:Name="ResultsList" SelectionMode="Single" IsItemClickEnabled="False" IsSwipeEnabled="False" DoubleTapped="OnResultDoubleTapped" PreviewKeyDown="OnResultsPreviewKeyDown" KeyDown="OnResultsKeyDown" RightTapped="OnResultRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
       <ListView.ItemContainerStyle>
         <Style TargetType="ListViewItem">
           <Setter Property="HorizontalContentAlignment" Value="Stretch" />
