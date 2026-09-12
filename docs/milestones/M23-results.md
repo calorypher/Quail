@@ -2,8 +2,8 @@
 
 ## Status
 
-**ACTIVE — corrected candidate awaiting interactive Quail-Lab crash/liveness
-verification and user-owned visual/interaction acceptance. M23 is not complete.**
+**ACTIVE — Full Search liveness restored; final keyboard/interaction smoke and
+user-owned acceptance remain pending. M23 is not complete.**
 
 ## Preparation and references
 
@@ -123,10 +123,10 @@ at 22:02:25 recorded `combase.dll` and `0x80070057` (`E_INVALIDARG`). There was
 no corresponding `.NET Runtime` event or recoverable managed stack in the
 queried events. Earlier VM events also recorded a `Microsoft.UI.Input.dll`
 `0xc0000602` failure. The exact native call site is not proven by these logs.
-The narrow regression diff and timing make the new constructor-time
-`AppWindow.TitleBar.ButtonForegroundColor` /
-`ButtonInactiveForegroundColor` setters and theme-change callbacks the leading
-cause, but final causality requires the corrected build to open interactively.
+The initial hypothesis implicated new native caption-color setters. Removing
+them in `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3` did **not** stop the
+same black-window/crash behavior on either host; those setters were **not** the
+root cause of the Full crash.
 Diagnostic logs: `.quail-tooling/m23-crash-events-20260912-221154153.log` and
 `.quail-tooling/m23-crash-applog-20260912-221214119.log` (ignored local files).
 
@@ -134,12 +134,52 @@ Candidate `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3` removes those new
 individual caption-color setters and `ActualThemeChanged` callbacks from Full
 and Settings, restores their pre-regression `ApplyTheme`/DWM path, and removes
 the now-unused caption-color policy/test. Settings' Quail icon, content theme,
-layout, and behavior remain unchanged. The Full Settings gear brush, mode
+layout, and behavior remain unchanged. The later active/inactive-window screenshot
+comparison does not establish a remaining Settings code regression; Settings
+native titlebar appearance will be reassessed only after Full stability. The Full Settings gear brush, mode
 exclusivity, focus-token lifecycle, and keyboard shortcuts remain unchanged.
 `AppWindow.TitleBar.PreferredTheme` was not added: without an established safe
 runtime path after this native crash, the mixed Windows/Quail-theme caption
 contrast edge case is deferred to M24 stabilization. Native caption buttons are
 not replaced.
+
+### Full Search XamlRoot crash and transferred-query correction
+
+Diagnostic build `423d405412ed4a9bf79fde3c83c851edfa802881` was reproduced
+once in interactive Quail-Lab. It completed Full construction, `ApplyTheme`,
+`Activate()`, and `SetForegroundWindow`. The first deferred focus callback then
+recorded `QueryBox.IsLoaded=False`, `QueryBox.XamlRoot=null`, and
+`QueryBox.Focus(...)` returning `False`. Its **last successful marker** was
+`before FocusManager.GetFocusedElement`; the next VM Application Error/WER
+reported the same `CoreMessagingXP.dll` `0xc000027b` crash and `combase.dll`
+`0x80070057` (`E_INVALIDARG`). This identifies the call to
+`FocusManager.GetFocusedElement` with an unavailable XamlRoot as the confirmed
+crash path. Diagnostic log:
+`.quail-tooling/m23-focus-diagnostic-read-20260912-223154368.log` (ignored).
+
+The focus correction (`f2595aa4751573dd3a8d085f05a99f4cc117360c`) keeps
+the latest request pending until `QueryBox.IsLoaded` and a non-null XamlRoot
+are both true. If not ready, it subscribes once to `QueryBox.Loaded` and queues
+the focus attempt after that notification without consuming an attempt.
+Collapse/close cancels the handoff, superseded tokens are ignored, and at most
+two real focus attempts remain possible. `FocusManager` is called only after a
+successful `QueryBox.Focus(...)` with a non-null XamlRoot. Interactive VM QA
+confirmed that Full rendered and stayed alive beyond 15 seconds; AppLog showed
+the Loaded handoff followed by actual focus confirmation. Log:
+`.quail-tooling/m23-focus-ready-liveness-read-20260912-223551851.log` (ignored).
+
+That smoke exposed one additional in-scope activation defect: Full initially
+showed no results for a transferred Quick query until the text was edited.
+`ActivateSearch` previously relied on a programmatic `TextChanged` event when
+the query changed, which was not reliable before the new Full XAML tree loaded.
+The narrow correction (`c8ea1368badc979c6ad4269b93612763d5948886`)
+suppresses the setter-triggered input handler and explicitly calls the existing
+`ApplySearch()` once after transfer/activation. Interactive VM QA confirmed
+Full rendered, stayed alive beyond 15 seconds, and displayed the transferred
+query's results immediately without another keystroke. No search semantics or
+ranking changed. The final code commit `ee7377da63c59341b17d1d7ed97403099c1f1414`
+only removes temporary step-by-step tracing, retaining low-noise focus
+milestone logs.
 
 ### Settings
 
@@ -335,7 +375,7 @@ No host security policy or VM display/session configuration was changed.
 ### Native titlebar regression correction candidate
 
 The earlier `7142f577...` automated PASS did **not** catch the interactive
-black-window/crash regression. The corrected candidate was synced to the
+black-window/crash regression. This **failed** candidate was synced to the
 existing Quail-Lab checkout as exact commit
 `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3` using the repository's
 Quail-Lab SSH/SCP module and a small Git bundle; the VM checkout was clean.
@@ -355,10 +395,32 @@ Quail-Lab SSH/SCP module and a small Git bundle; the VM checkout was clean.
 VM verification log: `.quail-tooling/m23-titlebar-verification-20260912-221636763.log`
 (ignored local file). Candidate executable:
 `C:\Temp\Quail-M23-verify\src\Quail.App\bin\Release\net10.0-windows10.0.26100.0\win-x64\Quail.exe`.
-The SSH runner cannot exercise the interactive Full creation path, so **runtime
-liveness, Settings titlebar appearance, repeated focus, hotkey modes, and
-shortcuts are not yet PASS**. They require the user-owned VMConnect smoke on
-this exact candidate. No host security policy was changed.
+Interactive user QA subsequently confirmed that this candidate still crashed;
+the automated results above are historical evidence, not liveness evidence.
+No host security policy was changed.
+
+### Final XamlRoot-safe focus candidate
+
+Quail-Lab checkout and Release build: exact code commit
+`ee7377da63c59341b17d1d7ed97403099c1f1414`, clean before verification.
+Diagnostic and functional liveness gates passed interactively on preceding
+commits `f2595aa...` and `c8ea136...`; the final commit changed logging only.
+
+- Focused M22/M23 Full, keyboard lifecycle, Quick footer, key-state, and
+  delayed-busy tests: **35/35 PASS**.
+- Core Release: **326/327 PASS**; sole failure is the same unchanged M20
+  non-administrator pipe ACL assertion under the administrator SSH runner.
+- Maintenance Service Release: **13/13 PASS**.
+- Quail.App Release `win-x64`: **PASS, 0 warnings, 0 errors**.
+- Host `git diff --check`: **PASS**; `Quail.Core` has no project references and
+  no compile-time dependency on `Quail.FileSystem`.
+
+Final VM log: `.quail-tooling/m23-final-focus-verification-20260912-224159610.log`
+(ignored). Executable:
+`C:\Temp\Quail-M23-verify\src\Quail.App\bin\Release\net10.0-windows10.0.26100.0\win-x64\Quail.exe`.
+The final user-owned 10-cycle focus stress, global-hotkey mode routing, and
+result shortcut smoke remain pending; no claim of final interaction PASS or
+merge readiness is made.
 
 ### Perceived latency guard
 
@@ -396,9 +458,10 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 
 ## Remaining acceptance
 
-The current native-titlebar correction implementation is on
-`codex/m23-ui-polish` at `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3`.
-Interactive confirmation of the crash fix is still pending.
+The current Full activation/focus implementation is on `codex/m23-ui-polish`
+at product-code commit `ee7377da63c59341b17d1d7ed97403099c1f1414`.
+Full liveness and immediate transferred-query results passed interactive
+Quail-Lab smoke; final keyboard/interaction acceptance remains pending.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
