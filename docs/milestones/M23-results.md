@@ -147,7 +147,8 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 
 ## Remaining acceptance
 
-Branch: `codex/m23-ui-polish` at `a4916536d1e00130f01f80f00a7e99b12f6886fe`.
+Implementation commit: `a4916536d1e00130f01f80f00a7e99b12f6886fe` on
+`codex/m23-ui-polish`.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
