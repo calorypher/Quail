@@ -275,8 +275,8 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 ## Remaining acceptance
 
 The final correction implementation is on `codex/m23-ui-polish` at
-`a76802b90853110f59dffe526d03c76340288588`; the PR head identifies the same
-revision after push.
+`a76802b90853110f59dffe526d03c76340288588`; subsequent branch commits record
+verification evidence only and do not change the implementation.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
