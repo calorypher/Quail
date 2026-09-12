@@ -4,6 +4,8 @@
 
 ### Added
 
+- Quick Search now offers clear-query, Full Search, and Settings controls plus supported secondary result actions.
+- Full Search has compact default filters, expandable advanced filters, sortable result columns, and direct Settings access.
 - Full Search v1 adds a persistent, resizable filesystem result browser with larger bounded result sets, structured sorting and filters, keyboard navigation, reveal, and copy-path actions over the same Core search path as Quick Search.
 - Filesystem indexes are maintained continuously by a protected LocalSystem service, with direct read-only Quick Search, restart/downtime catch-up, explicit fail-closed recovery, and no routine Refresh or UAC for normal changes.
 - A unified standalone Settings window now combines General settings, index administration, maintenance status, and About information.
@@ -11,6 +13,7 @@
 
 ### Changed
 
+- Quick Search, Full Search, and Settings now share a calmer Fluent-adjacent surface, typography, control, and card treatment.
 - Filesystem search now preserves the best-ranked results when many names match, including duplicate names across indexes. Exact and prefix matches in ordinary visible locations rank above weaker matches in the current profile, while internal and system-heavy results remain deprioritized.
 
 ## 0.2.0 — release-ready

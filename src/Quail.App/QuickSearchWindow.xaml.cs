@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,6 +13,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
 using Windows.Graphics;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Quail.Core;
 
@@ -555,6 +557,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnQueryChanged(object sender, TextChangedEventArgs args)
     {
+        ClearQueryButton.Visibility = string.IsNullOrWhiteSpace(QueryBox.Text)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         ApplySearch();
     }
 
@@ -587,7 +592,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
         InvalidateSearches();
         ClearResults();
-        StatusText.Text = "Searching…";
+        StatusText.Text = string.Empty;
 
         if (query.Length is 1 or 2)
         {
@@ -717,7 +722,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         _selectedResultIndex = -1;
         _visibleResults.Clear();
-        StatusText.Text = string.Empty;
+        StatusText.Text = string.IsNullOrWhiteSpace(QueryBox.Text) ? "Start typing to search" : string.Empty;
     }
 
     private void OnSourcesChanged()
@@ -754,6 +759,10 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         switch (args.Key)
         {
+            case VirtualKey.Enter when IsDown(VirtualKey.Menu):
+                OnFullSearchClicked(sender, args);
+                args.Handled = true;
+                break;
             case VirtualKey.Down:
                 MoveSelection(1);
                 args.Handled = true;
@@ -848,6 +857,79 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _showFullSearch(query);
     }
 
+    private void OnClearQueryClicked(object sender, RoutedEventArgs args)
+    {
+        QueryBox.Text = string.Empty;
+        QueryBox.Focus(FocusState.Programmatic);
+    }
+
+    private void OnResultRightTapped(object sender, RightTappedRoutedEventArgs args)
+    {
+        if (args.OriginalSource is FrameworkElement { DataContext: ResultItem item })
+        {
+            SetSelection(_visibleResults.IndexOf(item));
+        }
+    }
+
+    private void OnContextMenuOpening(object sender, object args)
+    {
+        var selected = GetSelectedResult();
+        QuickOpenMenuItem.IsEnabled = selected is not null;
+        QuickRevealMenuItem.IsEnabled = selected is not null && _searchService.CanReveal(selected.Action);
+        QuickCopyPathMenuItem.IsEnabled = selected is not null && _searchService.CanCopyText(selected.Action);
+        QuickFullSearchMenuItem.IsEnabled = selected is not null;
+    }
+
+    private void OnQuickOpenClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is { } selected)
+        {
+            OpenSelectedResult(selected);
+        }
+    }
+
+    private async void OnQuickRevealClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is not { } selected)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => _searchService.Reveal(selected.Action));
+            StatusText.Text = "Opened file location.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = "Could not open the file location.";
+            AppLog.Write("Quick Search reveal failed.", exception);
+        }
+    }
+
+    private void OnQuickCopyPathClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is not { } selected)
+        {
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(_searchService.GetCopyText(selected.Action));
+            Clipboard.SetContent(package);
+            StatusText.Text = "Path copied.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = "Could not copy the path.";
+            AppLog.Write("Quick Search copy path failed.", exception);
+        }
+    }
+
+    private void OnQuickFullSearchClicked(object sender, RoutedEventArgs args) => OnFullSearchClicked(sender, args);
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState != WindowActivationState.Deactivated ||
@@ -883,6 +965,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _ => ElementTheme.Default
         };
     }
+
+    private static bool IsDown(VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
     private async void OpenSelectedResult(ResultItem result)
     {

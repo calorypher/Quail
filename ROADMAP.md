@@ -412,7 +412,7 @@ Acceptance boundary:
 
 ### M22 — Full Search v1 — COMPLETE
 
-**Status: COMPLETE — independent QA and user acceptance PASS; ready for merge subject to explicit user approval.**
+**Status: COMPLETE — merged through PR #25 as `94e9154f4286e7392f555795dcfa3aaad506cf97`.**
 
 **Goal:** add the first persistent result-browser surface for workflows that exceed the transient Quick Search list.
 
@@ -455,6 +455,8 @@ Acceptance boundary:
 - representative filtered queries such as type/size/date combinations work end to end.
 
 ### M23 — Quick Search & UI Polish
+
+**Status: ACTIVE — implementation branch `codex/m23-ui-polish`.**
 
 **Goal:** polish the integrated 0.3 UI after the functional surfaces are in place, without sacrificing perceived search latency.
 

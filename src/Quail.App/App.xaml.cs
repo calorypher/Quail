@@ -111,6 +111,7 @@ public sealed partial class App : Application
                 _searchRuntime ?? throw new InvalidOperationException("Search is unavailable."),
                 quickSearch.CurrentTheme,
                 CollapseFullSearch,
+                ShowSettings,
                 initialMonitor);
             _fullSearchWindow.ClosedByUser += () => _fullSearchWindow = null;
         }

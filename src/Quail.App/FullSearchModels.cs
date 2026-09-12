@@ -22,6 +22,20 @@ internal static class FullSearchSortPresentation
             : descending ? "↓ Descending" : "↑ Ascending";
 }
 
+internal static class FullSearchSortInteraction
+{
+    public static (FullSearchSortField Field, bool Descending) SelectColumn(
+        FullSearchSortField currentField,
+        bool currentDescending,
+        FullSearchSortField selectedField) =>
+        currentField == selectedField
+            ? (selectedField, !currentDescending)
+            : (selectedField, false);
+
+    public static (FullSearchSortField Field, bool Descending) RestoreRelevance() =>
+        (FullSearchSortField.Relevance, false);
+}
+
 internal sealed record FullSearchCriteria(
     FullSearchEntryType EntryType,
     string? Extension,

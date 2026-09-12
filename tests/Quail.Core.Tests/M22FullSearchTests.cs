@@ -348,6 +348,28 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
+    public void M23_column_sorting_uses_an_ascending_first_click_and_toggles_the_same_column()
+    {
+        var firstClick = FullSearchSortInteraction.SelectColumn(
+            FullSearchSortField.Relevance,
+            currentDescending: false,
+            FullSearchSortField.Size);
+        var repeatedClick = FullSearchSortInteraction.SelectColumn(
+            firstClick.Field,
+            firstClick.Descending,
+            FullSearchSortField.Size);
+        var changedColumn = FullSearchSortInteraction.SelectColumn(
+            repeatedClick.Field,
+            repeatedClick.Descending,
+            FullSearchSortField.Modified);
+
+        Assert.Equal((FullSearchSortField.Size, false), firstClick);
+        Assert.Equal((FullSearchSortField.Size, true), repeatedClick);
+        Assert.Equal((FullSearchSortField.Modified, false), changedColumn);
+        Assert.Equal((FullSearchSortField.Relevance, false), FullSearchSortInteraction.RestoreRelevance());
+    }
+
+    [Fact]
     public async Task Structured_coordinator_request_supersedes_same_text_with_older_filters()
     {
         using var firstStarted = new ManualResetEventSlim();

@@ -5,6 +5,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Quail.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
@@ -21,6 +23,7 @@ internal sealed partial class FullSearchWindow : Window
     private readonly SearchApplicationService _searchService;
     private readonly LatestSearchCoordinator _searchCoordinator;
     private readonly Action<string> _collapse;
+    private readonly Action _showSettings;
     private readonly nint _initialMonitor;
     private readonly ObservableCollection<FullSearchResultItem> _results = [];
     private nint _windowHandle;
@@ -30,16 +33,20 @@ internal sealed partial class FullSearchWindow : Window
     private bool _initialSizeApplied;
     private bool _clampingSize;
     private bool _controlsReady;
+    private FullSearchSortField _sortField = FullSearchSortField.Relevance;
+    private bool _sortDescending;
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
         string theme,
         Action<string> collapse,
+        Action showSettings,
         nint initialMonitor)
     {
         _searchRuntime = searchRuntime ?? throw new ArgumentNullException(nameof(searchRuntime));
         _searchService = searchRuntime.Search;
         _collapse = collapse ?? throw new ArgumentNullException(nameof(collapse));
+        _showSettings = showSettings ?? throw new ArgumentNullException(nameof(showSettings));
         _initialMonitor = initialMonitor;
         _searchCoordinator = LatestSearchCoordinator.ForRequests(
             (SearchRequest request) => _searchService.Search(request),
@@ -47,6 +54,7 @@ internal sealed partial class FullSearchWindow : Window
         _searchCoordinator.Completed += OnSearchCompleted;
         _searchRuntime.SourcesChanged += OnSourcesChanged;
         InitializeComponent();
+        FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _results;
         Title = "Quail Full Search";
         _windowHandle = WindowNative.GetWindowHandle(this);
@@ -207,32 +215,50 @@ internal sealed partial class FullSearchWindow : Window
     private void OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args) =>
         OnSearchInputChanged(sender, args);
 
-    private void OnSortChanged(object sender, SelectionChangedEventArgs args)
+    private void OnAddFilterClicked(object sender, RoutedEventArgs args)
     {
-        if (!_controlsReady)
+        AdvancedFiltersPanel.Visibility = AdvancedFiltersPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        AddFilterButton.Content = AdvancedFiltersPanel.Visibility == Visibility.Visible
+            ? "Hide filters"
+            : "Add filter";
+    }
+
+    private void OnRelevanceClicked(object sender, RoutedEventArgs args)
+    {
+        (_sortField, _sortDescending) = FullSearchSortInteraction.RestoreRelevance();
+        UpdateSortPresentation();
+        ApplySearch();
+    }
+
+    private void OnSortHeaderClicked(object sender, RoutedEventArgs args)
+    {
+        if (sender is not Button { Tag: string name } ||
+            !Enum.TryParse<FullSearchSortField>(name, out var field))
         {
             return;
         }
 
-        var sortField = (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0);
-        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(sortField);
-        if (!SortDirectionButton.IsEnabled)
-        {
-            SortDirectionButton.IsChecked = false;
-        }
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            sortField,
-            SortDirectionButton.IsChecked == true);
+        (_sortField, _sortDescending) = FullSearchSortInteraction.SelectColumn(
+            _sortField,
+            _sortDescending,
+            field);
+        UpdateSortPresentation();
         ApplySearch();
     }
 
-    private void OnSortDirectionChanged(object sender, RoutedEventArgs args)
+    private void UpdateSortPresentation()
     {
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0),
-            SortDirectionButton.IsChecked == true);
-        ApplySearch();
+        RelevanceButton.Content = _sortField == FullSearchSortField.Relevance ? "Relevance ✓" : "Relevance";
+        NameHeaderButton.Content = HeaderLabel("Name", FullSearchSortField.Name);
+        PathHeaderButton.Content = HeaderLabel("Path", FullSearchSortField.Path);
+        SizeHeaderButton.Content = HeaderLabel("Size", FullSearchSortField.Size);
+        ModifiedHeaderButton.Content = HeaderLabel("Modified", FullSearchSortField.Modified);
     }
+
+    private string HeaderLabel(string label, FullSearchSortField field) =>
+        _sortField == field ? $"{label} {(_sortDescending ? "↓" : "↑")}" : label;
 
     private void OnClearFiltersClicked(object sender, RoutedEventArgs args)
     {
@@ -248,13 +274,11 @@ internal sealed partial class FullSearchWindow : Window
         HiddenBox.IsChecked = false;
         SystemBox.IsChecked = false;
         ReadOnlyBox.IsChecked = false;
-        SortBox.SelectedIndex = 0;
-        SortDirectionButton.IsChecked = false;
-        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(FullSearchSortField.Relevance);
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            FullSearchSortField.Relevance,
-            descending: false);
+        (_sortField, _sortDescending) = FullSearchSortInteraction.RestoreRelevance();
+        AdvancedFiltersPanel.Visibility = Visibility.Collapsed;
+        AddFilterButton.Content = "Add filter";
         _controlsReady = true;
+        UpdateSortPresentation();
         ApplySearch();
     }
 
@@ -287,7 +311,7 @@ internal sealed partial class FullSearchWindow : Window
         }
 
         ValidationText.Text = string.Empty;
-        StatusText.Text = "Searching…";
+        StatusText.Text = string.Empty;
         var request = _searchRuntime.CreateFullSearchRequest(query, FullSearchWindowLayout.ResultLimit, criteria!);
         _searchCoordinator.Request(request, _uiGeneration);
     }
@@ -305,8 +329,8 @@ internal sealed partial class FullSearchWindow : Window
             HiddenBox.IsChecked == true,
             SystemBox.IsChecked == true,
             ReadOnlyBox.IsChecked == true,
-            (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0),
-            SortDirectionButton.IsChecked == true
+            _sortField,
+            _sortDescending
                 ? FullSearchSortDirection.Descending
                 : FullSearchSortDirection.Ascending,
             out criteria,
@@ -481,6 +505,8 @@ internal sealed partial class FullSearchWindow : Window
     }
 
     private FullSearchResultItem? SelectedResult => ResultsList.SelectedItem as FullSearchResultItem;
+
+    private void OnSettingsClicked(object sender, RoutedEventArgs args) => _showSettings();
 
     private void OnCollapseClicked(object sender, RoutedEventArgs args)
     {
