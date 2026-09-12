@@ -104,20 +104,25 @@ public sealed partial class App : Application
 
     private void ShowFullSearch(string query)
     {
+        AppLog.Write($"Full diagnostic: ShowFullSearch entered length={query.Length}.");
         var quickSearch = _window ?? throw new InvalidOperationException("Quick Search is unavailable.");
         if (FullSearchLifecycle.ShouldCreateWindow(_fullSearchWindow is not null))
         {
             var initialMonitor = quickSearch.GetCurrentMonitor();
+            AppLog.Write("Full diagnostic: before FullSearchWindow constructor.");
             _fullSearchWindow = new FullSearchWindow(
                 _searchRuntime ?? throw new InvalidOperationException("Search is unavailable."),
                 quickSearch.CurrentTheme,
                 CollapseFullSearch,
                 ShowSettings,
                 initialMonitor);
+            AppLog.Write("Full diagnostic: after FullSearchWindow constructor.");
             _fullSearchWindow.ClosedByUser += () => _fullSearchWindow = null;
         }
 
+        AppLog.Write("Full diagnostic: before ActivateSearch.");
         _fullSearchWindow!.ActivateSearch(query, quickSearch.CurrentTheme);
+        AppLog.Write("Full diagnostic: after ActivateSearch.");
     }
 
     private void CollapseFullSearch(string query)
