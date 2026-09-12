@@ -82,6 +82,33 @@ resources preserve a readable equivalent hierarchy for Light and System.
   first Full window, an existing hidden window, and a restored minimized window
   without polling or arbitrary delay.
 
+### Final keyboard, lifecycle, and theme correction
+
+- Quick and Full now have one explicit global-activation decision: an existing
+  visible or minimized Full Search is restored/foregrounded and receives a new
+  query-focus request; otherwise Quick is summoned. The registered hotkey,
+  single-instance activation, and tray summon path all use that decision. A
+  collapsed or closed Full window therefore permits Quick, while the two search
+  surfaces are never intentionally visible together.
+- Full query focus is now a latest-token lifecycle rather than a fire-and-forget
+  `Focus()` call. A request remains pending until `FocusManager` confirms that
+  `QueryBox` owns keyboard focus. After activation and foregrounding it receives
+  one dispatcher attempt and, only if needed, one bounded next-dispatch retry;
+  stale, hidden, closed, and superseded requests are rejected. A new global
+  activation always creates a fresh request, including for an already-active
+  Full window.
+- Quick and Full retain `Enter` for Open, add `Ctrl+Enter` for supported Reveal,
+  and add `Ctrl+Shift+C` for supported Copy path. `Alt+Enter` switches modes in
+  both directions without recreating Full. Query-box `Ctrl+C` remains native
+  text copy, and Full keeps its existing result-list `Ctrl+C` compatibility
+  alias. The existing context menus expose the corresponding accelerator text.
+- The Full Settings glyph explicitly uses the restrained secondary header brush,
+  so its Light and Dark resting color no longer inherits the blue icon brush.
+- Full and Settings apply the effective Quail theme to native caption-button
+  foregrounds (including inactive state) through `AppWindow.TitleBar`, while
+  leaving native backgrounds, hover, pressed, and Close warning behavior under
+  Windows control. System-theme changes update the same narrow presentation.
+
 ### Settings
 
 - Settings now opens centered on the cursor monitor at its existing initial
@@ -193,6 +220,38 @@ Previously captured Light/System/DPI evidence remains applicable to unchanged
 shared resource treatments; user-owned high-DPI visual smoke remains pending.
 
 ## Verification
+
+### Final keyboard/lifecycle/theme candidate
+
+Implementation candidate: `7142f577eafc8c7f0c3939c3e5bf21efd8cc9d58`.
+Quail-Lab checkout: `C:\Temp\Quail-M23-verify`, detached at that exact commit.
+
+- Focused Release coverage for M23 keyboard lifecycle, footer, key state, M22
+  Full Search, and delayed busy policy — **37/37 PASS**.
+- Maintenance Service Release suite — first execution had an unrelated transient
+  `ShutdownFollowedByStopIsIdempotent` result (**12/13**); one permitted retry
+  passed **13/13**. No service code or test changed in this pass.
+- Core Release suite — **328/329 PASS**. The sole failure remains the unchanged
+  M20 `Native_pipe_acl_rejects_a_non_elevated_client_before_framing` test: the
+  SSH runner is a local administrator, so its expected non-administrator
+  `UnauthorizedAccessException` cannot occur. It is not an M23 regression and
+  the test was not weakened.
+- Release App `win-x64` build — **PASS, 0 warnings, 0 errors**.
+- Host `git diff --check` — **PASS**. Host dependency-direction check confirms
+  that `Quail.Core` has no project references and therefore no FileSystem
+  dependency.
+
+The final interactive candidate is:
+
+`C:\Temp\Quail-M23-verify\src\Quail.App\bin\Release\net10.0-windows10.0.26100.0\win-x64\Quail.exe`
+
+The physical host Smart App Control constraint remains unchanged. Quail-Lab
+SSH cannot provide reliable WinApp access to the interactive VM desktop, so the
+following user-owned VMConnect smoke remains pending: ten Quick → Full → Quick
+focus cycles with immediate typing; hotkey Full/Quick exclusivity including
+minimized and closed Full; Quick and Full result shortcuts; query TextBox copy;
+Light/Dark gear rest/hover; and the effective-theme native caption matrix.
+No host security policy or VM display/session configuration was changed.
 
 - Final Quail-Lab workspace: `C:\Temp\Quail-M23-verify`, detached at
   `a76802b90853110f59dffe526d03c76340288588`. The interrupted restore/test command
