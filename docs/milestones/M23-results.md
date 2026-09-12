@@ -130,13 +130,30 @@ user-owned pending acceptance.
 ### Final focus/footer correction pass
 
 No new physical-host capture was created for the focus and footer correction.
-The host application-control policy now blocks the freshly built
-`Quail.FileSystem.dll` before `Quail.exe` can create a window (`FileLoadException`,
-`0x800711C7`), so WinApp had no target for a post-build focus/count smoke. The
-existing evidence above remains applicable to the otherwise unchanged surfaces;
-the required fresh host verification of append-after-Expand, Collapse→Quick→Expand,
-footer count, and zero-result footer remains pending until the host policy allows
-the local build to start.
+The physical Windows host intentionally keeps Smart App Control in enforcement
+mode. Code Integrity Event ID 3077 reports that the unsigned development
+`Quail.FileSystem.dll` did not meet the Enterprise signing-level requirements / Code
+Integrity policy. The resulting `FileLoadException` (`0x800711C7`) prevents the
+fresh `Quail.exe` from creating a window. This is an environment constraint, not an
+M23 functional regression. No Defender exclusion, Smart App Control or Code
+Integrity policy change, registry/policy bypass, `Unblock-File`, certificate work,
+or other host security configuration change was attempted.
+
+Quail-Lab was used for the final automated verification at
+`C:\Temp\Quail-M23-verify` on the exact M23 head. Its SSH transport can start the
+application, but cannot expose the active interactive desktop to its WinApp
+instance: `winapp ui list-windows -a Quail` returned `Found 0 windows`. A bounded
+temporary interactive task started Quail in the active `quailadmin` session, but a
+same-session temporary WinApp probe did not produce its output file. Both temporary
+tasks and the test process were removed. No custom UI harness, session workaround,
+or VM display reconfiguration was introduced. Consequently, the fresh manual
+append-after-Expand, Collapse→Quick→Expand, footer-count, busy-flash, placement,
+and DPI smoke remain pending on an accessible interactive host/VM session.
+
+The existing evidence above remains applicable to the otherwise unchanged
+surfaces. The focused policy coverage and the current Release build provide
+automated coverage for the final focus and footer behavior, but do not substitute
+for that pending manual runtime smoke.
 
 ### Correction pass — Quick Search
 
@@ -177,17 +194,37 @@ shared resource treatments; user-owned high-DPI visual smoke remains pending.
 
 ## Verification
 
+- Final Quail-Lab workspace: `C:\Temp\Quail-M23-verify`, detached at
+  `a76802b90853110f59dffe526d03c76340288588`. The interrupted restore/test command
+  did not produce reusable final output; its restore created the required assets,
+  after which only the missing verification was run again.
+- Final Quail-Lab focused Release coverage:
+  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M23QuickSearchFooterPresentationTests|FullyQualifiedName~M23SearchKeyStatePresentationTests|FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~M23DelayedBusyStateTests"`
+  — **30/30 PASS**.
+- Final Quail-Lab Core Release suite:
+  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore`
+  — **321/322 PASS**. The sole failure is the unchanged M20 native-pipe ACL test
+  `Native_pipe_acl_rejects_a_non_elevated_client_before_framing`: the remote
+  `quailadmin` runner is a local administrator, so the expected
+  `UnauthorizedAccessException` cannot occur. The test was neither weakened nor
+  changed; this is a VM runner-identity limitation unrelated to M23.
+- Final Quail-Lab Maintenance Service Release suite:
+  `dotnet test tests/Quail.MaintenanceService.Tests/Quail.MaintenanceService.Tests.csproj -c Release --no-restore`
+  — **13/13 PASS**.
+- Final Quail-Lab Release solution suite:
+  `dotnet test Quail.sln -c Release --no-restore` — Maintenance Service
+  **13/13 PASS** and Core **321/322 PASS**; the process exits 1 solely because
+  of the administrator-context M20 ACL assertion documented above.
+- Final Quail-Lab Release App build:
+  `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore`
+  — **PASS, 0 warnings, 0 errors**.
 - Focused Full, delayed-busy, and deterministic key-state policy coverage:
   `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M23SearchKeyStatePresentationTests|FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~M23DelayedBusyStateTests"` — **25/25 PASS**.
 - Release App build after the key-state correction:
   `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**.
-- Final Release suite: `dotnet test Quail.sln -c Release --no-restore` —
-  **317/317 Core tests PASS**. The unchanged Maintenance Service test assembly
-  was blocked before discovery by host application-control policy
-  (`FileLoadException`, `0x800711C7`); a direct `--no-build` retry produced the
-  same environmental block. The last successful M23 candidate result for that
-  unchanged suite remains **13/13 PASS**; this correction does not touch the
-  service or its dependencies.
+- Earlier pre-final host results remain historical evidence only: an earlier
+  M23 candidate passed **317/317 Core tests** before the final focus/footer
+  additions. They do not replace the final Quail-Lab outcome recorded above.
 - Final focus/footer correction Release build:
   `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore`
   — **PASS, 0 warnings, 0 errors**.
@@ -200,6 +237,9 @@ shared resource treatments; user-owned high-DPI visual smoke remains pending.
   evidence is retained.
 - `git diff --check` — **PASS**.
 - `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project references**, preserving the absence of a Core-to-FileSystem dependency; focused M22 coverage also asserts the compiled Core assembly has no FileSystem reference.
+- Final host `git diff --check` — **PASS**. Final host dependency-direction check:
+  `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project
+  references**, so Core still has no FileSystem dependency.
 
 ### Perceived latency guard
 
@@ -229,11 +269,14 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
   they would require unsupported new product semantics.
 - Native Full Search and Settings caption controls remain unchanged to preserve
   Windows resize, Snap, minimize, maximize, and close behavior.
+- Trusted code signing / Smart App Control compatibility is a candidate M24 RC
+  concern. It is explicitly not M23 implementation work.
 
 ## Remaining acceptance
 
-The final correction implementation is on `codex/m23-ui-polish`; the PR head
-identifies the exact revision after commit and push.
+The final correction implementation is on `codex/m23-ui-polish` at
+`a76802b90853110f59dffe526d03c76340288588`; the PR head identifies the same
+revision after push.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
