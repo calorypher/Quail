@@ -2,8 +2,8 @@
 
 ## Status
 
-**ACTIVE — ready for independent QA. M23 is not complete and remains subject to
-user-owned visual/interaction acceptance.**
+**ACTIVE — corrected candidate awaiting interactive Quail-Lab crash/liveness
+verification and user-owned visual/interaction acceptance. M23 is not complete.**
 
 ## Preparation and references
 
@@ -104,10 +104,42 @@ resources preserve a readable equivalent hierarchy for Light and System.
   alias. The existing context menus expose the corresponding accelerator text.
 - The Full Settings glyph explicitly uses the restrained secondary header brush,
   so its Light and Dark resting color no longer inherits the blue icon brush.
-- Full and Settings apply the effective Quail theme to native caption-button
-  foregrounds (including inactive state) through `AppWindow.TitleBar`, while
-  leaving native backgrounds, hover, pressed, and Close warning behavior under
-  Windows control. System-theme changes update the same narrow presentation.
+- The attempted Full/Settings `AppWindow.TitleBar` caption-foreground override
+  regressed runtime behavior and has been removed in the subsequent correction
+  below. Both windows retain their previously stable DWM immersive-dark call.
+
+### Native titlebar runtime regression correction
+
+Interactive user QA on both the physical host and Quail-Lab found that the
+`7142f577eafc8c7f0c3939c3e5bf21efd8cc9d58` product build showed a black,
+unrendered Full window after Quick → Full and terminated after about four seconds.
+Settings rendered but its native titlebar became pure black. This **invalidates
+the earlier automated-only readiness claim** for that build.
+
+The VM AppLog ended at `Hide: expand-full-search` with no managed Full success
+marker. Quail-Lab Application Error event 1000 at 2026-09-12 22:02:20 +02:00
+recorded `CoreMessagingXP.dll` with exception code `0xc000027b`; WER event 1001
+at 22:02:25 recorded `combase.dll` and `0x80070057` (`E_INVALIDARG`). There was
+no corresponding `.NET Runtime` event or recoverable managed stack in the
+queried events. Earlier VM events also recorded a `Microsoft.UI.Input.dll`
+`0xc0000602` failure. The exact native call site is not proven by these logs.
+The narrow regression diff and timing make the new constructor-time
+`AppWindow.TitleBar.ButtonForegroundColor` /
+`ButtonInactiveForegroundColor` setters and theme-change callbacks the leading
+cause, but final causality requires the corrected build to open interactively.
+Diagnostic logs: `.quail-tooling/m23-crash-events-20260912-221154153.log` and
+`.quail-tooling/m23-crash-applog-20260912-221214119.log` (ignored local files).
+
+Candidate `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3` removes those new
+individual caption-color setters and `ActualThemeChanged` callbacks from Full
+and Settings, restores their pre-regression `ApplyTheme`/DWM path, and removes
+the now-unused caption-color policy/test. Settings' Quail icon, content theme,
+layout, and behavior remain unchanged. The Full Settings gear brush, mode
+exclusivity, focus-token lifecycle, and keyboard shortcuts remain unchanged.
+`AppWindow.TitleBar.PreferredTheme` was not added: without an established safe
+runtime path after this native crash, the mixed Windows/Quail-theme caption
+contrast edge case is deferred to M24 stabilization. Native caption buttons are
+not replaced.
 
 ### Settings
 
@@ -300,6 +332,34 @@ No host security policy or VM display/session configuration was changed.
   `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project
   references**, so Core still has no FileSystem dependency.
 
+### Native titlebar regression correction candidate
+
+The earlier `7142f577...` automated PASS did **not** catch the interactive
+black-window/crash regression. The corrected candidate was synced to the
+existing Quail-Lab checkout as exact commit
+`abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3` using the repository's
+Quail-Lab SSH/SCP module and a small Git bundle; the VM checkout was clean.
+
+- Focused M22/M23 lifecycle, Quick footer, key-state, Full Search, and delayed
+  busy tests: **35/35 PASS**.
+- Core Release: **326/327 PASS**. The sole failure remains the unchanged M20
+  `Native_pipe_acl_rejects_a_non_elevated_client_before_framing` under the
+  administrator SSH runner; the test was not changed or weakened.
+- Maintenance Service Release: **13/13 PASS**.
+- Release Quail.App `win-x64`: **PASS, 0 warnings, 0 errors**. The same build
+  also succeeded on the host, but physical-host Smart App Control prevents
+  relying on unsigned host runtime execution.
+- Host `git diff --check`: **PASS**. `Quail.Core` still has no project references
+  and therefore no dependency on `Quail.FileSystem`.
+
+VM verification log: `.quail-tooling/m23-titlebar-verification-20260912-221636763.log`
+(ignored local file). Candidate executable:
+`C:\Temp\Quail-M23-verify\src\Quail.App\bin\Release\net10.0-windows10.0.26100.0\win-x64\Quail.exe`.
+The SSH runner cannot exercise the interactive Full creation path, so **runtime
+liveness, Settings titlebar appearance, repeated focus, hotkey modes, and
+shortcuts are not yet PASS**. They require the user-owned VMConnect smoke on
+this exact candidate. No host security policy was changed.
+
 ### Perceived latency guard
 
 Canonical `scripts/run-m16-benchmark.ps1` previously ran the existing local scenario file
@@ -330,12 +390,15 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
   Windows resize, Snap, minimize, maximize, and close behavior.
 - Trusted code signing / Smart App Control compatibility is a candidate M24 RC
   concern. It is explicitly not M23 implementation work.
+- Mixed Windows/forced-Quail theme native Full caption contrast is deferred to
+  M24 stabilization until a safe supported semantic titlebar-theme path can be
+  verified without risking Full Search startup.
 
 ## Remaining acceptance
 
-The final correction implementation is on `codex/m23-ui-polish` at
-`a76802b90853110f59dffe526d03c76340288588`; subsequent branch commits record
-verification evidence only and do not change the implementation.
+The current native-titlebar correction implementation is on
+`codex/m23-ui-polish` at `abbb8c764e3bc821d0bc8de34cf6ad4617fa2ae3`.
+Interactive confirmation of the crash fix is still pending.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
