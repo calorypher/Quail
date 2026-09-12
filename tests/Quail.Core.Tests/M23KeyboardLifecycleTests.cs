@@ -40,16 +40,4 @@ public sealed class M23KeyboardLifecycleTests
         Assert.True(SearchShortcutPolicy.PreservesQueryTextCopy(queryBoxFocused: true, controlDown: true, shiftDown: false));
         Assert.False(SearchShortcutPolicy.PreservesQueryTextCopy(queryBoxFocused: true, controlDown: true, shiftDown: true));
     }
-
-    [Theory]
-    [InlineData(false, 0x13, 0x22, 0x35)]
-    [InlineData(true, 0xF4, 0xF8, 0xFC)]
-    public void Caption_theme_uses_readable_effective_theme_foreground(bool useDark, byte red, byte green, byte blue)
-    {
-        var theme = CaptionButtonThemePolicy.ForEffectiveTheme(useDark);
-
-        Assert.Equal(red, theme.Red);
-        Assert.Equal(green, theme.Green);
-        Assert.Equal(blue, theme.Blue);
-    }
 }

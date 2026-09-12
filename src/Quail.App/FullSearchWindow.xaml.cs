@@ -11,7 +11,6 @@ using Quail.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.System;
-using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
@@ -45,7 +44,6 @@ internal sealed partial class FullSearchWindow : Window
     private long _queryFocusRequest;
     private bool _queryFocusPending;
     private int _queryFocusAttemptCount;
-    private string _theme = "System";
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
@@ -82,13 +80,6 @@ internal sealed partial class FullSearchWindow : Window
         AppWindow.Changed += OnAppWindowChanged;
         Closed += OnClosed;
         Activated += OnWindowActivated;
-        RootGrid.ActualThemeChanged += (_, _) =>
-        {
-            if (_theme == "System" && !_closed)
-            {
-                ApplyNativeTitleBarTheme(RootGrid.ActualTheme == ElementTheme.Dark);
-            }
-        };
         _controlsReady = true;
     }
 
@@ -165,7 +156,6 @@ internal sealed partial class FullSearchWindow : Window
 
     public void ApplyTheme(string theme)
     {
-        _theme = theme;
         var requested = theme switch
         {
             "Light" => ElementTheme.Light,
@@ -174,14 +164,8 @@ internal sealed partial class FullSearchWindow : Window
         };
         RootGrid.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
-        ApplyNativeTitleBarTheme(useDark);
-    }
-
-    private void ApplyNativeTitleBarTheme(bool useDark)
-    {
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(_windowHandle, NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
-        ApplyCaptionButtonTheme(useDark);
     }
 
     private void ApplyInitialSize()
@@ -786,18 +770,5 @@ internal sealed partial class FullSearchWindow : Window
 
         args.Handled = true;
         return true;
-    }
-
-    private void ApplyCaptionButtonTheme(bool useDark)
-    {
-        if (!AppWindowTitleBar.IsCustomizationSupported())
-        {
-            return;
-        }
-
-        var theme = CaptionButtonThemePolicy.ForEffectiveTheme(useDark);
-        var foreground = Color.FromArgb(0xFF, theme.Red, theme.Green, theme.Blue);
-        AppWindow.TitleBar.ButtonForegroundColor = foreground;
-        AppWindow.TitleBar.ButtonInactiveForegroundColor = foreground;
     }
 }

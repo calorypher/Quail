@@ -1,12 +1,10 @@
 using System.Reflection;
 using Microsoft.UI.Input;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Quail.FileSystem;
 using Windows.System;
-using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
@@ -26,7 +24,6 @@ internal sealed class SettingsWindow : Window
     private readonly MaintenanceStateStore _maintenanceState = new();
     private readonly Frame _content = new();
     private readonly Grid _windowRoot = new();
-    private string _theme = "System";
     private NavigationView? _navigation;
     private ShellSettings _settings;
     private TextBox? _hotkeyBox;
@@ -69,13 +66,6 @@ internal sealed class SettingsWindow : Window
         NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
         NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         ApplyTheme(settings.Theme);
-        _windowRoot.ActualThemeChanged += (_, _) =>
-        {
-            if (_theme == "System" && !_closing)
-            {
-                ApplyNativeTitleBarTheme(_windowRoot.ActualTheme == ElementTheme.Dark);
-            }
-        };
         _operations.Changed += OnOperationsChanged;
         Closed += (_, _) =>
         {
@@ -374,33 +364,13 @@ internal sealed class SettingsWindow : Window
 
     private void ApplyTheme(string theme)
     {
-        _theme = theme;
         var requested = theme switch { "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default };
         _windowRoot.RequestedTheme = requested;
         if (_navigation is not null) _navigation.RequestedTheme = requested;
         _content.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
-        ApplyNativeTitleBarTheme(useDark);
-    }
-
-    private void ApplyNativeTitleBarTheme(bool useDark)
-    {
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(WindowNative.GetWindowHandle(this), NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
-        ApplyCaptionButtonTheme(useDark);
-    }
-
-    private void ApplyCaptionButtonTheme(bool useDark)
-    {
-        if (!AppWindowTitleBar.IsCustomizationSupported())
-        {
-            return;
-        }
-
-        var theme = CaptionButtonThemePolicy.ForEffectiveTheme(useDark);
-        var foreground = Color.FromArgb(0xFF, theme.Red, theme.Green, theme.Blue);
-        AppWindow.TitleBar.ButtonForegroundColor = foreground;
-        AppWindow.TitleBar.ButtonInactiveForegroundColor = foreground;
     }
 
     private void OnOperationsChanged()

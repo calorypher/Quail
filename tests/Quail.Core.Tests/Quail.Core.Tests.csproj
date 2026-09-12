@@ -19,7 +19,6 @@
     <Compile Include="..\..\src\Quail.App\FullSearchLifecycle.cs" Link="App\FullSearchLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\SearchSurfaceActivation.cs" Link="App\SearchSurfaceActivation.cs" />
     <Compile Include="..\..\src\Quail.App\SearchShortcutPolicy.cs" Link="App\SearchShortcutPolicy.cs" />
-    <Compile Include="..\..\src\Quail.App\CaptionButtonTheme.cs" Link="App\CaptionButtonTheme.cs" />
     <Compile Include="..\..\src\Quail.App\SearchKeyStatePresentation.cs" Link="App\SearchKeyStatePresentation.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchWindowLayout.cs" Link="App\FullSearchWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyStartupLifecycle.cs" Link="App\HotkeyStartupLifecycle.cs" />
