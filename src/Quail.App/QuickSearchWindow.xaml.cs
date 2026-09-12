@@ -30,6 +30,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private readonly Action _exitApplication;
     private readonly Action _showSettings;
     private readonly Action<string> _showFullSearch;
+    private readonly Action _activateGlobalSearchSurface;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
     private readonly SearchPerformanceScenario? _searchPerformanceScenario;
@@ -80,7 +81,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         ShellSettings settings,
         Action exitApplication,
         Action showSettings,
-        Action<string> showFullSearch)
+        Action<string> showFullSearch,
+        Action activateGlobalSearchSurface)
     {
         _options = options;
         _settingsStore = settingsStore;
@@ -89,6 +91,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _exitApplication = exitApplication;
         _showSettings = showSettings;
         _showFullSearch = showFullSearch;
+        _activateGlobalSearchSurface = activateGlobalSearchSurface;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
         _searchPerformanceScenario = options.SearchPerformanceScenarioPath is null
@@ -330,11 +333,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             }
             else
             {
-                ShowOverlay();
+                _activateGlobalSearchSurface();
             }
             return true;
         }
-        return _trayIcon?.HandleMessage(message, wParam, lParam, ShowOverlay, ShowSettings, _exitApplication) ?? false;
+        return _trayIcon?.HandleMessage(message, wParam, lParam, _activateGlobalSearchSurface, ShowSettings, _exitApplication) ?? false;
     }
 
     private bool TryRegisterHotkey(string value, out string error)
@@ -833,12 +836,25 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        var selected = GetSelectedResult();
+        var action = SearchShortcutPolicy.Resolve(
+            args.Key == VirtualKey.Enter,
+            args.Key == VirtualKey.C,
+            IsDown(VirtualKey.Control),
+            IsDown(VirtualKey.Menu),
+            IsDown(VirtualKey.Shift),
+            selected is not null,
+            selected is not null && _searchService.CanReveal(selected.Action),
+            selected is not null && _searchService.CanCopyText(selected.Action));
+        if (action != SearchShortcutAction.None)
+        {
+            ExecuteShortcut(action, selected);
+            args.Handled = true;
+            return;
+        }
+
         switch (args.Key)
         {
-            case VirtualKey.Enter when IsDown(VirtualKey.Menu):
-                OnFullSearchClicked(sender, args);
-                args.Handled = true;
-                break;
             case VirtualKey.Down:
                 MoveSelection(1);
                 args.Handled = true;
@@ -853,10 +869,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 break;
             case VirtualKey.End:
                 MoveToBoundary(last: true);
-                args.Handled = true;
-                break;
-            case VirtualKey.Enter when GetSelectedResult() is ResultItem result:
-                OpenSelectedResult(result);
                 args.Handled = true;
                 break;
             case VirtualKey.Escape:
@@ -933,6 +945,25 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _showFullSearch(query);
     }
 
+    private void ExecuteShortcut(SearchShortcutAction action, ResultItem? selected)
+    {
+        switch (action)
+        {
+            case SearchShortcutAction.Open when selected is not null:
+                OpenSelectedResult(selected);
+                break;
+            case SearchShortcutAction.Reveal when selected is not null:
+                RevealSelectedResult(selected);
+                break;
+            case SearchShortcutAction.CopyPath when selected is not null:
+                CopySelectedPath(selected);
+                break;
+            case SearchShortcutAction.SwitchMode:
+                OnFullSearchClicked(this, new RoutedEventArgs());
+                break;
+        }
+    }
+
     private void OnResultRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
         if (args.OriginalSource is FrameworkElement { DataContext: ResultItem item })
@@ -959,13 +990,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         _resultContextFlyout = new MenuFlyout();
         _resultContextFlyout.Opening += OnContextMenuOpening;
-        _quickOpenMenuItem = new MenuFlyoutItem { Text = "Open", Icon = MenuIcon("\uE8A7") };
+        _quickOpenMenuItem = new MenuFlyoutItem { Text = "Open", Icon = MenuIcon("\uE8A7"), KeyboardAcceleratorTextOverride = "Enter" };
         _quickOpenMenuItem.Click += OnQuickOpenClicked;
-        _quickRevealMenuItem = new MenuFlyoutItem { Text = "Open file location", Icon = MenuIcon("\uE8B7") };
+        _quickRevealMenuItem = new MenuFlyoutItem { Text = "Open file location", Icon = MenuIcon("\uE8B7"), KeyboardAcceleratorTextOverride = "Ctrl+Enter" };
         _quickRevealMenuItem.Click += OnQuickRevealClicked;
-        _quickCopyPathMenuItem = new MenuFlyoutItem { Text = "Copy path", Icon = MenuIcon("\uE8C8") };
+        _quickCopyPathMenuItem = new MenuFlyoutItem { Text = "Copy path", Icon = MenuIcon("\uE8C8"), KeyboardAcceleratorTextOverride = "Ctrl+Shift+C" };
         _quickCopyPathMenuItem.Click += OnQuickCopyPathClicked;
-        _quickFullSearchMenuItem = new MenuFlyoutItem { Text = "Open in Full Search", Icon = MenuIcon("\uE740") };
+        _quickFullSearchMenuItem = new MenuFlyoutItem { Text = "Open in Full Search", Icon = MenuIcon("\uE740"), KeyboardAcceleratorTextOverride = "Alt+Enter" };
         _quickFullSearchMenuItem.Click += OnQuickFullSearchClicked;
         _resultContextFlyout.Items.Add(_quickOpenMenuItem);
         _resultContextFlyout.Items.Add(_quickRevealMenuItem);
@@ -995,6 +1026,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             return;
         }
 
+        RevealSelectedResult(selected);
+    }
+
+    private async void RevealSelectedResult(ResultItem selected)
+    {
+        if (!_searchService.CanReveal(selected.Action))
+        {
+            return;
+        }
+
         try
         {
             await Task.Run(() => _searchService.Reveal(selected.Action));
@@ -1010,6 +1051,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private void OnQuickCopyPathClicked(object sender, RoutedEventArgs args)
     {
         if (GetSelectedResult() is not { } selected)
+        {
+            return;
+        }
+
+        CopySelectedPath(selected);
+    }
+
+    private void CopySelectedPath(ResultItem selected)
+    {
+        if (!_searchService.CanCopyText(selected.Action))
         {
             return;
         }

@@ -11,6 +11,7 @@ using Quail.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.System;
+using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
@@ -43,6 +44,8 @@ internal sealed partial class FullSearchWindow : Window
     private long _busyGeneration;
     private long _queryFocusRequest;
     private bool _queryFocusPending;
+    private int _queryFocusAttemptCount;
+    private string _theme = "System";
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
@@ -79,6 +82,13 @@ internal sealed partial class FullSearchWindow : Window
         AppWindow.Changed += OnAppWindowChanged;
         Closed += OnClosed;
         Activated += OnWindowActivated;
+        RootGrid.ActualThemeChanged += (_, _) =>
+        {
+            if (_theme == "System" && !_closed)
+            {
+                ApplyNativeTitleBarTheme(RootGrid.ActualTheme == ElementTheme.Dark);
+            }
+        };
         _controlsReady = true;
     }
 
@@ -96,6 +106,11 @@ internal sealed partial class FullSearchWindow : Window
     public event Action? ClosedByUser;
 
     public string Query => QueryBox.Text;
+
+    internal bool IsSearchSurfaceVisible => _visible && !_closed;
+
+    internal bool IsMinimized =>
+        !_closed && AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized };
 
     public void ActivateSearch(string query, string theme)
     {
@@ -121,6 +136,7 @@ internal sealed partial class FullSearchWindow : Window
         QueryBox.SelectionLength = 0;
         var focusRequest = ++_queryFocusRequest;
         _queryFocusPending = true;
+        _queryFocusAttemptCount = 0;
         Activate();
         NativeMethods.SetForegroundWindow(_windowHandle);
         QueueDeferredQueryFocus(focusRequest);
@@ -140,6 +156,7 @@ internal sealed partial class FullSearchWindow : Window
         _visible = false;
         _uiGeneration++;
         _queryFocusPending = false;
+        _queryFocusAttemptCount = 0;
         CancelBusy();
         _searchCoordinator.Invalidate();
         SetFullKeyState(SearchKeyState.None);
@@ -148,6 +165,7 @@ internal sealed partial class FullSearchWindow : Window
 
     public void ApplyTheme(string theme)
     {
+        _theme = theme;
         var requested = theme switch
         {
             "Light" => ElementTheme.Light,
@@ -156,8 +174,14 @@ internal sealed partial class FullSearchWindow : Window
         };
         RootGrid.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
+        ApplyNativeTitleBarTheme(useDark);
+    }
+
+    private void ApplyNativeTitleBarTheme(bool useDark)
+    {
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(_windowHandle, NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
+        ApplyCaptionButtonTheme(useDark);
     }
 
     private void ApplyInitialSize()
@@ -252,15 +276,35 @@ internal sealed partial class FullSearchWindow : Window
                     _visible,
                     _closed,
                     request,
-                    _queryFocusRequest))
+                    _queryFocusRequest,
+                    _queryFocusAttemptCount) ||
+                NativeMethods.GetForegroundWindow() != _windowHandle)
             {
                 return;
             }
 
-            _queryFocusPending = false;
+            _queryFocusAttemptCount++;
             QueryBox.SelectionStart = QueryBox.Text.Length;
             QueryBox.SelectionLength = 0;
             QueryBox.Focus(FocusState.Programmatic);
+            var ownsKeyboardFocus = ReferenceEquals(FocusManager.GetFocusedElement(QueryBox.XamlRoot), QueryBox);
+            if (FullSearchLifecycle.ShouldCompleteDeferredQueryFocus(ownsKeyboardFocus))
+            {
+                _queryFocusPending = false;
+                return;
+            }
+
+            if (FullSearchLifecycle.ShouldRetryDeferredQueryFocus(
+                    _queryFocusPending,
+                    _visible,
+                    _closed,
+                    request,
+                    _queryFocusRequest,
+                    _queryFocusAttemptCount,
+                    ownsKeyboardFocus))
+            {
+                QueueDeferredQueryFocus(request);
+            }
         });
     }
 
@@ -517,27 +561,27 @@ internal sealed partial class FullSearchWindow : Window
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (TryHandleSearchShortcut(args))
+        {
+            return;
+        }
+
         if (args.Key == VirtualKey.Down && _results.Count > 0)
         {
             ResultsList.SelectedIndex = Math.Max(ResultsList.SelectedIndex, 0);
             ResultsList.Focus(FocusState.Keyboard);
             args.Handled = true;
         }
-        else if (args.Key == VirtualKey.Enter && SelectedResult is not null)
-        {
-            OpenSelected();
-            args.Handled = true;
-        }
     }
 
     private void OnResultsKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Key == VirtualKey.Enter && SelectedResult is not null)
+        if (TryHandleSearchShortcut(args))
         {
-            OpenSelected();
-            args.Handled = true;
+            return;
         }
-        else if (args.Key == VirtualKey.C && IsDown(VirtualKey.Control) && SelectedResult is not null)
+
+        if (args.Key == VirtualKey.C && IsDown(VirtualKey.Control) && !IsDown(VirtualKey.Shift) && SelectedResult is not null)
         {
             CopySelectedPath();
             args.Handled = true;
@@ -601,6 +645,11 @@ internal sealed partial class FullSearchWindow : Window
             return;
         }
 
+        if (!_searchService.CanReveal(selected.Result.Action))
+        {
+            return;
+        }
+
         try
         {
             await Task.Run(() => _searchService.Reveal(selected.Result.Action));
@@ -616,6 +665,11 @@ internal sealed partial class FullSearchWindow : Window
     private void CopySelectedPath()
     {
         if (SelectedResult is not { } selected)
+        {
+            return;
+        }
+
+        if (!_searchService.CanCopyText(selected.Result.Action))
         {
             return;
         }
@@ -654,6 +708,9 @@ internal sealed partial class FullSearchWindow : Window
     }
 
     private void OnCollapseClicked(object sender, RoutedEventArgs args)
+        => CollapseToQuick();
+
+    private void CollapseToQuick()
     {
         var query = QueryBox.Text;
         HideForCollapse();
@@ -664,6 +721,7 @@ internal sealed partial class FullSearchWindow : Window
     {
         _closed = true;
         _visible = false;
+        _queryFocusPending = false;
         _uiGeneration++;
         CancelBusy();
         _searchRuntime.SourcesChanged -= OnSourcesChanged;
@@ -694,5 +752,52 @@ internal sealed partial class FullSearchWindow : Window
     {
         var color = new UISettings().GetColorValue(UIColorType.Background);
         return color.R + color.G + color.B < 384;
+    }
+
+    private bool TryHandleSearchShortcut(KeyRoutedEventArgs args)
+    {
+        var selected = SelectedResult;
+        var action = SearchShortcutPolicy.Resolve(
+            args.Key == VirtualKey.Enter,
+            args.Key == VirtualKey.C,
+            IsDown(VirtualKey.Control),
+            IsDown(VirtualKey.Menu),
+            IsDown(VirtualKey.Shift),
+            selected is not null,
+            selected is not null && _searchService.CanReveal(selected.Result.Action),
+            selected is not null && _searchService.CanCopyText(selected.Result.Action));
+        switch (action)
+        {
+            case SearchShortcutAction.Open:
+                OpenSelected();
+                break;
+            case SearchShortcutAction.Reveal:
+                RevealSelected();
+                break;
+            case SearchShortcutAction.CopyPath:
+                CopySelectedPath();
+                break;
+            case SearchShortcutAction.SwitchMode:
+                CollapseToQuick();
+                break;
+            default:
+                return false;
+        }
+
+        args.Handled = true;
+        return true;
+    }
+
+    private void ApplyCaptionButtonTheme(bool useDark)
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        var theme = CaptionButtonThemePolicy.ForEffectiveTheme(useDark);
+        var foreground = Color.FromArgb(0xFF, theme.Red, theme.Green, theme.Blue);
+        AppWindow.TitleBar.ButtonForegroundColor = foreground;
+        AppWindow.TitleBar.ButtonInactiveForegroundColor = foreground;
     }
 }

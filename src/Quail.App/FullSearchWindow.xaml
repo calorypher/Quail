@@ -22,7 +22,7 @@
       <Image x:Name="FeatherImage" Width="22" Height="22" VerticalAlignment="Center" />
       <TextBlock Grid.Column="1" Text="Quail" FontFamily="Segoe UI Variable" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
       <Button x:Name="SettingsButton" Grid.Column="2" Click="OnSettingsClicked" ToolTipService.ToolTip="Settings" Style="{StaticResource QuailIconButtonStyle}">
-        <FontIcon Glyph="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="16" />
+        <FontIcon Glyph="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
       </Button>
       <Button x:Name="CollapseButton" Grid.Column="3" Click="OnCollapseClicked" ToolTipService.ToolTip="Back to Quick Search" Style="{StaticResource QuailIconButtonStyle}">
         <FontIcon Glyph="&#xE73F;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
@@ -104,10 +104,10 @@
       </ListView.ItemContainerStyle>
       <ListView.ContextFlyout>
         <MenuFlyout Opening="OnContextMenuOpening">
-          <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open" Click="OnOpenClicked" />
-          <MenuFlyoutItem x:Name="RevealMenuItem" Text="Open containing folder" Click="OnRevealClicked" />
+          <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open" Click="OnOpenClicked" KeyboardAcceleratorTextOverride="Enter" />
+          <MenuFlyoutItem x:Name="RevealMenuItem" Text="Open containing folder" Click="OnRevealClicked" KeyboardAcceleratorTextOverride="Ctrl+Enter" />
           <MenuFlyoutSeparator />
-          <MenuFlyoutItem x:Name="CopyPathMenuItem" Text="Copy path" Click="OnCopyPathClicked" />
+          <MenuFlyoutItem x:Name="CopyPathMenuItem" Text="Copy path" Click="OnCopyPathClicked" KeyboardAcceleratorTextOverride="Ctrl+Shift+C" />
         </MenuFlyout>
       </ListView.ContextFlyout>
       <ListView.ItemTemplate>

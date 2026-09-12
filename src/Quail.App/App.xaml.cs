@@ -45,9 +45,10 @@ public sealed partial class App : Application
                 settings,
                 ExitApplication,
                 ShowSettings,
-                ShowFullSearch);
+                ShowFullSearch,
+                ActivateGlobalSearchSurface);
             _window.ThemeChanged += OnThemeChanged;
-            _singleInstance.ActivationRequested += () => _window.DispatcherQueue.TryEnqueue(_window.ShowOverlay);
+            _singleInstance.ActivationRequested += () => _window.DispatcherQueue.TryEnqueue(ActivateGlobalSearchSurface);
             await _window.InitializeAsync();
             AppLog.Write("Primary instance initialized.");
         }
@@ -125,6 +126,26 @@ public sealed partial class App : Application
         {
             _window?.ShowOverlayWithQuery(query);
         }
+    }
+
+    private void ActivateGlobalSearchSurface()
+    {
+        var quickSearch = _window;
+        if (quickSearch is null)
+        {
+            return;
+        }
+
+        var target = SearchSurfaceActivation.ForGlobalActivation(
+            _fullSearchWindow?.IsSearchSurfaceVisible == true,
+            _fullSearchWindow?.IsMinimized == true);
+        if (target == SearchSurfaceActivationTarget.Full)
+        {
+            _fullSearchWindow!.ActivateSearch(_fullSearchWindow.Query, quickSearch.CurrentTheme);
+            return;
+        }
+
+        quickSearch.ShowOverlay();
     }
 
     private void OnThemeChanged(string theme) => _fullSearchWindow?.ApplyTheme(theme);

@@ -20,8 +20,28 @@ internal static class FullSearchLifecycle
         bool isVisible,
         bool isClosed,
         long request,
-        long latestRequest) =>
-        isPending && isVisible && !isClosed && request == latestRequest;
+        long latestRequest,
+        int attemptCount) =>
+        isPending && isVisible && !isClosed && request == latestRequest && attemptCount < 2;
+
+    public static bool ShouldCompleteDeferredQueryFocus(bool queryBoxOwnsKeyboardFocus) =>
+        queryBoxOwnsKeyboardFocus;
+
+    public static bool ShouldRetryDeferredQueryFocus(
+        bool isPending,
+        bool isVisible,
+        bool isClosed,
+        long request,
+        long latestRequest,
+        int attemptCount,
+        bool queryBoxOwnsKeyboardFocus) =>
+        !queryBoxOwnsKeyboardFocus && ShouldApplyDeferredQueryFocus(
+            isPending,
+            isVisible,
+            isClosed,
+            request,
+            latestRequest,
+            attemptCount);
 }
 
 internal enum FullSearchInputState
