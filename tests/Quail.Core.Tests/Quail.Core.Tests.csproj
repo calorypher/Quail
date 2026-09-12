@@ -29,6 +29,7 @@
     <Compile Include="..\..\src\Quail.App\HotkeyDefinition.cs" Link="App\HotkeyDefinition.cs" />
     <Compile Include="..\..\src\Quail.App\NativeMethods.cs" Link="App\NativeMethods.cs" />
     <Compile Include="..\..\src\Quail.App\LatestSearchCoordinator.cs" Link="App\LatestSearchCoordinator.cs" />
+    <Compile Include="..\..\src\Quail.App\DelayedBusyState.cs" Link="App\DelayedBusyState.cs" />
     <Compile Include="..\..\src\Quail.App\SearchRuntime.cs" Link="App\SearchRuntime.cs" />
     <Compile Include="..\..\src\Quail.App\FileSystemSearchComposition.cs" Link="App\FileSystemSearchComposition.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceTrace.cs" Link="App\SearchPerformanceTrace.cs" />

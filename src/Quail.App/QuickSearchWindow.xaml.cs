@@ -16,6 +16,7 @@ using Windows.Graphics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Quail.Core;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace Quail.App;
 
@@ -56,6 +57,14 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private bool _shellIconFailureLogged;
     private string? _startupHotkeyError;
     private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
+    private readonly DelayedBusyState _busyState = new();
+    private readonly DispatcherQueueTimer _busyTimer;
+    private long _busyGeneration;
+    private MenuFlyout _resultContextFlyout = null!;
+    private MenuFlyoutItem _quickOpenMenuItem = null!;
+    private MenuFlyoutItem _quickRevealMenuItem = null!;
+    private MenuFlyoutItem _quickCopyPathMenuItem = null!;
+    private MenuFlyoutItem _quickFullSearchMenuItem = null!;
 
     internal string CurrentTheme => _settings.Theme;
     internal ShellSettings CurrentSettings => _settings;
@@ -99,6 +108,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _searchRuntime.SourcesChanged += OnSourcesChanged;
         _shortQueryDeferrer = new ShortQueryDeferrer(QuickSearchInputPolicy.ShortQueryDefer, OnShortQueryReady);
         InitializeComponent();
+        _busyTimer = DispatcherQueue.CreateTimer();
+        _busyTimer.Interval = DelayedBusyState.Delay;
+        _busyTimer.IsRepeating = false;
+        _busyTimer.Tick += OnBusyTimerTick;
+        ConfigureResultContextFlyout();
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _visibleResults;
         ApplyTheme(settings.Theme);
@@ -557,9 +571,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnQueryChanged(object sender, TextChangedEventArgs args)
     {
-        ClearQueryButton.Visibility = string.IsNullOrWhiteSpace(QueryBox.Text)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         ApplySearch();
     }
 
@@ -628,7 +639,48 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             ? _shortQuerySearchCoordinator
             : _interactiveSearchCoordinator;
         var generation = coordinator.Request(query, _queryGeneration);
+        BeginBusy(_queryGeneration);
         AppLog.Write($"Search request lane={coordinator.Lane} generation={generation} length={query.Length}.");
+    }
+
+    private void BeginBusy(long generation)
+    {
+        CancelBusy();
+        _busyGeneration = generation;
+        _busyState.Begin(generation);
+        _busyTimer.Start();
+    }
+
+    private void CompleteBusy(long generation)
+    {
+        if (!_busyState.Complete(generation))
+        {
+            return;
+        }
+
+        _busyTimer.Stop();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void CancelBusy()
+    {
+        _busyTimer.Stop();
+        _busyState.Cancel();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void OnBusyTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (_overlayVisible && _busyGeneration == _queryGeneration && _busyState.TryShow(_busyGeneration))
+        {
+            StatusText.Text = "Searching…";
+        }
     }
 
     private void OnSearchCompleted(SearchCompletion completion)
@@ -645,6 +697,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 AppLog.Write($"Search discarded generation={completion.Generation} current={completion.IsCurrent}.");
                 return;
             }
+
+            CompleteBusy(completion.UiGeneration);
 
             if (completion.Error is not null)
             {
@@ -751,6 +805,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void InvalidateSearches()
     {
+        CancelBusy();
         _interactiveSearchCoordinator.Invalidate();
         _shortQuerySearchCoordinator.Invalidate();
     }
@@ -857,12 +912,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _showFullSearch(query);
     }
 
-    private void OnClearQueryClicked(object sender, RoutedEventArgs args)
-    {
-        QueryBox.Text = string.Empty;
-        QueryBox.Focus(FocusState.Programmatic);
-    }
-
     private void OnResultRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
         if (args.OriginalSource is FrameworkElement { DataContext: ResultItem item })
@@ -871,14 +920,44 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         }
     }
 
-    private void OnContextMenuOpening(object sender, object args)
+    private void OnContextMenuOpening(object? sender, object args)
     {
         var selected = GetSelectedResult();
-        QuickOpenMenuItem.IsEnabled = selected is not null;
-        QuickRevealMenuItem.IsEnabled = selected is not null && _searchService.CanReveal(selected.Action);
-        QuickCopyPathMenuItem.IsEnabled = selected is not null && _searchService.CanCopyText(selected.Action);
-        QuickFullSearchMenuItem.IsEnabled = selected is not null;
+        _quickOpenMenuItem.IsEnabled = selected is not null;
+        _quickRevealMenuItem.IsEnabled = selected is not null && _searchService.CanReveal(selected.Action);
+        _quickCopyPathMenuItem.IsEnabled = selected is not null && _searchService.CanCopyText(selected.Action);
+        _quickFullSearchMenuItem.IsEnabled = selected is not null;
     }
+
+    private void OnResultContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        args.ItemContainer.ContextFlyout = _resultContextFlyout;
+    }
+
+    private void ConfigureResultContextFlyout()
+    {
+        _resultContextFlyout = new MenuFlyout();
+        _resultContextFlyout.Opening += OnContextMenuOpening;
+        _quickOpenMenuItem = new MenuFlyoutItem { Text = "Open", Icon = MenuIcon("\uE8A7") };
+        _quickOpenMenuItem.Click += OnQuickOpenClicked;
+        _quickRevealMenuItem = new MenuFlyoutItem { Text = "Open file location", Icon = MenuIcon("\uE8B7") };
+        _quickRevealMenuItem.Click += OnQuickRevealClicked;
+        _quickCopyPathMenuItem = new MenuFlyoutItem { Text = "Copy path", Icon = MenuIcon("\uE8C8") };
+        _quickCopyPathMenuItem.Click += OnQuickCopyPathClicked;
+        _quickFullSearchMenuItem = new MenuFlyoutItem { Text = "Open in Full Search", Icon = MenuIcon("\uE740") };
+        _quickFullSearchMenuItem.Click += OnQuickFullSearchClicked;
+        _resultContextFlyout.Items.Add(_quickOpenMenuItem);
+        _resultContextFlyout.Items.Add(_quickRevealMenuItem);
+        _resultContextFlyout.Items.Add(_quickCopyPathMenuItem);
+        _resultContextFlyout.Items.Add(new MenuFlyoutSeparator());
+        _resultContextFlyout.Items.Add(_quickFullSearchMenuItem);
+    }
+
+    private static FontIcon MenuIcon(string glyph) => new()
+    {
+        Glyph = glyph,
+        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons")
+    };
 
     private void OnQuickOpenClicked(object sender, RoutedEventArgs args)
     {

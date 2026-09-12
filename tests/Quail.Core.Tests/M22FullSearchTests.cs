@@ -348,7 +348,7 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
-    public void M23_column_sorting_uses_an_ascending_first_click_and_toggles_the_same_column()
+    public void M23_column_sorting_cycles_ascending_descending_and_relevance()
     {
         var firstClick = FullSearchSortInteraction.SelectColumn(
             FullSearchSortField.Relevance,
@@ -362,10 +362,15 @@ public sealed class M22FullSearchTests : IDisposable
             repeatedClick.Field,
             repeatedClick.Descending,
             FullSearchSortField.Modified);
+        var relevance = FullSearchSortInteraction.SelectColumn(
+            repeatedClick.Field,
+            repeatedClick.Descending,
+            FullSearchSortField.Size);
 
         Assert.Equal((FullSearchSortField.Size, false), firstClick);
         Assert.Equal((FullSearchSortField.Size, true), repeatedClick);
         Assert.Equal((FullSearchSortField.Modified, false), changedColumn);
+        Assert.Equal((FullSearchSortField.Relevance, false), relevance);
         Assert.Equal((FullSearchSortField.Relevance, false), FullSearchSortInteraction.RestoreRelevance());
     }
 

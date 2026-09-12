@@ -27,10 +27,17 @@ internal static class FullSearchSortInteraction
     public static (FullSearchSortField Field, bool Descending) SelectColumn(
         FullSearchSortField currentField,
         bool currentDescending,
-        FullSearchSortField selectedField) =>
-        currentField == selectedField
-            ? (selectedField, !currentDescending)
-            : (selectedField, false);
+        FullSearchSortField selectedField)
+    {
+        if (currentField != selectedField)
+        {
+            return (selectedField, false);
+        }
+
+        return currentDescending
+            ? RestoreRelevance()
+            : (selectedField, true);
+    }
 
     public static (FullSearchSortField Field, bool Descending) RestoreRelevance() =>
         (FullSearchSortField.Relevance, false);

@@ -25,7 +25,7 @@
         <FontIcon Glyph="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="16" />
       </Button>
       <Button x:Name="CollapseButton" Grid.Column="3" Click="OnCollapseClicked" ToolTipService.ToolTip="Back to Quick Search" Style="{StaticResource QuailIconButtonStyle}">
-        <FontIcon Glyph="&#x2921;" FontFamily="Segoe UI Symbol" FontSize="17" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+        <FontIcon Glyph="&#xE73F;" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
       </Button>
     </Grid>
 
@@ -42,7 +42,6 @@
         <TextBox x:Name="ExtensionBox" Width="128" PlaceholderText="Extension: Any" TextChanged="OnSearchInputChanged" Style="{StaticResource QuailCompactTextBoxStyle}" />
         <Button x:Name="ModifiedFilterButton" Content="Modified: Any" Click="OnModifiedFilterClicked" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
         <Button x:Name="AddFilterButton" Content="Add filter" Click="OnAddFilterClicked" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
-        <Button x:Name="RelevanceButton" Content="Relevance" Click="OnRelevanceClicked" Style="{StaticResource QuailTertiaryActionButtonStyle}" />
         <Button x:Name="ClearFiltersButton" Content="Clear all" Click="OnClearFiltersClicked" Style="{StaticResource QuailTertiaryActionButtonStyle}" />
       </StackPanel>
       <Border x:Name="ModifiedDatePanel" Visibility="Collapsed" Padding="12" Background="{ThemeResource QuailSecondarySurfaceBrush}" BorderBrush="{ThemeResource QuailSubtleBorderBrush}" BorderThickness="1" CornerRadius="6">

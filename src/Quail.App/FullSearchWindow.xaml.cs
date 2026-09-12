@@ -14,6 +14,7 @@ using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace Quail.App;
 
@@ -37,6 +38,9 @@ internal sealed partial class FullSearchWindow : Window
     private bool _controlsReady;
     private FullSearchSortField _sortField = FullSearchSortField.Relevance;
     private bool _sortDescending;
+    private readonly DelayedBusyState _busyState = new();
+    private readonly DispatcherQueueTimer _busyTimer;
+    private long _busyGeneration;
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
@@ -56,6 +60,10 @@ internal sealed partial class FullSearchWindow : Window
         _searchCoordinator.Completed += OnSearchCompleted;
         _searchRuntime.SourcesChanged += OnSourcesChanged;
         InitializeComponent();
+        _busyTimer = DispatcherQueue.CreateTimer();
+        _busyTimer.Interval = DelayedBusyState.Delay;
+        _busyTimer.IsRepeating = false;
+        _busyTimer.Tick += OnBusyTimerTick;
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _results;
         Title = "Quail Full Search";
@@ -126,6 +134,7 @@ internal sealed partial class FullSearchWindow : Window
 
         _visible = false;
         _uiGeneration++;
+        CancelBusy();
         _searchCoordinator.Invalidate();
         NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwHide);
     }
@@ -268,13 +277,6 @@ internal sealed partial class FullSearchWindow : Window
             : "Add filter";
     }
 
-    private void OnRelevanceClicked(object sender, RoutedEventArgs args)
-    {
-        (_sortField, _sortDescending) = FullSearchSortInteraction.RestoreRelevance();
-        UpdateSortPresentation();
-        ApplySearch();
-    }
-
     private void OnSortHeaderClicked(object sender, RoutedEventArgs args)
     {
         if (sender is not Button { Tag: string name } ||
@@ -293,7 +295,6 @@ internal sealed partial class FullSearchWindow : Window
 
     private void UpdateSortPresentation()
     {
-        RelevanceButton.Content = _sortField == FullSearchSortField.Relevance ? "Relevance ✓" : "Relevance";
         NameHeaderButton.Content = HeaderLabel("Name", FullSearchSortField.Name);
         PathHeaderButton.Content = HeaderLabel("Path", FullSearchSortField.Path);
         SizeHeaderButton.Content = HeaderLabel("Size", FullSearchSortField.Size);
@@ -335,6 +336,7 @@ internal sealed partial class FullSearchWindow : Window
         }
 
         _uiGeneration++;
+        CancelBusy();
         _searchCoordinator.Invalidate();
         _results.Clear();
         var query = QueryBox.Text.Trim();
@@ -359,6 +361,46 @@ internal sealed partial class FullSearchWindow : Window
         StatusText.Text = string.Empty;
         var request = _searchRuntime.CreateFullSearchRequest(query, FullSearchWindowLayout.ResultLimit, criteria!);
         _searchCoordinator.Request(request, _uiGeneration);
+        BeginBusy(_uiGeneration);
+    }
+
+    private void BeginBusy(long generation)
+    {
+        _busyGeneration = generation;
+        _busyState.Begin(generation);
+        _busyTimer.Start();
+    }
+
+    private void CompleteBusy(long generation)
+    {
+        if (!_busyState.Complete(generation))
+        {
+            return;
+        }
+
+        _busyTimer.Stop();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void CancelBusy()
+    {
+        _busyTimer.Stop();
+        _busyState.Cancel();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void OnBusyTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_closed && _visible && _busyGeneration == _uiGeneration && _busyState.TryShow(_busyGeneration))
+        {
+            StatusText.Text = "Searching…";
+        }
     }
 
     private bool TryGetCriteria(out FullSearchCriteria? criteria, out string? error) =>
@@ -389,6 +431,7 @@ internal sealed partial class FullSearchWindow : Window
             {
                 return;
             }
+            CompleteBusy(completion.UiGeneration);
             if (completion.Error is not null)
             {
                 _results.Clear();
@@ -426,6 +469,7 @@ internal sealed partial class FullSearchWindow : Window
 
     private void OnSourcesChanged()
     {
+        CancelBusy();
         _searchCoordinator.Invalidate();
         DispatcherQueue.TryEnqueue(ApplySearch);
     }
@@ -565,6 +609,7 @@ internal sealed partial class FullSearchWindow : Window
         _closed = true;
         _visible = false;
         _uiGeneration++;
+        CancelBusy();
         _searchRuntime.SourcesChanged -= OnSourcesChanged;
         _searchCoordinator.Completed -= OnSearchCompleted;
         _searchCoordinator.Dispose();
