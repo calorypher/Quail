@@ -17,6 +17,7 @@
     <Compile Include="..\..\src\Quail.App\SettingsWindowLayout.cs" Link="App\SettingsWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchModels.cs" Link="App\FullSearchModels.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchLifecycle.cs" Link="App\FullSearchLifecycle.cs" />
+    <Compile Include="..\..\src\Quail.App\SearchKeyStatePresentation.cs" Link="App\SearchKeyStatePresentation.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchWindowLayout.cs" Link="App\FullSearchWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyStartupLifecycle.cs" Link="App\HotkeyStartupLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />

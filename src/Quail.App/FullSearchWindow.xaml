@@ -93,7 +93,8 @@
       <Button x:Name="ModifiedHeaderButton" Grid.Column="4" Content="Modified" Tag="Modified" Click="OnSortHeaderClicked" HorizontalAlignment="Left" Style="{StaticResource QuailColumnHeaderButtonStyle}" />
     </Grid>
 
-    <ListView x:Name="ResultsList" Grid.Row="4" SelectionMode="Single" IsItemClickEnabled="False" IsSwipeEnabled="False" DoubleTapped="OnResultDoubleTapped" KeyDown="OnResultsKeyDown" RightTapped="OnResultRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
+    <Grid Grid.Row="4">
+    <ListView x:Name="ResultsList" SelectionMode="Single" IsItemClickEnabled="False" IsSwipeEnabled="False" DoubleTapped="OnResultDoubleTapped" KeyDown="OnResultsKeyDown" RightTapped="OnResultRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
       <ListView.ItemContainerStyle>
         <Style TargetType="ListViewItem">
           <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -128,6 +129,13 @@
         </DataTemplate>
       </ListView.ItemTemplate>
     </ListView>
+    <StackPanel x:Name="FullKeyStateHost" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="7">
+      <FontIcon x:Name="FullKeyStateIcon" HorizontalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="32" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+      <TextBlock x:Name="FullKeyStateTitle" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="16" FontWeight="SemiBold" />
+      <TextBlock x:Name="FullKeyStateDetail" HorizontalAlignment="Center" MaxWidth="390" TextAlignment="Center" TextWrapping="Wrap" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+      <Button x:Name="IndexUnavailableSettingsButton" Content="Open Settings" Click="OnIndexUnavailableSettingsClicked" Visibility="Collapsed" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
+    </StackPanel>
+    </Grid>
 
     <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="{ThemeResource QuailSecondaryTextBrush}" VerticalAlignment="Bottom" />
   </Grid>

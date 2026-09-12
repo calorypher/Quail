@@ -117,6 +117,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         ResultsList.ItemsSource = _visibleResults;
         ApplyTheme(settings.Theme);
         ClearResults();
+        SetQuickKeyState(SearchKeyState.None);
         Closed += OnClosed;
         Activated += OnActivated;
     }
@@ -437,6 +438,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _queryGeneration++;
         _shortQueryDeferrer.Cancel();
         InvalidateSearches();
+        SetQuickKeyState(SearchKeyState.None);
         NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwHide);
         _pipe.Emit(new { @event = "hidden", reason });
         AppLog.Write($"Hide: {reason}.");
@@ -585,6 +587,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _searchPerformanceRenderWaiter.ObserveProcessedInput(query, _queryGeneration);
         }
         ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
+        SetQuickKeyState(SearchKeyState.None);
         if (string.IsNullOrWhiteSpace(query))
         {
             InvalidateSearches();
@@ -703,6 +706,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             if (completion.Error is not null)
             {
                 ClearResults();
+                SetQuickKeyState(SearchKeyState.None);
                 StatusText.Text = "A search source is unavailable or not search-ready.";
                 AppLog.Write($"Search failed generation={completion.Generation}.", completion.Error);
                 return;
@@ -734,9 +738,14 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
             var sourceStatusStartedTimestamp = Stopwatch.GetTimestamp();
             var sourceStatusNotice = _searchRuntime.GetSourceStatusNotice();
-            StatusText.Text = _visibleResults.Count == 0
-                ? sourceStatusNotice is null ? "No results." : $"No results. {sourceStatusNotice}"
-                : sourceStatusNotice ?? string.Empty;
+            var keyState = SearchKeyStatePresentation.ResolveQuick(
+                hasQuery: !string.IsNullOrWhiteSpace(QueryBox.Text),
+                completedSuccessfully: true,
+                isCurrent: completion.UiGeneration == _queryGeneration,
+                hasUsableSource: _searchRuntime.HasSources(),
+                resultCount: _visibleResults.Count);
+            SetQuickKeyState(keyState);
+            StatusText.Text = sourceStatusNotice ?? string.Empty;
             _searchTrace.RecordSourceStatus(
                 completion.UiGeneration,
                 completion.Generation,
@@ -777,6 +786,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _selectedResultIndex = -1;
         _visibleResults.Clear();
         StatusText.Text = string.IsNullOrWhiteSpace(QueryBox.Text) ? "Start typing to search" : string.Empty;
+    }
+
+    private void SetQuickKeyState(SearchKeyState state)
+    {
+        var visible = state == SearchKeyState.QuickNoResults;
+        ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        QuickKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        QuickKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);
+        QuickKeyStateTitle.Text = SearchKeyStatePresentation.Title(state);
+        QuickKeyStateDetail.Text = SearchKeyStatePresentation.Detail(state);
     }
 
     private void OnSourcesChanged()

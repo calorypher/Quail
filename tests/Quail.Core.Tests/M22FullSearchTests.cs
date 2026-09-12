@@ -425,6 +425,7 @@ public sealed class M22FullSearchTests : IDisposable
         Assert.False(FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.NativeClose));
         Assert.Equal(FullSearchInputState.EmptyQuery, FullSearchInputPolicy.Evaluate(" ", true, true));
         Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate("query", false, true));
+        Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate(" ", false, true));
         Assert.Equal(FullSearchInputState.InvalidFilters, FullSearchInputPolicy.Evaluate("query", true, false));
         Assert.Equal(FullSearchInputState.Ready, FullSearchInputPolicy.Evaluate("query", true, true));
         Assert.Equal(1_000, FullSearchWindowLayout.ResultLimit);

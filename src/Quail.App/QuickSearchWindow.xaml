@@ -55,6 +55,7 @@
         <RowDefinition Height="*" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
+      <Grid Grid.Row="0">
       <ListView x:Name="ResultsList" ItemContainerStyle="{StaticResource ResultItemStyle}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnResultItemClick" RightTapped="OnResultRightTapped" ContainerContentChanging="OnResultContainerContentChanging" IsSwipeEnabled="False" IsTabStop="False" UseSystemFocusVisuals="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
         <ListView.ItemTemplate>
           <DataTemplate>
@@ -80,6 +81,12 @@
           </DataTemplate>
         </ListView.ItemTemplate>
       </ListView>
+      <StackPanel x:Name="QuickKeyStateHost" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" IsHitTestVisible="False">
+        <FontIcon x:Name="QuickKeyStateIcon" HorizontalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="30" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+        <TextBlock x:Name="QuickKeyStateTitle" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource QuailTextBrush}" />
+        <TextBlock x:Name="QuickKeyStateDetail" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+      </StackPanel>
+      </Grid>
 
       <Grid x:Name="FooterPanel" Grid.Row="1" Margin="2,8,2,0">
         <TextBlock x:Name="StatusText" Foreground="{ThemeResource QuailSecondaryTextBrush}" FontSize="12" />

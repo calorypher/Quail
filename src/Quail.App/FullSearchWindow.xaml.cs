@@ -136,6 +136,7 @@ internal sealed partial class FullSearchWindow : Window
         _uiGeneration++;
         CancelBusy();
         _searchCoordinator.Invalidate();
+        SetFullKeyState(SearchKeyState.None);
         NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwHide);
     }
 
@@ -341,17 +342,20 @@ internal sealed partial class FullSearchWindow : Window
         _results.Clear();
         var query = QueryBox.Text.Trim();
         var filtersValid = TryGetCriteria(out var criteria, out var error);
-        switch (FullSearchInputPolicy.Evaluate(query, _searchRuntime.HasSources(), filtersValid))
+        var inputState = FullSearchInputPolicy.Evaluate(query, _searchRuntime.HasSources(), filtersValid);
+        SetFullKeyState(SearchKeyStatePresentation.ResolveFull(inputState));
+        switch (inputState)
         {
             case FullSearchInputState.EmptyQuery:
                 ValidationText.Text = string.Empty;
-                StatusText.Text = "Enter a query to search.";
+                StatusText.Text = string.Empty;
                 return;
             case FullSearchInputState.NoSource:
                 ValidationText.Text = string.Empty;
-                StatusText.Text = "No active searchable index.";
+                StatusText.Text = string.Empty;
                 return;
             case FullSearchInputState.InvalidFilters:
+                SetFullKeyState(SearchKeyState.None);
                 ValidationText.Text = error ?? "Invalid filters.";
                 StatusText.Text = string.Empty;
                 return;
@@ -435,6 +439,7 @@ internal sealed partial class FullSearchWindow : Window
             if (completion.Error is not null)
             {
                 _results.Clear();
+                SetFullKeyState(SearchKeyState.None);
                 StatusText.Text = "Search failed. A source may be temporarily unavailable.";
                 AppLog.Write("Full Search failed.", completion.Error);
                 return;
@@ -453,6 +458,7 @@ internal sealed partial class FullSearchWindow : Window
             {
                 ResultsList.SelectedIndex = 0;
             }
+            SetFullKeyState(SearchKeyState.None);
 
             var notice = _searchRuntime.GetSourceStatusNotice();
             StatusText.Text = _results.Count switch
@@ -596,6 +602,21 @@ internal sealed partial class FullSearchWindow : Window
     private FullSearchResultItem? SelectedResult => ResultsList.SelectedItem as FullSearchResultItem;
 
     private void OnSettingsClicked(object sender, RoutedEventArgs args) => _showSettings();
+
+    private void OnIndexUnavailableSettingsClicked(object sender, RoutedEventArgs args) => _showSettings();
+
+    private void SetFullKeyState(SearchKeyState state)
+    {
+        var visible = state is SearchKeyState.FullEmptySearch or SearchKeyState.FullIndexUnavailable;
+        ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        FullKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        FullKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);
+        FullKeyStateTitle.Text = SearchKeyStatePresentation.Title(state);
+        FullKeyStateDetail.Text = SearchKeyStatePresentation.Detail(state);
+        IndexUnavailableSettingsButton.Visibility = state == SearchKeyState.FullIndexUnavailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
 
     private void OnCollapseClicked(object sender, RoutedEventArgs args)
     {

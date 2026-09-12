@@ -40,6 +40,11 @@ resources preserve a readable equivalent hierarchy for Light and System.
   do not display a transient busy label. A quiet `Searching…` becomes eligible
   only after 225 ms for the current pending request and is cancelled on
   supersedure, completion, cancellation, invalid input, or empty input.
+- A completed, current, non-empty query with zero results now replaces the
+  list region with a restrained centered document/search state: `No results
+  found` and `Try a different search term.` The footer remains available for
+  operational notices and never duplicates that primary state. An empty query
+  still collapses Quick to its compact search field.
 
 ### Full Search
 
@@ -58,6 +63,14 @@ resources preserve a readable equivalent hierarchy for Light and System.
   ascending, descending, and Relevance/default; switching fields starts the new
   field at ascending. Relevance/default has no active header arrow, Clear all
   restores that state, and Kind remains display-only.
+- The normal Full shell remains present for all key states. A usable source plus
+  an empty query replaces only the table region with `Start typing to search`
+  and a concise search prompt. A real `NoSource` condition takes precedence
+  over empty-query and filter presentation, replacing the table region with
+  `Index unavailable`, recovery text, and the existing Settings entry point.
+  Maintenance health remains outside this condition: CatchingUp, Retrying,
+  service Unavailable, missing health, and expected health-read failure still
+  leave a complete compatible readable index searchable.
 
 ### Settings
 
@@ -74,8 +87,35 @@ resources preserve a readable equivalent hierarchy for Light and System.
 
 ## Visual evidence
 
-All captures below are real physical-host WinApp evidence under the ignored
-`artifacts/m23/visual/` directory; they are intentionally not committed.
+WinApp 0.6.1 on the physical host launched and navigated all captures below.
+The ignored `artifacts/m23/visual/` directory intentionally keeps them local.
+For the Full and Settings custom title bars, WinApp UIA reports only the native
+non-client sink (a 48-pixel titlebar); the actual visual content was therefore
+captured from the same foreground host window immediately after the WinApp
+interaction. No browser or Computer Use fallback was used.
+
+### Key-state correction pass
+
+- `quick-no-results-key-state-final-dark.png` — WinApp capture of a non-empty
+  zero-result query. It shows the centered No Results state and no duplicate
+  footer message.
+- `full-empty-key-state-final-dark.png` — physical-host capture after WinApp
+  cleared Full Search. It preserves the header, search box, filters, and column
+  region while showing the centered empty-search state.
+- `quick-results-key-state-smoke-dark.png`
+- `full-results-key-state-smoke-dark.png`
+- `settings-general-key-state-smoke-dark.png`
+
+The three smoke captures confirm normal Quick results, normal Full results, and
+the accepted Settings General layout remain intact. A fast normal query showed
+its results/count without a `Searching…` flash.
+
+There is intentionally no host screenshot of `Index unavailable`: its only
+valid trigger is a real `NoSource` runtime, and obtaining it from the physical
+host would require altering user-owned active index configuration. The exact
+precedence and presentation are covered by deterministic policy tests below;
+the final physical-host visual smoke of this particular state remains
+user-owned pending acceptance.
 
 ### Correction pass — Quick Search
 
@@ -116,12 +156,17 @@ shared resource treatments; user-owned high-DPI visual smoke remains pending.
 
 ## Verification
 
-- Focused Quick/Full/scheduling coverage and delayed-busy policy tests:
-  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~M23DelayedBusyStateTests|FullyQualifiedName~M11QuickSearchOverlayLayoutTests|FullyQualifiedName~M13BSearchSchedulingTests"` — **46/46 PASS**.
-- Final Release App build after the correction pass:
+- Focused Full, delayed-busy, and deterministic key-state policy coverage:
+  `dotnet test tests/Quail.Core.Tests/Quail.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~M23SearchKeyStatePresentationTests|FullyQualifiedName~M22FullSearchTests|FullyQualifiedName~M23DelayedBusyStateTests"` — **25/25 PASS**.
+- Release App build after the key-state correction:
   `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64 --no-restore` — **PASS, 0 warnings, 0 errors**.
-- Final full Release suite: `dotnet test Quail.sln -c Release --no-restore` —
-  **311/311 Core tests and 13/13 Maintenance Service tests PASS**.
+- Final Release suite: `dotnet test Quail.sln -c Release --no-restore` —
+  **317/317 Core tests PASS**. The unchanged Maintenance Service test assembly
+  was blocked before discovery by host application-control policy
+  (`FileLoadException`, `0x800711C7`); a direct `--no-build` retry produced the
+  same environmental block. The last successful M23 candidate result for that
+  unchanged suite remains **13/13 PASS**; this correction does not touch the
+  service or its dependencies.
 - `git diff --check` — **PASS**.
 - `dotnet list src/Quail.Core/Quail.Core.csproj reference` — **no project references**, preserving the absence of a Core-to-FileSystem dependency; focused M22 coverage also asserts the compiled Core assembly has no FileSystem reference.
 
@@ -154,8 +199,9 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
 
 ## Remaining acceptance
 
-Correction-pass implementation is committed on `codex/m23-ui-polish`; the PR
-head identifies the exact revision.
+Key-state correction implementation is on `codex/m23-ui-polish`; the PR head
+will identify the exact revision after final verification.
 Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
+User-owned high-DPI visual smoke: pending.

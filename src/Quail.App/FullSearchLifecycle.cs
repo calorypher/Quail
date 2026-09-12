@@ -28,13 +28,13 @@ internal static class FullSearchInputPolicy
 {
     public static FullSearchInputState Evaluate(string? query, bool hasSources, bool filtersValid)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return FullSearchInputState.EmptyQuery;
-        }
         if (!hasSources)
         {
             return FullSearchInputState.NoSource;
+        }
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return FullSearchInputState.EmptyQuery;
         }
 
         return filtersValid ? FullSearchInputState.Ready : FullSearchInputState.InvalidFilters;
