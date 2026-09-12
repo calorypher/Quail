@@ -5,6 +5,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Quail.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
@@ -12,6 +14,7 @@ using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace Quail.App;
 
@@ -21,25 +24,39 @@ internal sealed partial class FullSearchWindow : Window
     private readonly SearchApplicationService _searchService;
     private readonly LatestSearchCoordinator _searchCoordinator;
     private readonly Action<string> _collapse;
+    private readonly Action _showSettings;
     private readonly nint _initialMonitor;
     private readonly ObservableCollection<FullSearchResultItem> _results = [];
     private nint _windowHandle;
+    private nint _applicationSmallIcon;
+    private nint _applicationLargeIcon;
     private long _uiGeneration;
     private bool _visible;
     private bool _closed;
     private bool _initialSizeApplied;
     private bool _clampingSize;
     private bool _controlsReady;
+    private FullSearchSortField _sortField = FullSearchSortField.Relevance;
+    private bool _sortDescending;
+    private readonly DelayedBusyState _busyState = new();
+    private readonly DispatcherQueueTimer _busyTimer;
+    private long _busyGeneration;
+    private long _queryFocusRequest;
+    private bool _queryFocusPending;
+    private int _queryFocusAttemptCount;
+    private long _queryFocusLoadedRequest;
 
     public FullSearchWindow(
         SearchRuntime searchRuntime,
         string theme,
         Action<string> collapse,
+        Action showSettings,
         nint initialMonitor)
     {
         _searchRuntime = searchRuntime ?? throw new ArgumentNullException(nameof(searchRuntime));
         _searchService = searchRuntime.Search;
         _collapse = collapse ?? throw new ArgumentNullException(nameof(collapse));
+        _showSettings = showSettings ?? throw new ArgumentNullException(nameof(showSettings));
         _initialMonitor = initialMonitor;
         _searchCoordinator = LatestSearchCoordinator.ForRequests(
             (SearchRequest request) => _searchService.Search(request),
@@ -47,18 +64,45 @@ internal sealed partial class FullSearchWindow : Window
         _searchCoordinator.Completed += OnSearchCompleted;
         _searchRuntime.SourcesChanged += OnSourcesChanged;
         InitializeComponent();
+        _busyTimer = DispatcherQueue.CreateTimer();
+        _busyTimer.Interval = DelayedBusyState.Delay;
+        _busyTimer.IsRepeating = false;
+        _busyTimer.Tick += OnBusyTimerTick;
+        FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _results;
         Title = "Quail Full Search";
         _windowHandle = WindowNative.GetWindowHandle(this);
+        ConfigureApplicationHeader();
+        _applicationSmallIcon = BrandingAssets.CreateApplicationSmallIcon();
+        _applicationLargeIcon = BrandingAssets.CreateApplicationLargeIcon();
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         ApplyTheme(theme);
         AppWindow.Changed += OnAppWindowChanged;
         Closed += OnClosed;
+        Activated += OnWindowActivated;
         _controlsReady = true;
+    }
+
+    private void ConfigureApplicationHeader()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppHeader);
     }
 
     public event Action? ClosedByUser;
 
     public string Query => QueryBox.Text;
+
+    internal bool IsSearchSurfaceVisible => _visible && !_closed;
+
+    internal bool IsMinimized =>
+        !_closed && AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized };
 
     public void ActivateSearch(string query, string theme)
     {
@@ -77,18 +121,20 @@ internal sealed partial class FullSearchWindow : Window
         {
             ApplyInitialSize();
         }
+        var transferredQuery = FullSearchLifecycle.TransferQuery(query);
+        _controlsReady = false;
+        QueryBox.Text = transferredQuery;
+        _controlsReady = true;
+        QueryBox.SelectionStart = QueryBox.Text.Length;
+        QueryBox.SelectionLength = 0;
+        CancelPendingLoadedFocus();
+        var focusRequest = ++_queryFocusRequest;
+        _queryFocusPending = true;
+        _queryFocusAttemptCount = 0;
         Activate();
         NativeMethods.SetForegroundWindow(_windowHandle);
-
-        var transferredQuery = FullSearchLifecycle.TransferQuery(query);
-        var queryChanged = !string.Equals(QueryBox.Text, transferredQuery, StringComparison.Ordinal);
-        QueryBox.Text = transferredQuery;
-        QueryBox.SelectionStart = QueryBox.Text.Length;
-        QueryBox.Focus(FocusState.Programmatic);
-        if (!queryChanged)
-        {
-            ApplySearch();
-        }
+        QueueDeferredQueryFocus(focusRequest);
+        ApplySearch();
     }
 
     public void HideForCollapse()
@@ -100,7 +146,12 @@ internal sealed partial class FullSearchWindow : Window
 
         _visible = false;
         _uiGeneration++;
+        _queryFocusPending = false;
+        _queryFocusAttemptCount = 0;
+        CancelPendingLoadedFocus();
+        CancelBusy();
         _searchCoordinator.Invalidate();
+        SetFullKeyState(SearchKeyState.None);
         NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwHide);
     }
 
@@ -193,6 +244,111 @@ internal sealed partial class FullSearchWindow : Window
         _clampingSize = false;
     }
 
+    private void OnWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState != WindowActivationState.Deactivated && _queryFocusPending)
+        {
+            QueueDeferredQueryFocus(_queryFocusRequest);
+        }
+    }
+
+    private void QueueDeferredQueryFocus(long request)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!FullSearchLifecycle.ShouldApplyDeferredQueryFocus(
+                    _queryFocusPending,
+                    _visible,
+                    _closed,
+                    request,
+                    _queryFocusRequest,
+                    _queryFocusAttemptCount) ||
+                NativeMethods.GetForegroundWindow() != _windowHandle)
+            {
+                return;
+            }
+
+            var xamlRoot = QueryBox.XamlRoot;
+            if (!FullSearchLifecycle.IsQueryBoxReady(QueryBox.IsLoaded, xamlRoot is not null))
+            {
+                WaitForQueryBoxLoaded(request);
+                return;
+            }
+
+            _queryFocusAttemptCount++;
+            QueryBox.SelectionStart = QueryBox.Text.Length;
+            QueryBox.SelectionLength = 0;
+            var focusResult = QueryBox.Focus(FocusState.Programmatic);
+            var ownsKeyboardFocus = false;
+            if (focusResult)
+            {
+                ownsKeyboardFocus = ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), QueryBox);
+            }
+            if (FullSearchLifecycle.ShouldCompleteDeferredQueryFocus(ownsKeyboardFocus))
+            {
+                _queryFocusPending = false;
+                AppLog.Write($"Full Search query focus confirmed after {_queryFocusAttemptCount} attempt(s).");
+                return;
+            }
+
+            if (FullSearchLifecycle.ShouldRetryDeferredQueryFocus(
+                    _queryFocusPending,
+                    _visible,
+                    _closed,
+                    request,
+                    _queryFocusRequest,
+                    _queryFocusAttemptCount,
+                    ownsKeyboardFocus))
+            {
+                QueueDeferredQueryFocus(request);
+            }
+            else
+            {
+                AppLog.Write("Full Search query focus was not acquired within two attempts.");
+            }
+        });
+    }
+
+    private void WaitForQueryBoxLoaded(long request)
+    {
+        if (_queryFocusLoadedRequest != 0)
+        {
+            _queryFocusLoadedRequest = request;
+            return;
+        }
+
+        _queryFocusLoadedRequest = request;
+        QueryBox.Loaded += OnQueryBoxLoaded;
+        AppLog.Write("Full Search query focus deferred until XAML load.");
+    }
+
+    private void OnQueryBoxLoaded(object sender, RoutedEventArgs args)
+    {
+        var request = _queryFocusLoadedRequest;
+        CancelPendingLoadedFocus();
+        if (request != 0 && FullSearchLifecycle.ShouldApplyDeferredQueryFocus(
+                _queryFocusPending,
+                _visible,
+                _closed,
+                request,
+                _queryFocusRequest,
+                _queryFocusAttemptCount))
+        {
+            QueueDeferredQueryFocus(request);
+        }
+    }
+
+    private void CancelPendingLoadedFocus()
+    {
+        if (_queryFocusLoadedRequest == 0)
+        {
+            return;
+        }
+
+        QueryBox.Loaded -= OnQueryBoxLoaded;
+        _queryFocusLoadedRequest = 0;
+    }
+
     private void OnSearchInputChanged(object sender, object args)
     {
         if (_controlsReady)
@@ -204,35 +360,70 @@ internal sealed partial class FullSearchWindow : Window
     private void OnNumberChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
         OnSearchInputChanged(sender, args);
 
-    private void OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args) =>
-        OnSearchInputChanged(sender, args);
-
-    private void OnSortChanged(object sender, SelectionChangedEventArgs args)
+    private void OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {
-        if (!_controlsReady)
+        UpdateModifiedFilterPresentation();
+        OnSearchInputChanged(sender, args);
+    }
+
+    private void OnModifiedFilterClicked(object sender, RoutedEventArgs args)
+    {
+        ModifiedDatePanel.Visibility = ModifiedDatePanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void OnClearModifiedDatesClicked(object sender, RoutedEventArgs args)
+    {
+        _controlsReady = false;
+        ModifiedFromPicker.Date = null;
+        ModifiedToPicker.Date = null;
+        _controlsReady = true;
+        UpdateModifiedFilterPresentation();
+        ApplySearch();
+    }
+
+    private void UpdateModifiedFilterPresentation() =>
+        ModifiedFilterButton.Content = FullSearchFilterPresentation.GetModifiedLabel(
+            ToDateOnly(ModifiedFromPicker.Date),
+            ToDateOnly(ModifiedToPicker.Date));
+
+    private void OnAddFilterClicked(object sender, RoutedEventArgs args)
+    {
+        AdvancedFiltersPanel.Visibility = AdvancedFiltersPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        AddFilterButton.Content = AdvancedFiltersPanel.Visibility == Visibility.Visible
+            ? "Hide filters"
+            : "Add filter";
+    }
+
+    private void OnSortHeaderClicked(object sender, RoutedEventArgs args)
+    {
+        if (sender is not Button { Tag: string name } ||
+            !Enum.TryParse<FullSearchSortField>(name, out var field))
         {
             return;
         }
 
-        var sortField = (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0);
-        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(sortField);
-        if (!SortDirectionButton.IsEnabled)
-        {
-            SortDirectionButton.IsChecked = false;
-        }
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            sortField,
-            SortDirectionButton.IsChecked == true);
+        (_sortField, _sortDescending) = FullSearchSortInteraction.SelectColumn(
+            _sortField,
+            _sortDescending,
+            field);
+        UpdateSortPresentation();
         ApplySearch();
     }
 
-    private void OnSortDirectionChanged(object sender, RoutedEventArgs args)
+    private void UpdateSortPresentation()
     {
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0),
-            SortDirectionButton.IsChecked == true);
-        ApplySearch();
+        NameHeaderButton.Content = HeaderLabel("Name", FullSearchSortField.Name);
+        PathHeaderButton.Content = HeaderLabel("Path", FullSearchSortField.Path);
+        SizeHeaderButton.Content = HeaderLabel("Size", FullSearchSortField.Size);
+        ModifiedHeaderButton.Content = HeaderLabel("Modified", FullSearchSortField.Modified);
     }
+
+    private string HeaderLabel(string label, FullSearchSortField field) =>
+        _sortField == field ? $"{label} {(_sortDescending ? "↓" : "↑")}" : label;
 
     private void OnClearFiltersClicked(object sender, RoutedEventArgs args)
     {
@@ -248,13 +439,13 @@ internal sealed partial class FullSearchWindow : Window
         HiddenBox.IsChecked = false;
         SystemBox.IsChecked = false;
         ReadOnlyBox.IsChecked = false;
-        SortBox.SelectedIndex = 0;
-        SortDirectionButton.IsChecked = false;
-        SortDirectionButton.IsEnabled = FullSearchSortPresentation.IsDirectionEnabled(FullSearchSortField.Relevance);
-        SortDirectionButton.Content = FullSearchSortPresentation.GetDirectionLabel(
-            FullSearchSortField.Relevance,
-            descending: false);
+        (_sortField, _sortDescending) = FullSearchSortInteraction.RestoreRelevance();
+        AdvancedFiltersPanel.Visibility = Visibility.Collapsed;
+        ModifiedDatePanel.Visibility = Visibility.Collapsed;
+        AddFilterButton.Content = "Add filter";
         _controlsReady = true;
+        UpdateModifiedFilterPresentation();
+        UpdateSortPresentation();
         ApplySearch();
     }
 
@@ -266,30 +457,74 @@ internal sealed partial class FullSearchWindow : Window
         }
 
         _uiGeneration++;
+        CancelBusy();
         _searchCoordinator.Invalidate();
         _results.Clear();
         var query = QueryBox.Text.Trim();
         var filtersValid = TryGetCriteria(out var criteria, out var error);
-        switch (FullSearchInputPolicy.Evaluate(query, _searchRuntime.HasSources(), filtersValid))
+        var inputState = FullSearchInputPolicy.Evaluate(query, _searchRuntime.HasSources(), filtersValid);
+        SetFullKeyState(SearchKeyStatePresentation.ResolveFull(inputState));
+        switch (inputState)
         {
             case FullSearchInputState.EmptyQuery:
                 ValidationText.Text = string.Empty;
-                StatusText.Text = "Enter a query to search.";
+                StatusText.Text = string.Empty;
                 return;
             case FullSearchInputState.NoSource:
                 ValidationText.Text = string.Empty;
-                StatusText.Text = "No active searchable index.";
+                StatusText.Text = string.Empty;
                 return;
             case FullSearchInputState.InvalidFilters:
+                SetFullKeyState(SearchKeyState.None);
                 ValidationText.Text = error ?? "Invalid filters.";
                 StatusText.Text = string.Empty;
                 return;
         }
 
         ValidationText.Text = string.Empty;
-        StatusText.Text = "Searching…";
+        StatusText.Text = string.Empty;
         var request = _searchRuntime.CreateFullSearchRequest(query, FullSearchWindowLayout.ResultLimit, criteria!);
         _searchCoordinator.Request(request, _uiGeneration);
+        BeginBusy(_uiGeneration);
+    }
+
+    private void BeginBusy(long generation)
+    {
+        _busyGeneration = generation;
+        _busyState.Begin(generation);
+        _busyTimer.Start();
+    }
+
+    private void CompleteBusy(long generation)
+    {
+        if (!_busyState.Complete(generation))
+        {
+            return;
+        }
+
+        _busyTimer.Stop();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void CancelBusy()
+    {
+        _busyTimer.Stop();
+        _busyState.Cancel();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void OnBusyTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_closed && _visible && _busyGeneration == _uiGeneration && _busyState.TryShow(_busyGeneration))
+        {
+            StatusText.Text = "Searching…";
+        }
     }
 
     private bool TryGetCriteria(out FullSearchCriteria? criteria, out string? error) =>
@@ -305,8 +540,8 @@ internal sealed partial class FullSearchWindow : Window
             HiddenBox.IsChecked == true,
             SystemBox.IsChecked == true,
             ReadOnlyBox.IsChecked == true,
-            (FullSearchSortField)Math.Max(SortBox.SelectedIndex, 0),
-            SortDirectionButton.IsChecked == true
+            _sortField,
+            _sortDescending
                 ? FullSearchSortDirection.Descending
                 : FullSearchSortDirection.Ascending,
             out criteria,
@@ -320,9 +555,11 @@ internal sealed partial class FullSearchWindow : Window
             {
                 return;
             }
+            CompleteBusy(completion.UiGeneration);
             if (completion.Error is not null)
             {
                 _results.Clear();
+                SetFullKeyState(SearchKeyState.None);
                 StatusText.Text = "Search failed. A source may be temporarily unavailable.";
                 AppLog.Write("Full Search failed.", completion.Error);
                 return;
@@ -341,6 +578,7 @@ internal sealed partial class FullSearchWindow : Window
             {
                 ResultsList.SelectedIndex = 0;
             }
+            SetFullKeyState(SearchKeyState.None);
 
             var notice = _searchRuntime.GetSourceStatusNotice();
             StatusText.Text = _results.Count switch
@@ -357,33 +595,34 @@ internal sealed partial class FullSearchWindow : Window
 
     private void OnSourcesChanged()
     {
+        CancelBusy();
         _searchCoordinator.Invalidate();
         DispatcherQueue.TryEnqueue(ApplySearch);
     }
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (TryHandleSearchShortcut(args))
+        {
+            return;
+        }
+
         if (args.Key == VirtualKey.Down && _results.Count > 0)
         {
             ResultsList.SelectedIndex = Math.Max(ResultsList.SelectedIndex, 0);
             ResultsList.Focus(FocusState.Keyboard);
             args.Handled = true;
         }
-        else if (args.Key == VirtualKey.Enter && SelectedResult is not null)
-        {
-            OpenSelected();
-            args.Handled = true;
-        }
     }
 
     private void OnResultsKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Key == VirtualKey.Enter && SelectedResult is not null)
+        if (TryHandleSearchShortcut(args))
         {
-            OpenSelected();
-            args.Handled = true;
+            return;
         }
-        else if (args.Key == VirtualKey.C && IsDown(VirtualKey.Control) && SelectedResult is not null)
+
+        if (args.Key == VirtualKey.C && IsDown(VirtualKey.Control) && !IsDown(VirtualKey.Shift) && SelectedResult is not null)
         {
             CopySelectedPath();
             args.Handled = true;
@@ -447,6 +686,11 @@ internal sealed partial class FullSearchWindow : Window
             return;
         }
 
+        if (!_searchService.CanReveal(selected.Result.Action))
+        {
+            return;
+        }
+
         try
         {
             await Task.Run(() => _searchService.Reveal(selected.Result.Action));
@@ -462,6 +706,11 @@ internal sealed partial class FullSearchWindow : Window
     private void CopySelectedPath()
     {
         if (SelectedResult is not { } selected)
+        {
+            return;
+        }
+
+        if (!_searchService.CanCopyText(selected.Result.Action))
         {
             return;
         }
@@ -482,7 +731,27 @@ internal sealed partial class FullSearchWindow : Window
 
     private FullSearchResultItem? SelectedResult => ResultsList.SelectedItem as FullSearchResultItem;
 
+    private void OnSettingsClicked(object sender, RoutedEventArgs args) => _showSettings();
+
+    private void OnIndexUnavailableSettingsClicked(object sender, RoutedEventArgs args) => _showSettings();
+
+    private void SetFullKeyState(SearchKeyState state)
+    {
+        var visible = state is SearchKeyState.FullEmptySearch or SearchKeyState.FullIndexUnavailable;
+        ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        FullKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        FullKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);
+        FullKeyStateTitle.Text = SearchKeyStatePresentation.Title(state);
+        FullKeyStateDetail.Text = SearchKeyStatePresentation.Detail(state);
+        IndexUnavailableSettingsButton.Visibility = state == SearchKeyState.FullIndexUnavailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private void OnCollapseClicked(object sender, RoutedEventArgs args)
+        => CollapseToQuick();
+
+    private void CollapseToQuick()
     {
         var query = QueryBox.Text;
         HideForCollapse();
@@ -493,11 +762,25 @@ internal sealed partial class FullSearchWindow : Window
     {
         _closed = true;
         _visible = false;
+        _queryFocusPending = false;
+        CancelPendingLoadedFocus();
         _uiGeneration++;
+        CancelBusy();
         _searchRuntime.SourcesChanged -= OnSourcesChanged;
         _searchCoordinator.Completed -= OnSearchCompleted;
         _searchCoordinator.Dispose();
         AppWindow.Changed -= OnAppWindowChanged;
+        Activated -= OnWindowActivated;
+        if (_applicationSmallIcon != 0)
+        {
+            NativeMethods.DestroyIcon(_applicationSmallIcon);
+            _applicationSmallIcon = 0;
+        }
+        if (_applicationLargeIcon != 0)
+        {
+            NativeMethods.DestroyIcon(_applicationLargeIcon);
+            _applicationLargeIcon = 0;
+        }
         ClosedByUser?.Invoke();
     }
 
@@ -511,5 +794,39 @@ internal sealed partial class FullSearchWindow : Window
     {
         var color = new UISettings().GetColorValue(UIColorType.Background);
         return color.R + color.G + color.B < 384;
+    }
+
+    private bool TryHandleSearchShortcut(KeyRoutedEventArgs args)
+    {
+        var selected = SelectedResult;
+        var action = SearchShortcutPolicy.Resolve(
+            args.Key == VirtualKey.Enter,
+            args.Key == VirtualKey.C,
+            IsDown(VirtualKey.Control),
+            IsDown(VirtualKey.Menu),
+            IsDown(VirtualKey.Shift),
+            selected is not null,
+            selected is not null && _searchService.CanReveal(selected.Result.Action),
+            selected is not null && _searchService.CanCopyText(selected.Result.Action));
+        switch (action)
+        {
+            case SearchShortcutAction.Open:
+                OpenSelected();
+                break;
+            case SearchShortcutAction.Reveal:
+                RevealSelected();
+                break;
+            case SearchShortcutAction.CopyPath:
+                CopySelectedPath();
+                break;
+            case SearchShortcutAction.SwitchMode:
+                CollapseToQuick();
+                break;
+            default:
+                return false;
+        }
+
+        args.Handled = true;
+        return true;
     }
 }

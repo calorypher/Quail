@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,8 +13,10 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
 using Windows.Graphics;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Quail.Core;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace Quail.App;
 
@@ -27,6 +30,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private readonly Action _exitApplication;
     private readonly Action _showSettings;
     private readonly Action<string> _showFullSearch;
+    private readonly Action _activateGlobalSearchSurface;
     private readonly TestEventPipeClient _pipe;
     private readonly SearchPerformanceTrace _searchTrace;
     private readonly SearchPerformanceScenario? _searchPerformanceScenario;
@@ -54,6 +58,14 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     private bool _shellIconFailureLogged;
     private string? _startupHotkeyError;
     private readonly SearchPerformanceRenderWaiter _searchPerformanceRenderWaiter = new();
+    private readonly DelayedBusyState _busyState = new();
+    private readonly DispatcherQueueTimer _busyTimer;
+    private long _busyGeneration;
+    private MenuFlyout _resultContextFlyout = null!;
+    private MenuFlyoutItem _quickOpenMenuItem = null!;
+    private MenuFlyoutItem _quickRevealMenuItem = null!;
+    private MenuFlyoutItem _quickCopyPathMenuItem = null!;
+    private MenuFlyoutItem _quickFullSearchMenuItem = null!;
 
     internal string CurrentTheme => _settings.Theme;
     internal ShellSettings CurrentSettings => _settings;
@@ -69,7 +81,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         ShellSettings settings,
         Action exitApplication,
         Action showSettings,
-        Action<string> showFullSearch)
+        Action<string> showFullSearch,
+        Action activateGlobalSearchSurface)
     {
         _options = options;
         _settingsStore = settingsStore;
@@ -78,6 +91,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _exitApplication = exitApplication;
         _showSettings = showSettings;
         _showFullSearch = showFullSearch;
+        _activateGlobalSearchSurface = activateGlobalSearchSurface;
         _pipe = new TestEventPipeClient(options.TestEventPipeName);
         _searchTrace = new SearchPerformanceTrace(options.SearchPerformanceTracePath, options.SearchPerformanceSessionKind);
         _searchPerformanceScenario = options.SearchPerformanceScenarioPath is null
@@ -97,10 +111,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _searchRuntime.SourcesChanged += OnSourcesChanged;
         _shortQueryDeferrer = new ShortQueryDeferrer(QuickSearchInputPolicy.ShortQueryDefer, OnShortQueryReady);
         InitializeComponent();
+        _busyTimer = DispatcherQueue.CreateTimer();
+        _busyTimer.Interval = DelayedBusyState.Delay;
+        _busyTimer.IsRepeating = false;
+        _busyTimer.Tick += OnBusyTimerTick;
+        ConfigureResultContextFlyout();
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _visibleResults;
         ApplyTheme(settings.Theme);
         ClearResults();
+        SetQuickKeyState(SearchKeyState.None);
         Closed += OnClosed;
         Activated += OnActivated;
     }
@@ -313,11 +333,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             }
             else
             {
-                ShowOverlay();
+                _activateGlobalSearchSurface();
             }
             return true;
         }
-        return _trayIcon?.HandleMessage(message, wParam, lParam, ShowOverlay, ShowSettings, _exitApplication) ?? false;
+        return _trayIcon?.HandleMessage(message, wParam, lParam, _activateGlobalSearchSurface, ShowSettings, _exitApplication) ?? false;
     }
 
     private bool TryRegisterHotkey(string value, out string error)
@@ -421,6 +441,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _queryGeneration++;
         _shortQueryDeferrer.Cancel();
         InvalidateSearches();
+        SetQuickKeyState(SearchKeyState.None);
         NativeMethods.ShowWindow(_windowHandle, NativeMethods.SwHide);
         _pipe.Emit(new { @event = "hidden", reason });
         AppLog.Write($"Hide: {reason}.");
@@ -569,6 +590,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _searchPerformanceRenderWaiter.ObserveProcessedInput(query, _queryGeneration);
         }
         ApplyOverlayMode(QuickSearchOverlayLayout.ForQuery(query), recenter: true);
+        SetQuickKeyState(SearchKeyState.None);
         if (string.IsNullOrWhiteSpace(query))
         {
             InvalidateSearches();
@@ -587,7 +609,7 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
         InvalidateSearches();
         ClearResults();
-        StatusText.Text = "Searching…";
+        StatusText.Text = string.Empty;
 
         if (query.Length is 1 or 2)
         {
@@ -623,7 +645,48 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             ? _shortQuerySearchCoordinator
             : _interactiveSearchCoordinator;
         var generation = coordinator.Request(query, _queryGeneration);
+        BeginBusy(_queryGeneration);
         AppLog.Write($"Search request lane={coordinator.Lane} generation={generation} length={query.Length}.");
+    }
+
+    private void BeginBusy(long generation)
+    {
+        CancelBusy();
+        _busyGeneration = generation;
+        _busyState.Begin(generation);
+        _busyTimer.Start();
+    }
+
+    private void CompleteBusy(long generation)
+    {
+        if (!_busyState.Complete(generation))
+        {
+            return;
+        }
+
+        _busyTimer.Stop();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void CancelBusy()
+    {
+        _busyTimer.Stop();
+        _busyState.Cancel();
+        if (StatusText.Text == "Searching…")
+        {
+            StatusText.Text = string.Empty;
+        }
+    }
+
+    private void OnBusyTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (_overlayVisible && _busyGeneration == _queryGeneration && _busyState.TryShow(_busyGeneration))
+        {
+            StatusText.Text = "Searching…";
+        }
     }
 
     private void OnSearchCompleted(SearchCompletion completion)
@@ -641,9 +704,12 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 return;
             }
 
+            CompleteBusy(completion.UiGeneration);
+
             if (completion.Error is not null)
             {
                 ClearResults();
+                SetQuickKeyState(SearchKeyState.None);
                 StatusText.Text = "A search source is unavailable or not search-ready.";
                 AppLog.Write($"Search failed generation={completion.Generation}.", completion.Error);
                 return;
@@ -675,9 +741,16 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
             var sourceStatusStartedTimestamp = Stopwatch.GetTimestamp();
             var sourceStatusNotice = _searchRuntime.GetSourceStatusNotice();
-            StatusText.Text = _visibleResults.Count == 0
-                ? sourceStatusNotice is null ? "No results." : $"No results. {sourceStatusNotice}"
-                : sourceStatusNotice ?? string.Empty;
+            var keyState = SearchKeyStatePresentation.ResolveQuick(
+                hasQuery: !string.IsNullOrWhiteSpace(QueryBox.Text),
+                completedSuccessfully: true,
+                isCurrent: completion.UiGeneration == _queryGeneration,
+                hasUsableSource: _searchRuntime.HasSources(),
+                resultCount: _visibleResults.Count);
+            SetQuickKeyState(keyState);
+            StatusText.Text = sourceStatusNotice ??
+                QuickSearchFooterPresentation.ResultCountLabel(_visibleResults.Count) ??
+                string.Empty;
             _searchTrace.RecordSourceStatus(
                 completion.UiGeneration,
                 completion.Generation,
@@ -717,7 +790,17 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     {
         _selectedResultIndex = -1;
         _visibleResults.Clear();
-        StatusText.Text = string.Empty;
+        StatusText.Text = string.IsNullOrWhiteSpace(QueryBox.Text) ? "Start typing to search" : string.Empty;
+    }
+
+    private void SetQuickKeyState(SearchKeyState state)
+    {
+        var visible = state == SearchKeyState.QuickNoResults;
+        ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        QuickKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        QuickKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);
+        QuickKeyStateTitle.Text = SearchKeyStatePresentation.Title(state);
+        QuickKeyStateDetail.Text = SearchKeyStatePresentation.Detail(state);
     }
 
     private void OnSourcesChanged()
@@ -746,12 +829,30 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void InvalidateSearches()
     {
+        CancelBusy();
         _interactiveSearchCoordinator.Invalidate();
         _shortQuerySearchCoordinator.Invalidate();
     }
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        var selected = GetSelectedResult();
+        var action = SearchShortcutPolicy.Resolve(
+            args.Key == VirtualKey.Enter,
+            args.Key == VirtualKey.C,
+            IsDown(VirtualKey.Control),
+            IsDown(VirtualKey.Menu),
+            IsDown(VirtualKey.Shift),
+            selected is not null,
+            selected is not null && _searchService.CanReveal(selected.Action),
+            selected is not null && _searchService.CanCopyText(selected.Action));
+        if (action != SearchShortcutAction.None)
+        {
+            ExecuteShortcut(action, selected);
+            args.Handled = true;
+            return;
+        }
+
         switch (args.Key)
         {
             case VirtualKey.Down:
@@ -768,10 +869,6 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 break;
             case VirtualKey.End:
                 MoveToBoundary(last: true);
-                args.Handled = true;
-                break;
-            case VirtualKey.Enter when GetSelectedResult() is ResultItem result:
-                OpenSelectedResult(result);
                 args.Handled = true;
                 break;
             case VirtualKey.Escape:
@@ -848,6 +945,142 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         _showFullSearch(query);
     }
 
+    private void ExecuteShortcut(SearchShortcutAction action, ResultItem? selected)
+    {
+        switch (action)
+        {
+            case SearchShortcutAction.Open when selected is not null:
+                OpenSelectedResult(selected);
+                break;
+            case SearchShortcutAction.Reveal when selected is not null:
+                RevealSelectedResult(selected);
+                break;
+            case SearchShortcutAction.CopyPath when selected is not null:
+                CopySelectedPath(selected);
+                break;
+            case SearchShortcutAction.SwitchMode:
+                OnFullSearchClicked(this, new RoutedEventArgs());
+                break;
+        }
+    }
+
+    private void OnResultRightTapped(object sender, RightTappedRoutedEventArgs args)
+    {
+        if (args.OriginalSource is FrameworkElement { DataContext: ResultItem item })
+        {
+            SetSelection(_visibleResults.IndexOf(item));
+        }
+    }
+
+    private void OnContextMenuOpening(object? sender, object args)
+    {
+        var selected = GetSelectedResult();
+        _quickOpenMenuItem.IsEnabled = selected is not null;
+        _quickRevealMenuItem.IsEnabled = selected is not null && _searchService.CanReveal(selected.Action);
+        _quickCopyPathMenuItem.IsEnabled = selected is not null && _searchService.CanCopyText(selected.Action);
+        _quickFullSearchMenuItem.IsEnabled = selected is not null;
+    }
+
+    private void OnResultContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        args.ItemContainer.ContextFlyout = _resultContextFlyout;
+    }
+
+    private void ConfigureResultContextFlyout()
+    {
+        _resultContextFlyout = new MenuFlyout();
+        _resultContextFlyout.Opening += OnContextMenuOpening;
+        _quickOpenMenuItem = new MenuFlyoutItem { Text = "Open", Icon = MenuIcon("\uE8A7"), KeyboardAcceleratorTextOverride = "Enter" };
+        _quickOpenMenuItem.Click += OnQuickOpenClicked;
+        _quickRevealMenuItem = new MenuFlyoutItem { Text = "Open file location", Icon = MenuIcon("\uE8B7"), KeyboardAcceleratorTextOverride = "Ctrl+Enter" };
+        _quickRevealMenuItem.Click += OnQuickRevealClicked;
+        _quickCopyPathMenuItem = new MenuFlyoutItem { Text = "Copy path", Icon = MenuIcon("\uE8C8"), KeyboardAcceleratorTextOverride = "Ctrl+Shift+C" };
+        _quickCopyPathMenuItem.Click += OnQuickCopyPathClicked;
+        _quickFullSearchMenuItem = new MenuFlyoutItem { Text = "Open in Full Search", Icon = MenuIcon("\uE740"), KeyboardAcceleratorTextOverride = "Alt+Enter" };
+        _quickFullSearchMenuItem.Click += OnQuickFullSearchClicked;
+        _resultContextFlyout.Items.Add(_quickOpenMenuItem);
+        _resultContextFlyout.Items.Add(_quickRevealMenuItem);
+        _resultContextFlyout.Items.Add(_quickCopyPathMenuItem);
+        _resultContextFlyout.Items.Add(new MenuFlyoutSeparator());
+        _resultContextFlyout.Items.Add(_quickFullSearchMenuItem);
+    }
+
+    private static FontIcon MenuIcon(string glyph) => new()
+    {
+        Glyph = glyph,
+        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons")
+    };
+
+    private void OnQuickOpenClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is { } selected)
+        {
+            OpenSelectedResult(selected);
+        }
+    }
+
+    private async void OnQuickRevealClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is not { } selected)
+        {
+            return;
+        }
+
+        RevealSelectedResult(selected);
+    }
+
+    private async void RevealSelectedResult(ResultItem selected)
+    {
+        if (!_searchService.CanReveal(selected.Action))
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => _searchService.Reveal(selected.Action));
+            StatusText.Text = "Opened file location.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = "Could not open the file location.";
+            AppLog.Write("Quick Search reveal failed.", exception);
+        }
+    }
+
+    private void OnQuickCopyPathClicked(object sender, RoutedEventArgs args)
+    {
+        if (GetSelectedResult() is not { } selected)
+        {
+            return;
+        }
+
+        CopySelectedPath(selected);
+    }
+
+    private void CopySelectedPath(ResultItem selected)
+    {
+        if (!_searchService.CanCopyText(selected.Action))
+        {
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(_searchService.GetCopyText(selected.Action));
+            Clipboard.SetContent(package);
+            StatusText.Text = "Path copied.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text = "Could not copy the path.";
+            AppLog.Write("Quick Search copy path failed.", exception);
+        }
+    }
+
+    private void OnQuickFullSearchClicked(object sender, RoutedEventArgs args) => OnFullSearchClicked(sender, args);
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState != WindowActivationState.Deactivated ||
@@ -883,6 +1116,9 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
             _ => ElementTheme.Default
         };
     }
+
+    private static bool IsDown(VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
     private async void OpenSelectedResult(ResultItem result)
     {

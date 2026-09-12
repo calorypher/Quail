@@ -348,6 +348,41 @@ public sealed class M22FullSearchTests : IDisposable
     }
 
     [Fact]
+    public void M23_column_sorting_cycles_ascending_descending_and_relevance()
+    {
+        var firstClick = FullSearchSortInteraction.SelectColumn(
+            FullSearchSortField.Relevance,
+            currentDescending: false,
+            FullSearchSortField.Size);
+        var repeatedClick = FullSearchSortInteraction.SelectColumn(
+            firstClick.Field,
+            firstClick.Descending,
+            FullSearchSortField.Size);
+        var changedColumn = FullSearchSortInteraction.SelectColumn(
+            repeatedClick.Field,
+            repeatedClick.Descending,
+            FullSearchSortField.Modified);
+        var relevance = FullSearchSortInteraction.SelectColumn(
+            repeatedClick.Field,
+            repeatedClick.Descending,
+            FullSearchSortField.Size);
+
+        Assert.Equal((FullSearchSortField.Size, false), firstClick);
+        Assert.Equal((FullSearchSortField.Size, true), repeatedClick);
+        Assert.Equal((FullSearchSortField.Modified, false), changedColumn);
+        Assert.Equal((FullSearchSortField.Relevance, false), relevance);
+        Assert.Equal((FullSearchSortField.Relevance, false), FullSearchSortInteraction.RestoreRelevance());
+    }
+
+    [Fact]
+    public void M23_modified_filter_presentation_is_compact_until_a_date_is_selected()
+    {
+        Assert.Equal("Modified: Any", FullSearchFilterPresentation.GetModifiedLabel(null, null));
+        Assert.Equal("Modified: Custom range", FullSearchFilterPresentation.GetModifiedLabel(new DateOnly(2026, 9, 1), null));
+        Assert.Equal("Modified: Custom range", FullSearchFilterPresentation.GetModifiedLabel(null, new DateOnly(2026, 9, 12)));
+    }
+
+    [Fact]
     public async Task Structured_coordinator_request_supersedes_same_text_with_older_filters()
     {
         using var firstStarted = new ManualResetEventSlim();
@@ -388,8 +423,14 @@ public sealed class M22FullSearchTests : IDisposable
         Assert.Equal("  exact query  ", FullSearchLifecycle.TransferQuery("  exact query  "));
         Assert.True(FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.Collapse));
         Assert.False(FullSearchLifecycle.ShouldShowQuickSearch(FullSearchDismissKind.NativeClose));
+        Assert.True(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: false, request: 2, latestRequest: 2, attemptCount: 0));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: false, isVisible: true, isClosed: false, request: 2, latestRequest: 2, attemptCount: 0));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: false, isClosed: false, request: 2, latestRequest: 2, attemptCount: 0));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: true, request: 2, latestRequest: 2, attemptCount: 0));
+        Assert.False(FullSearchLifecycle.ShouldApplyDeferredQueryFocus(isPending: true, isVisible: true, isClosed: false, request: 1, latestRequest: 2, attemptCount: 0));
         Assert.Equal(FullSearchInputState.EmptyQuery, FullSearchInputPolicy.Evaluate(" ", true, true));
         Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate("query", false, true));
+        Assert.Equal(FullSearchInputState.NoSource, FullSearchInputPolicy.Evaluate(" ", false, true));
         Assert.Equal(FullSearchInputState.InvalidFilters, FullSearchInputPolicy.Evaluate("query", true, false));
         Assert.Equal(FullSearchInputState.Ready, FullSearchInputPolicy.Evaluate("query", true, true));
         Assert.Equal(1_000, FullSearchWindowLayout.ResultLimit);

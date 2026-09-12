@@ -22,6 +22,33 @@ internal static class FullSearchSortPresentation
             : descending ? "↓ Descending" : "↑ Ascending";
 }
 
+internal static class FullSearchSortInteraction
+{
+    public static (FullSearchSortField Field, bool Descending) SelectColumn(
+        FullSearchSortField currentField,
+        bool currentDescending,
+        FullSearchSortField selectedField)
+    {
+        if (currentField != selectedField)
+        {
+            return (selectedField, false);
+        }
+
+        return currentDescending
+            ? RestoreRelevance()
+            : (selectedField, true);
+    }
+
+    public static (FullSearchSortField Field, bool Descending) RestoreRelevance() =>
+        (FullSearchSortField.Relevance, false);
+}
+
+internal static class FullSearchFilterPresentation
+{
+    public static string GetModifiedLabel(DateOnly? from, DateOnly? to) =>
+        from is null && to is null ? "Modified: Any" : "Modified: Custom range";
+}
+
 internal sealed record FullSearchCriteria(
     FullSearchEntryType EntryType,
     string? Extension,

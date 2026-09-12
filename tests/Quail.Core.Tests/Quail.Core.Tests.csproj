@@ -17,6 +17,9 @@
     <Compile Include="..\..\src\Quail.App\SettingsWindowLayout.cs" Link="App\SettingsWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchModels.cs" Link="App\FullSearchModels.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchLifecycle.cs" Link="App\FullSearchLifecycle.cs" />
+    <Compile Include="..\..\src\Quail.App\SearchSurfaceActivation.cs" Link="App\SearchSurfaceActivation.cs" />
+    <Compile Include="..\..\src\Quail.App\SearchShortcutPolicy.cs" Link="App\SearchShortcutPolicy.cs" />
+    <Compile Include="..\..\src\Quail.App\SearchKeyStatePresentation.cs" Link="App\SearchKeyStatePresentation.cs" />
     <Compile Include="..\..\src\Quail.App\FullSearchWindowLayout.cs" Link="App\FullSearchWindowLayout.cs" />
     <Compile Include="..\..\src\Quail.App\HotkeyStartupLifecycle.cs" Link="App\HotkeyStartupLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\AdminIndexWorker.cs" Link="App\AdminIndexWorker.cs" />
@@ -29,6 +32,7 @@
     <Compile Include="..\..\src\Quail.App\HotkeyDefinition.cs" Link="App\HotkeyDefinition.cs" />
     <Compile Include="..\..\src\Quail.App\NativeMethods.cs" Link="App\NativeMethods.cs" />
     <Compile Include="..\..\src\Quail.App\LatestSearchCoordinator.cs" Link="App\LatestSearchCoordinator.cs" />
+    <Compile Include="..\..\src\Quail.App\DelayedBusyState.cs" Link="App\DelayedBusyState.cs" />
     <Compile Include="..\..\src\Quail.App\SearchRuntime.cs" Link="App\SearchRuntime.cs" />
     <Compile Include="..\..\src\Quail.App\FileSystemSearchComposition.cs" Link="App\FileSystemSearchComposition.cs" />
     <Compile Include="..\..\src\Quail.App\SearchPerformanceTrace.cs" Link="App\SearchPerformanceTrace.cs" />
@@ -38,6 +42,7 @@
     <Compile Include="..\..\src\Quail.App\ResultSelection.cs" Link="App\ResultSelection.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchOverlayLayout.cs" Link="App\QuickSearchOverlayLayout.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchInputPolicy.cs" Link="App\QuickSearchInputPolicy.cs" />
+    <Compile Include="..\..\src\Quail.App\QuickSearchFooterPresentation.cs" Link="App\QuickSearchFooterPresentation.cs" />
     <Compile Include="..\..\src\Quail.App\QuickSearchLifecycle.cs" Link="App\QuickSearchLifecycle.cs" />
     <Compile Include="..\..\src\Quail.App\ShortQueryDeferrer.cs" Link="App\ShortQueryDeferrer.cs" />
     <Compile Include="..\..\src\Quail.App\SettingsStore.cs" Link="App\SettingsStore.cs" />
