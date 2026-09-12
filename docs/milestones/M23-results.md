@@ -2,8 +2,8 @@
 
 ## Status
 
-**ACTIVE — evidence is being accumulated for independent QA. M23 is not
-complete.**
+**ACTIVE — ready for independent QA. M23 is not complete and remains subject to
+user-owned visual/interaction acceptance.**
 
 ## Preparation and references
 
@@ -146,5 +146,8 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
   Windows resize, Snap, minimize, maximize, and close behavior.
 
 ## Remaining acceptance
+
+Branch: `codex/m23-ui-polish` at `a4916536d1e00130f01f80f00a7e99b12f6886fe`.
+Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
