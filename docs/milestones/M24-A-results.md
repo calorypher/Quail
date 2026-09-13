@@ -2,7 +2,7 @@
 
 ## Status
 
-**ACTIVE — implementation and verification are in progress.**
+**COMPLETE — implementation and verification are ready for independent QA.**
 
 ## Preparation
 
@@ -111,18 +111,36 @@ from the expected payload path and was then closed by its exact process ID. No
 host installation, policy change, signing, exclusion, or certificate action was
 performed.
 
-## Pending user-owned UI evidence
+## Startup and visible UI evidence
 
-The SSH service session has no interactive desktop. One short VMConnect smoke is
-still needed to enable Launch at startup through Settings, reboot/sign in, and
-confirm hidden/tray-first launch plus `Alt+Space` summoning Quick Search. This
-does not block the automated service/index continuity evidence but remains a
-required visible M24-A acceptance check.
+- A user-owned VMConnect smoke enabled Launch at startup through Settings,
+  rebooted and signed in normally, and confirmed tray-first launch with no
+  foreground Quick Search plus successful `Alt+Space` summon.
+- The owned HKCU Run value was then independently read as the exact quoted
+  `"C:\Program Files\Quail\Quail.exe"` command while Quail was resident.
 
-## Evidence to be completed
+## Uninstall evidence
 
-After the user-owned startup smoke, complete the candidate uninstall check:
-payload, service registration, and owned PATH entry must be removed while
-ProgramData and LocalAppData state remain preserved. Unchanged M20
-protected-service and M21 startup evidence is referenced rather than copied
-unless M24-A validation changes the relevant boundary.
+- With Quail already closed, a fresh candidate reinstall and its generated
+  uninstaller both exited `0`. The payload and installation directory,
+  uninstall registration, `QuailMaintenance`, owned HKCU Run value, and owned
+  machine PATH entry were all removed.
+- ProgramData, LocalAppData, settings, catalog, and the M24-A user-state
+  sentinel remained present with their pre-uninstall hashes unchanged.
+- An initial `/VERYSILENT` uninstall invoked through SSH while the manually
+  launched GUI remained open in a separate interactive session removed the
+  service, registration, Run value, and PATH but could not delete mapped GUI
+  libraries. The generated uninstaller then removed itself. This is recorded as
+  a noninteractive cross-session test limitation, not a clean-exit uninstall
+  PASS or evidence that the installer closes an interactive GUI in that mode.
+  The residual payload was moved intact to
+  `C:\QuailLab\M24-A\residual-after-cross-session-uninstall` before the clean
+  closed-app validation; no ProgramData or LocalAppData was moved or deleted.
+
+## Completion boundary
+
+M24-A changes and evidence are complete. The normal boundary is this branch and
+its pull request ready for independent QA. M24 remains active: M24-B
+performance/relevance/resources and M24-C security, signing/SAC disposition,
+known-defect freeze, tags, release, and publication work remain explicitly
+deferred.
