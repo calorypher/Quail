@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Quail.FileSystem;
 using Windows.System;
 using Windows.UI.Core;
@@ -31,6 +32,9 @@ internal sealed class SettingsWindow : Window
     private TextBlock? _generalError;
     private bool _closing;
     private bool _initialSizeApplied;
+    private nint _windowHandle;
+    private nint _applicationSmallIcon;
+    private nint _applicationLargeIcon;
 
     public SettingsWindow(
         IndexCatalogController catalog,
@@ -56,6 +60,11 @@ internal sealed class SettingsWindow : Window
         _windowRoot.Style = Application.Current.Resources["QuailIndexRootStyle"] as Style;
         _windowRoot.Children.Add(CreateRoot());
         Content = _windowRoot;
+        _windowHandle = WindowNative.GetWindowHandle(this);
+        _applicationSmallIcon = BrandingAssets.CreateApplicationSmallIcon();
+        _applicationLargeIcon = BrandingAssets.CreateApplicationLargeIcon();
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconSmall, _applicationSmallIcon);
+        NativeMethods.SendMessage(_windowHandle, NativeMethods.WmSetIcon, NativeMethods.IconBig, _applicationLargeIcon);
         ApplyTheme(settings.Theme);
         _operations.Changed += OnOperationsChanged;
         Closed += (_, _) =>
@@ -63,6 +72,16 @@ internal sealed class SettingsWindow : Window
             RestoreHotkeyForLifecycle(SettingsWindowLifecycleEvent.Closed);
             _closing = true;
             _operations.Changed -= OnOperationsChanged;
+            if (_applicationSmallIcon != 0)
+            {
+                NativeMethods.DestroyIcon(_applicationSmallIcon);
+                _applicationSmallIcon = 0;
+            }
+            if (_applicationLargeIcon != 0)
+            {
+                NativeMethods.DestroyIcon(_applicationLargeIcon);
+                _applicationLargeIcon = 0;
+            }
             ClosedByUser?.Invoke();
         };
         Activated += (_, args) =>
@@ -90,9 +109,25 @@ internal sealed class SettingsWindow : Window
     private void ApplyInitialSize()
     {
         if (_initialSizeApplied) return;
-        var dpi = NativeMethods.GetDpiForWindow(WindowNative.GetWindowHandle(this));
+        var dpi = NativeMethods.GetDpiForWindow(_windowHandle);
         var size = SettingsWindowLayout.InitialSizeToPhysical(dpi == 0 ? 96u : dpi);
         AppWindow.Resize(new SizeInt32(size.Width, size.Height));
+        if (NativeMethods.GetCursorPos(out var cursor))
+        {
+            var monitor = NativeMethods.MonitorFromPoint(cursor, NativeMethods.MonitorDefaultToNearest);
+            var info = new NativeMethods.MonitorInfo { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MonitorInfo>() };
+            if (monitor != 0 && NativeMethods.GetMonitorInfo(monitor, ref info) &&
+                NativeMethods.GetWindowRect(_windowHandle, out var windowRect))
+            {
+                var position = QuickSearchOverlayLayout.CenterInWorkArea(
+                    info.Work.Left,
+                    info.Work.Top,
+                    info.Work.Right - info.Work.Left,
+                    info.Work.Bottom - info.Work.Top,
+                    new PhysicalSize(windowRect.Right - windowRect.Left, windowRect.Bottom - windowRect.Top));
+                AppWindow.Move(new PointInt32(position.X, position.Y));
+            }
+        }
         _initialSizeApplied = true;
     }
 
@@ -109,6 +144,8 @@ internal sealed class SettingsWindow : Window
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            IsPaneToggleButtonVisible = false,
+            OpenPaneLength = 228,
             Content = _content
         };
         _navigation.MenuItems.Add(new NavigationViewItem { Content = "General", Tag = "general", Icon = new SymbolIcon(Symbol.Setting) });
@@ -140,30 +177,53 @@ internal sealed class SettingsWindow : Window
     private UIElement CreateGeneralPage()
     {
         var panel = PagePanel("General", "Choose how Quail starts, looks, and opens Quick Search.");
-        _startupToggle = new ToggleSwitch { Header = "Launch Quail with Windows", IsOn = _startup.IsEnabled };
+        _startupToggle = new ToggleSwitch { IsOn = _startup.IsEnabled, VerticalAlignment = VerticalAlignment.Center };
         _startupToggle.Toggled += (_, _) =>
         {
             var error = _startup.SetEnabled(_startupToggle.IsOn);
             _startupToggle.IsOn = _startup.IsEnabled;
             ShowGeneralError(error);
         };
-        panel.Children.Add(Card(_startupToggle));
-        _hotkeyBox = new TextBox { Header = "Quick Search hotkey", Text = _settings.Hotkey, IsReadOnly = true };
+        panel.Children.Add(FeatureCard("", "Launch at startup", "Start Quail with Windows so Quick Search is ready when you need it.", _startupToggle));
+
+        _hotkeyBox = new TextBox { Text = _settings.Hotkey, IsReadOnly = true, MinWidth = 180, Style = Application.Current.Resources["QuailCompactTextBoxStyle"] as Style };
         _hotkeyBox.KeyDown += OnHotkeyKeyDown;
         _hotkeyBox.LostFocus += (_, _) => RestoreHotkey();
-        _themeBox = new ComboBox { Header = "Theme", ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = _settings.Theme };
+        var changeHotkey = new Button { Content = "Change…", Style = Application.Current.Resources["QuailSecondaryActionButtonStyle"] as Style };
+        changeHotkey.Click += (_, _) => _hotkeyBox.Focus(FocusState.Programmatic);
+        var hotkeyControls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        hotkeyControls.Children.Add(_hotkeyBox);
+        hotkeyControls.Children.Add(changeHotkey);
+        panel.Children.Add(FeatureCard("", "Quick Search hotkey", "Use this shortcut from anywhere to open Quick Search.", hotkeyControls));
+
+        _themeBox = new ComboBox { ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = _settings.Theme, MinWidth = 150, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(FeatureCard("", "Theme", "Choose how Quail follows the system appearance.", _themeBox));
+
         var save = new Button { Content = "Save", HorizontalAlignment = HorizontalAlignment.Right, Style = Application.Current.Resources["QuailPrimaryActionButtonStyle"] as Style };
         save.Click += async (_, _) => await SaveGeneralAsync();
-        var settings = new StackPanel { Spacing = 12 };
-        settings.Children.Add(_hotkeyBox);
-        settings.Children.Add(_themeBox);
-        settings.Children.Add(save);
-        panel.Children.Add(Card(settings));
+        panel.Children.Add(save);
         _generalError = Description(string.Empty);
         _generalError.Visibility = Visibility.Collapsed;
         panel.Children.Add(_generalError);
         ShowGeneralError(_initialGeneralError);
         return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    }
+
+    private static Border FeatureCard(string glyph, string title, string description, FrameworkElement control)
+    {
+        var row = new Grid { ColumnSpacing = 14 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(new FontIcon { Glyph = glyph, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"), FontSize = 22, Foreground = Application.Current.Resources["QuailIconBrush"] as Microsoft.UI.Xaml.Media.Brush, VerticalAlignment = VerticalAlignment.Center });
+        var copy = new StackPanel { Spacing = 3 };
+        copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 16 });
+        copy.Children.Add(Description(description));
+        Grid.SetColumn(copy, 1);
+        row.Children.Add(copy);
+        Grid.SetColumn(control, 2);
+        row.Children.Add(control);
+        return Card(row);
     }
 
     private async Task SaveGeneralAsync()
@@ -244,7 +304,10 @@ internal sealed class SettingsWindow : Window
             panel.Children.Add(new ProgressBar { IsIndeterminate = true, Height = 5 });
             panel.Children.Add(Description("An index operation is in progress."));
         }
-        panel.Children.Add(new TextBlock { Text = entry.MountPoint, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        heading.Children.Add(new SymbolIcon(Symbol.Folder) { VerticalAlignment = VerticalAlignment.Center });
+        heading.Children.Add(new TextBlock { Text = entry.MountPoint, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(heading);
         panel.Children.Add(new TextBlock { Text = HealthLabel(presentation.Status.State, health), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(Description(presentation.VolumeDetail ?? HealthDetail(presentation.Status, health)));
         panel.Children.Add(Description(entry.EnabledForSearch ? "Enabled for Quick Search" : "Disabled for Quick Search"));
@@ -289,7 +352,11 @@ internal sealed class SettingsWindow : Window
     {
         var assembly = Assembly.GetEntryAssembly()?.GetName();
         var panel = PagePanel("About Quail", "A local-first Windows search application for your files.");
-        panel.Children.Add(new TextBlock { Text = $"Version {assembly?.Version?.ToString() ?? "unknown"}" });
+        var identity = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Margin = new Thickness(0, 8, 0, 4) };
+        identity.Children.Add(new Image { Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg")), Width = 34, Height = 34 });
+        identity.Children.Add(new TextBlock { Text = "Quail", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(identity);
+        panel.Children.Add(Description($"Version {assembly?.Version?.ToString() ?? "unknown"}"));
         panel.Children.Add(new HyperlinkButton { Content = "GitHub repository", NavigateUri = new Uri("https://github.com/calorypher/Quail") });
         panel.Children.Add(new HyperlinkButton { Content = "MIT License", NavigateUri = new Uri("https://github.com/calorypher/Quail/blob/main/LICENSE") });
         return panel;

@@ -14,6 +14,37 @@ internal static class FullSearchLifecycle
         kind == FullSearchDismissKind.Collapse;
 
     public static string TransferQuery(string? query) => query ?? string.Empty;
+
+    public static bool IsQueryBoxReady(bool isLoaded, bool hasXamlRoot) =>
+        isLoaded && hasXamlRoot;
+
+    public static bool ShouldApplyDeferredQueryFocus(
+        bool isPending,
+        bool isVisible,
+        bool isClosed,
+        long request,
+        long latestRequest,
+        int attemptCount) =>
+        isPending && isVisible && !isClosed && request == latestRequest && attemptCount < 2;
+
+    public static bool ShouldCompleteDeferredQueryFocus(bool queryBoxOwnsKeyboardFocus) =>
+        queryBoxOwnsKeyboardFocus;
+
+    public static bool ShouldRetryDeferredQueryFocus(
+        bool isPending,
+        bool isVisible,
+        bool isClosed,
+        long request,
+        long latestRequest,
+        int attemptCount,
+        bool queryBoxOwnsKeyboardFocus) =>
+        !queryBoxOwnsKeyboardFocus && ShouldApplyDeferredQueryFocus(
+            isPending,
+            isVisible,
+            isClosed,
+            request,
+            latestRequest,
+            attemptCount);
 }
 
 internal enum FullSearchInputState
@@ -28,13 +59,13 @@ internal static class FullSearchInputPolicy
 {
     public static FullSearchInputState Evaluate(string? query, bool hasSources, bool filtersValid)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return FullSearchInputState.EmptyQuery;
-        }
         if (!hasSources)
         {
             return FullSearchInputState.NoSource;
+        }
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return FullSearchInputState.EmptyQuery;
         }
 
         return filtersValid ? FullSearchInputState.Ready : FullSearchInputState.InvalidFilters;

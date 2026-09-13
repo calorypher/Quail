@@ -86,6 +86,51 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Padding" Value="8,6" />
       </Style>
+      <Style x:Key="QuailSecondaryActionButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource QuailSecondarySurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="10,6" />
+      </Style>
+      <Style x:Key="QuailIconButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="8" />
+        <Setter Property="Foreground" Value="{ThemeResource QuailIconBrush}" />
+      </Style>
+      <Style x:Key="QuailCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource QuailSecondarySurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12" />
+      </Style>
+      <Style x:Key="QuailSearchBoxStyle" TargetType="TextBox">
+        <Setter Property="Background" Value="{ThemeResource QuailSearchBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Padding" Value="12,7" />
+      </Style>
+      <Style x:Key="QuailCompactTextBoxStyle" TargetType="TextBox">
+        <Setter Property="Padding" Value="9,5" />
+        <Setter Property="Background" Value="{ThemeResource QuailSearchBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource QuailSubtleBorderBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+      </Style>
+      <Style x:Key="QuailCompactComboBoxStyle" TargetType="ComboBox">
+        <Setter Property="Padding" Value="8,4" />
+      </Style>
+      <Style x:Key="QuailCompactDatePickerStyle" TargetType="CalendarDatePicker">
+        <Setter Property="Padding" Value="8,4" />
+      </Style>
+      <Style x:Key="QuailColumnHeaderButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+      </Style>
       <Style x:Key="QuailIndexRootStyle" TargetType="Grid">
         <Setter Property="Background" Value="{ThemeResource QuailSurfaceBrush}" />
       </Style>
