@@ -159,7 +159,7 @@ function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
     }
 
     if ($PersistentPhase -eq 'batch') {
-        $winApp = 'C:\Users\gawry\AppData\Local\Microsoft\WindowsApps\winapp.exe'
+        $winApp = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winapp.exe'
         if (-not (Test-Path -LiteralPath $winApp -PathType Leaf)) {
             throw 'WinApp.exe was not found at the approved local path.'
         }

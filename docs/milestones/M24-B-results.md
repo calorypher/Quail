@@ -2,8 +2,7 @@
 
 ## Status
 
-**ACTIVE — performance and relevance pass; resource investigation has a
-release-candidate blocker.**
+**COMPLETE — implementation and verification are ready for independent QA.**
 
 ## Preparation
 
@@ -26,7 +25,9 @@ security and release-freeze work.
 ## Candidate identity
 
 - M16 campaign candidate: `2255810b8054dda831658a288263e0d7d1f8752d`.
-- Resource candidate: `33603964b9998b8cb052f7866531457ef38b7501`.
+- Initial resource candidate: `33603964b9998b8cb052f7866531457ef38b7501`.
+- Final persistent same-process resource candidate:
+  `95a4fbb729d051e06458dfdcceb4d3cd1518d061`.
 - The difference from the M24-A merge contains only this M24-B document,
   `M24.md`, and the measurement helper. No production C# or packaging code
   changed, so both measurements exercise the M24-A integrated product code.
