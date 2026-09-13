@@ -121,7 +121,6 @@ try {
             Start-Sleep -Milliseconds 500
             $process.Refresh()
         }
-        $samples.Add((Get-ProcessSample $process $startedAtUtc))
     }
     finally {
         if ($vsStarted) {
