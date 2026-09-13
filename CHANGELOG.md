@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — release candidate, not published
 
 ### Added
 
@@ -15,6 +15,15 @@
 
 - Quick Search, Full Search, and Settings now share a calmer Fluent-adjacent surface, typography, control, and card treatment.
 - Filesystem search now preserves the best-ranked results when many names match, including duplicate names across indexes. Exact and prefix matches in ordinary visible locations rank above weaker matches in the current profile, while internal and system-heavy results remain deprioritized.
+- Full Search and Settings set their native caption-control theme from Quail's effective Light or Dark theme, including when it differs from the Windows theme.
+
+### Release status
+
+- Quail 0.3.0 is distributed unsigned. Windows SmartScreen and Smart App
+  Control may warn about or block unsigned binaries on some systems. Disabling
+  Windows security features is not a supported workaround. Trusted public code
+  signing is deferred outside 0.3 by the project owner's release-policy
+  decision.
 
 ## 0.2.0 — release-ready
 
