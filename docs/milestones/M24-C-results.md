@@ -141,6 +141,56 @@ signing integration was attempted in M24-C.
 
 ## Final RC build and verification
 
-The exact clean source commit, technical unsigned installer manifest, signature
-inventory, and final commands are appended after the final source commit and
-canonical installer build.
+The exact technical RC source is
+`73df89f9e06457448b3dd5a98ee576389fe577b1`. Its worktree was clean before the
+final build. This result-record update is documentation-only and does not alter
+the RC source or payload.
+
+- `dotnet build src/Quail.App/Quail.App.csproj -c Release -r win-x64
+  --no-restore` — PASS, zero warnings/errors; confirms the supported
+  `PreferredTheme` API in the actual Windows App SDK graph.
+- Focused Core security/UI suite — PASS, 66/66: M20 control/protected-storage/
+  catalog cases plus M22/M23 Full Search and key-state cases.
+- `dotnet test tests/Quail.MaintenanceService.Tests/Quail.MaintenanceService.Tests.csproj
+  -c Release --no-restore` — PASS, 13/13.
+- `dotnet test Quail.sln -c Release --no-restore` — final PASS, 329 Core + 13
+  Maintenance Service tests. The first full invocation had one timing-sensitive
+  M11 short-query-deferrer assertion (the test's 10 ms delay ran after its 50 ms
+  defer window under load); its focused rerun and the one permitted final full
+  rerun both passed without a code or test change.
+- `dotnet build Quail.sln -c Release --no-restore` — PASS, zero warnings/errors.
+- `scripts/build-installer.ps1` — PASS with Release/XAML provenance and pinned
+  prerequisite checks. Inno Setup 7.1.0 produced the artifact below.
+- `git diff --check` — PASS before the RC source commit.
+
+### Technical unsigned RC manifest
+
+| Field | Value |
+| --- | --- |
+| Version / AssemblyVersion / FileVersion | `0.3.0` / `0.3.0.0` / `0.3.0.0` |
+| Source commit | `73df89f9e06457448b3dd5a98ee576389fe577b1` |
+| Installer | `artifacts/installer/0.3.0/Quail-0.3.0-Setup.exe` |
+| Installer bytes | `10,243,884` |
+| Installer SHA-256 | `cc1b44457ec3c15f39eceeab88b7b8a2b0114861451a34265560078b4e4a949b` |
+| Payload | 66 files / `45,567,897` bytes |
+| Deployment | Framework-dependent unpackaged WinUI 3 |
+
+PowerShell `Get-AuthenticodeSignature` reported **NotSigned** for the technical
+RC installer and each staged Quail-owned PE. The table also records the actual
+file versions:
+
+| Artifact | File version | Signature status |
+| --- | --- | --- |
+| `Quail-0.3.0-Setup.exe` | `0.3.0` | NotSigned |
+| `Quail.exe`, `Quail.dll` | `0.3.0.0` | NotSigned |
+| `Quail.Cli.exe`, `Quail.Cli.dll` | `0.3.0.0` | NotSigned |
+| `Quail.MaintenanceService.exe`, `Quail.MaintenanceService.dll` | `0.3.0.0` | NotSigned |
+| `Quail.Core.dll`, `Quail.FileSystem.dll` | `0.3.0.0` | NotSigned |
+| Inno Setup generated uninstaller | Generated only during installation; current pipeline has no signing hook, so no signed-uninstaller claim is made. |
+
+This artifact is reproducible by checking out the source commit in a clean
+worktree, running the final Release tests/build above, then invoking
+`scripts/build-installer.ps1`. It is technical RC evidence only, **not a public
+release asset**. After the owner completes the signing decision, build a new
+signed candidate through the approved integration, verify every required
+signature and timestamp, and run the affected installed-candidate smoke.
