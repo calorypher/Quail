@@ -28,9 +28,9 @@ security and release-freeze work.
 - Initial resource candidate: `33603964b9998b8cb052f7866531457ef38b7501`.
 - Final persistent same-process resource candidate:
   `95a4fbb729d051e06458dfdcceb4d3cd1518d061`.
-- The difference from the M24-A merge contains only this M24-B document,
-  `M24.md`, and the measurement helper. No production C# or packaging code
-  changed, so both measurements exercise the M24-A integrated product code.
+- No production C# or packaging code changed. The remaining diff consists of
+  M24/M19 documentation and the external measurement helper, so both
+  measurements exercise the M24-A integrated product code.
 
 ## Physical-host M16 campaign
 
@@ -194,5 +194,6 @@ candidate service measurement if M24-C requires one.
 - `scripts/measure-m24-resources.ps1 -ScenarioPath artifacts/m16/scenarios.local.json` — valid no-profiler control captured.
 
 M24-A remains COMPLETE / MERGED (PR #27,
-`1a7849e1a8accc1d425b832e847505f568a7c74f`). M24-B remains ACTIVE and is ready
-for independent QA. M24-C remains out of scope.
+`1a7849e1a8accc1d425b832e847505f568a7c74f`). M24-B implementation and
+verification are complete and awaiting independent QA and merge. M24-C remains
+out of scope.
