@@ -60,14 +60,15 @@ foreach ($requiredToken in @(
 }
 
 foreach ($requiredToken in @(
+    "SameText('{#AppVersion}', '0.3.0')",
     "SameText(RegisteredVersion, '0.2.0')")) {
     if ($installerScript -notlike "*$requiredToken*") {
-        throw "Released 0.2.0 to 0.3.0 upgrade guard is missing: $requiredToken"
+        throw "Bounded released 0.2.0 to 0.3.0 upgrade guard is missing: $requiredToken"
     }
 }
 
-if ($installerScript -match "(?s)if not SameText\(RegisteredVersion, '\{#AppVersion\}'\) then") {
-    throw 'Packaging must not reject the supported released 0.2.0 to 0.3.0 transition outright.'
+if ($installerScript -notmatch "(?s)not \(SameText\('\{#AppVersion\}', '0\.3\.0'\)\s+and\s+SameText\(RegisteredVersion, '0\.2\.0'\)\)") {
+    throw 'Released 0.2.0 must be allowed only when the candidate target is exactly 0.3.0.'
 }
 
 foreach ($requiredToken in @(

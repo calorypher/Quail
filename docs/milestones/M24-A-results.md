@@ -19,8 +19,9 @@
   `Version` `0.3.0`, `AssemblyVersion` `0.3.0.0`, and `FileVersion` `0.3.0.0`.
 - The Inno Setup fixed-location guard retains its recognized-installation,
   canonical-path, and reparse-point checks while allowing only the representative
-  released `0.2.0` predecessor. Other development-version transitions remain
-  uninstall-first pending separate evidence.
+  public-release `0.2.0` to candidate `0.3.0` transition. It permits neither
+  `0.2.0` to a future target nor any other differing recognized-version
+  transition; those remain uninstall-first pending separate evidence.
 
 ## Tooling
 
@@ -136,6 +137,21 @@ performed.
   The residual payload was moved intact to
   `C:\QuailLab\M24-A\residual-after-cross-session-uninstall` before the clean
   closed-app validation; no ProgramData or LocalAppData was moved or deleted.
+
+## Independent-QA correction
+
+- Independent QA identified that the initial `0.2.0` exception was not coupled
+  to the candidate version, which could have allowed an unverified future
+  `0.2.0` to `0.4.0` or `1.0.0` transition. The guard now permits either an
+  installed version equal to the candidate version, or exactly candidate
+  `0.3.0` with installed `0.2.0`.
+- `scripts/test-installer-cleanup-safety.ps1` now asserts both sides of that
+  bounded pair and its combined condition. It passed after the correction.
+- The canonical installer build using Inno Setup `7.1.0` passed after the
+  correction and produced `Quail-0.3.0-Setup.exe`, reporting version `0.3.0`.
+  No VM campaign was repeated because the corrected guard has identical
+  behavior for the already verified public-release `0.2.0` to candidate
+  `0.3.0` transition.
 
 ## Completion boundary
 
