@@ -60,6 +60,18 @@ foreach ($requiredToken in @(
 }
 
 foreach ($requiredToken in @(
+    "SameText('{#AppVersion}', '0.3.0')",
+    "SameText(RegisteredVersion, '0.2.0')")) {
+    if ($installerScript -notlike "*$requiredToken*") {
+        throw "Bounded released 0.2.0 to 0.3.0 upgrade guard is missing: $requiredToken"
+    }
+}
+
+if ($installerScript -notmatch "(?s)not \(SameText\('\{#AppVersion\}', '0\.3\.0'\)\s+and\s+SameText\(RegisteredVersion, '0\.2\.0'\)\)") {
+    throw 'Released 0.2.0 must be allowed only when the candidate target is exactly 0.3.0.'
+}
+
+foreach ($requiredToken in @(
     'SERVICE_CONFIG_DELAYED_AUTO_START_INFO = $00000003',
     'ChangeServiceConfig2W@advapi32.dll',
     'DelayedAutoStart.DelayedAutostart := False',
