@@ -2,10 +2,15 @@
 
 ## Status
 
-**READY FOR INDEPENDENT QA — architecture approved in the Quail 0.3 execution thread on 2026-09-06.**
+**Original handoff status: READY FOR INDEPENDENT QA — architecture approved in the Quail 0.3 execution thread on 2026-09-06.**
 
-M19 is not complete until independent QA and merge, and M20 has not started. The
-approved boundary is a
+**Final status: COMPLETE / MERGED — independent QA passed and PR #18, `Approve
+M19 continuous-maintenance boundary`, merged to `main` as
+`3a90a26a1eec2a70e0c397106992d25cfd9ac630`.**
+
+At the original handoff time, M19 was not complete until independent QA and
+merge, and M20 had not started. That snapshot is superseded by the later M20
+implementation and merge. The approved boundary is a
 dedicated, automatically started Windows Service running as LocalSystem, with no
 ordinary-search IPC and with the existing elevated App worker reduced to an
 administrator-authorized configuration/recovery client. The service is the sole
@@ -467,6 +472,7 @@ direct unelevated search without IPC, cancellable USN waiting, restart/resume
 catch-up, and fail-closed continuity handling without automatic full rebuild.
 
 The canonical implementation contract is now
-[`docs/milestones/M20.md`](M20.md). M19 remains ready for independent QA rather
-than complete. No production service, task, IPC, or continuous-maintenance code
-was created during M19.
+[`docs/milestones/M20.md`](M20.md). This report's original implementation
+handoff was ready for independent QA; the milestone later completed and merged
+as recorded in the Status section. No production service, task, IPC, or
+continuous-maintenance code was created during M19.

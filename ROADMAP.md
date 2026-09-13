@@ -312,7 +312,10 @@ Acceptance boundary:
 - ordering remains deterministic;
 - performance remains within the accepted search budget.
 
-### M19 — Continuous Maintenance Boundary Spike — READY FOR INDEPENDENT QA
+### M19 — Continuous Maintenance Boundary Spike — COMPLETE / MERGED
+
+Independent QA passed and PR #18, `Approve M19 continuous-maintenance boundary`,
+merged to `main` as `3a90a26a1eec2a70e0c397106992d25cfd9ac630`.
 
 The Quail 0.3 execution thread approved the dedicated LocalSystem Windows
 Service boundary on 2026-09-06. The service is the sole index writer; protected
