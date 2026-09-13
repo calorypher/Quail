@@ -845,20 +845,8 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        var selected = GetSelectedResult();
-        var action = SearchShortcutPolicy.Resolve(
-            args.Key == VirtualKey.Enter,
-            args.Key == VirtualKey.C,
-            IsDown(VirtualKey.Control),
-            IsDown(VirtualKey.Menu),
-            IsDown(VirtualKey.Shift),
-            selected is not null,
-            selected is not null && _searchService.CanReveal(selected.Action),
-            selected is not null && _searchService.CanCopyText(selected.Action));
-        if (action != SearchShortcutAction.None)
+        if (TryHandleQueryShortcut(args))
         {
-            ExecuteShortcut(action, selected);
-            args.Handled = true;
             return;
         }
 
@@ -885,6 +873,33 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
                 args.Handled = true;
                 break;
         }
+    }
+
+    private void OnQueryPreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        _ = TryHandleQueryShortcut(args);
+    }
+
+    private bool TryHandleQueryShortcut(KeyRoutedEventArgs args)
+    {
+        var selected = GetSelectedResult();
+        var action = SearchShortcutPolicy.Resolve(
+            args.Key == VirtualKey.Enter,
+            args.Key == VirtualKey.C,
+            IsDown(VirtualKey.Control),
+            IsDown(VirtualKey.Menu),
+            IsDown(VirtualKey.Shift),
+            selected is not null,
+            selected is not null && _searchService.CanReveal(selected.Action),
+            selected is not null && _searchService.CanCopyText(selected.Action));
+        if (action != SearchShortcutAction.None)
+        {
+            ExecuteShortcut(action, selected);
+            args.Handled = true;
+            return true;
+        }
+
+        return false;
     }
 
     private void MoveSelection(int delta)

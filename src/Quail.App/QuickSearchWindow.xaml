@@ -27,7 +27,7 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="FeatherImage" Width="20" Height="20" VerticalAlignment="Center" />
-        <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" KeyDown="OnQueryKeyDown">
+        <TextBox x:Name="QueryBox" Grid.Column="1" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Foreground="{ThemeResource QuailTextBrush}" PlaceholderText="Search…" FontSize="17" Padding="0,2.25,0,0" VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnQueryChanged" PreviewKeyDown="OnQueryPreviewKeyDown" KeyDown="OnQueryKeyDown">
           <TextBox.Resources>
             <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
             <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
