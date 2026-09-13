@@ -2,8 +2,8 @@
 
 ## Status
 
-**ACTIVE — Full Search liveness restored; final keyboard/interaction smoke and
-user-owned acceptance remain pending. M23 is not complete.**
+**ACTIVE — final visual, interaction, and high-DPI acceptance passed. M23 is
+ready for explicit user merge approval; it is not merged or marked complete.**
 
 ## Preparation and references
 
@@ -456,16 +456,17 @@ structure and the unchanged App-to-Core-to-FileSystem dependency direction.
   M24 stabilization until a safe supported semantic titlebar-theme path can be
   verified without risking Full Search startup.
 
-## Remaining acceptance
+## Acceptance status
 
-The current Full activation/focus implementation is on `codex/m23-ui-polish`
-at product-code commit `ee7377da63c59341b17d1d7ed97403099c1f1414`.
-Full liveness and immediate transferred-query results passed interactive
-Quail-Lab smoke; final keyboard/interaction acceptance remains pending.
-Pull request: #26.
+Historical candidate `ee7377da63c59341b17d1d7ed97403099c1f1414` is superseded.
+The current product-code candidate is
+`6a0bcf9d5f1cb252432de1bc902ece72f1316791` on
+`codex/m23-ui-polish`. It changes only Full Search native window metadata from
+`Quail Full Search` to `Quail`. Pull request: #26.
 
-User-owned final M23 visual/interaction acceptance: pending.
-User-owned high-DPI visual smoke: pending.
+Final user visual/interaction acceptance: **PASS**.
+
+Final high-DPI smoke: **PASS** (TV).
 
 ### Final keyboard-routing and key-state correction evidence
 
@@ -555,6 +556,24 @@ possible; trusted code-signing/SAC compatibility remains an M24 RC concern.
 Mixed Windows/forced-Quail native caption contrast remains deliberately deferred
 to M24. No caption/titlebar experimentation occurred in this correction.
 
-M23 remains **ACTIVE**. User-owned final M23 visual/interaction acceptance and
-user-owned high-DPI visual smoke remain pending; no merge decision is implied by
-this evidence.
+M23 remains **ACTIVE**. Final user visual/interaction acceptance and high-DPI
+smoke are **PASS**; explicit user merge approval remains required.
+
+### Final Full Search native window-title polish
+
+The final product-code candidate
+`6a0bcf9d5f1cb252432de1bc902ece72f1316791` changes only
+`FullSearchWindow.Title` to `Quail`. Settings remains `Quail Settings`; no
+classes, feature terminology, layouts, titlebar behavior, or search semantics
+were renamed or changed.
+
+- Host Release `Quail.App` `win-x64` build: **PASS, 0 warnings, 0 errors**.
+- Host `git diff --check`: **PASS**.
+- Fresh unsigned host build launched without a Smart App Control change. WinApp
+  summoned Quick, entered Full, and reported the rendered native/UIA window
+  title as **Quail**.
+
+No broad visual, interaction, or high-DPI campaign was repeated for this
+metadata-only correction. Final visual/interaction acceptance and TV high-DPI
+smoke remain **PASS**. Mixed Windows/forced-Quail native caption-control
+contrast remains explicitly deferred to M24.
