@@ -134,6 +134,40 @@ the required same-process post-workload idle observation is unavailable. No
 production cleanup, cache change, forced GC, working-set trim, or other
 cosmetic optimization was made.
 
+### Persistent same-process resolution
+
+The previous blocker was resolved without changing Quail. WinApp 0.6.1 drove
+the normal `QueryBox` keyboard/TextChanged path (`send-keys --via send-input`)
+using the same private 12-query M16 set for each batch; the first input expanded
+the real Quick Search results window from 56 to 370 pixels. The no-profiler
+run used PID 29492 throughout settled start, six batches, and 30/120/300-second
+idle gates; `sourceDirty=false` at `95a4fbb729d051e06458dfdcceb4d3cd1518d061`.
+
+| Gate | Working Set MiB | Private Bytes MiB | Delta private MiB | Handles | Threads |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Settled start | 151.39 | 156.14 | — | 1,175 | 71 |
+| Batch 1 | 283.00 | 271.39 | +115.25 | 1,324 | 76 |
+| Batch 2 | 327.67 | 314.19 | +42.80 | 1,326 | 73 |
+| Batch 3 | 286.70 | 273.28 | -40.91 | 1,328 | 74 |
+| Batch 4 | 318.55 | 303.86 | +30.58 | 1,316 | 68 |
+| Batch 5 | 334.39 | 320.14 | +16.28 | 1,323 | 70 |
+| Batch 6 | 289.86 | 275.24 | -44.90 | 1,323 | 70 |
+| Idle 30 s | 289.47 | 274.98 | -0.26 | 1,306 | 66 |
+| Idle 120 s | 290.08 | 274.89 | -0.09 | 1,327 | 64 |
+| Idle 300 s | 290.04 | 274.72 | -0.17 | 1,349 | 61 |
+
+An equivalent separate profiled run used PID 20816 and the existing Visual
+Studio 18 .NET Counters collector; its OS memory is not compared with the
+no-profiler run. Managed heap peaked at about 99.43 MiB and settled near 33.26
+MiB; LOH peaked at about 52.01 MiB and settled near 32.61 MiB, with Gen0/1/2
+collections observed. No forced GC, trimming, cache change, or production hook
+was used. The managed state is bounded, the no-profiler private-memory sequence
+is non-monotonic after warm-up, and idle introduces no autonomous growth.
+
+**Disposition: PASS — BOUNDED PLATEAU.** The original working-set increase is
+normal warm-up/runtime/cache behaviour, not evidence of retained-state or native
+memory leak. No production code changed.
+
 ## Idle CPU
 
 A fresh Release App was allowed to settle and then measured over a 30.008 s
@@ -159,6 +193,5 @@ candidate service measurement if M24-C requires one.
 - `scripts/measure-m24-resources.ps1 -ScenarioPath artifacts/m16/scenarios.local.json` — valid no-profiler control captured.
 
 M24-A remains COMPLETE / MERGED (PR #27,
-`1a7849e1a8accc1d425b832e847505f568a7c74f`). M24-B remains ACTIVE and is not
-ready for independent QA until the Private Bytes trend is conclusively classified
-or an evidence-backed, bounded fix is made. M24-C remains out of scope.
+`1a7849e1a8accc1d425b832e847505f568a7c74f`). M24-B remains ACTIVE and is ready
+for independent QA. M24-C remains out of scope.
