@@ -4,11 +4,19 @@ param(
     [string] $ScenarioPath,
     [string] $AppPath,
     [string] $OutputDirectory,
-    [ValidateRange(1, 5)]
+    [ValidateRange(1, 8)]
     [int] $BatchCount = 3,
     [ValidateRange(250, 10000)]
     [int] $InterQueryDelayMilliseconds = 1500,
-    [switch] $CollectVsDiagnostics
+    [switch] $CollectVsDiagnostics,
+    [switch] $PersistentUi,
+    [ValidateSet('settled-start', 'batch', 'idle')]
+    [string] $PersistentPhase,
+    [int] $QuailProcessId,
+    [ValidateRange(1, 8)]
+    [int] $BatchNumber,
+    [ValidateSet(30, 120, 300)]
+    [int] $IdleTargetSeconds
 )
 
 Set-StrictMode -Version Latest
@@ -35,8 +43,162 @@ function Get-ProcessSample([System.Diagnostics.Process] $Process, [datetime] $St
     }
 }
 
+function Get-M16WorkloadQueries([string] $ResolvedScenarioPath) {
+    $source = Get-Content -LiteralPath $ResolvedScenarioPath -Raw | ConvertFrom-Json
+    $requiredIds = @('ordinary-name', 'strong-prefix', 'broad-result', 'one-character', 'two-character', 'warm-repeated', 'fresh-process-first-search', 'rapid-typing')
+    $byId = @{}
+    foreach ($scenario in @($source.scenarios)) {
+        $byId[[string]$scenario.id] = $scenario
+    }
+    foreach ($id in $requiredIds) {
+        if (-not $byId.ContainsKey($id)) {
+            throw "Scenario input is missing required M16 scenario '$id'."
+        }
+    }
+
+    $queries = [System.Collections.Generic.List[string]]::new()
+    foreach ($id in $requiredIds) {
+        foreach ($query in @($byId[$id].queries)) {
+            $queries.Add([string]$query)
+        }
+    }
+
+    return ,@($queries)
+}
+
+function Get-QuerySetFingerprint([string[]] $Queries) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($Queries -join "`n"))
+    try {
+        return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    }
+    finally {
+        [Array]::Clear($bytes, 0, $bytes.Length)
+    }
+}
+
+function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
+    if ([string]::IsNullOrWhiteSpace($PersistentPhase)) {
+        throw 'Persistent UI measurement requires -PersistentPhase.'
+    }
+    if ($QuailProcessId -le 0) {
+        throw 'Persistent UI measurement requires -QuailProcessId.'
+    }
+    if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+        throw 'Persistent UI measurement requires -OutputDirectory.'
+    }
+    if ($PersistentPhase -eq 'batch' -and $BatchNumber -le 0) {
+        throw 'A persistent batch measurement requires -BatchNumber.'
+    }
+    if ($PersistentPhase -eq 'idle' -and $IdleTargetSeconds -le 0) {
+        throw 'A persistent idle measurement requires -IdleTargetSeconds.'
+    }
+    if ($CollectVsDiagnostics) {
+        throw 'Persistent UI measurement does not attach diagnostics. Run the equivalent profiler session separately.'
+    }
+
+    $process = Get-Process -Id $QuailProcessId -ErrorAction Stop
+    if ($process.ProcessName -ne 'Quail') {
+        throw "PID $QuailProcessId is '$($process.ProcessName)', not Quail."
+    }
+
+    $resolvedScenarioPath = (Resolve-Path -LiteralPath $ScenarioPath).Path
+    $queries = [string[]](Get-M16WorkloadQueries $resolvedScenarioPath)
+    $querySetFingerprint = Get-QuerySetFingerprint $queries
+    $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
+    New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+    $summaryPath = Join-Path $outputRoot 'persistent-resource-summary.json'
+    $uiLogPath = Join-Path $outputRoot 'persistent-ui.private.log'
+
+    if (Test-Path -LiteralPath $summaryPath) {
+        $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+        if ([int]$summary.persistentProcessId -ne $QuailProcessId) {
+            throw "Summary PID $($summary.persistentProcessId) does not match requested PID $QuailProcessId."
+        }
+        if ([string]$summary.querySetFingerprint -ne $querySetFingerprint) {
+            throw 'The current scenario query set does not match the existing persistent-session summary.'
+        }
+        $gates = [System.Collections.Generic.List[object]]::new()
+        foreach ($gate in @($summary.gates)) {
+            $gates.Add($gate)
+        }
+    }
+    else {
+        $summary = [pscustomobject][ordered]@{
+            schemaVersion = 1
+            gitHead = (& git rev-parse HEAD).Trim()
+            sourceDirty = [bool](@(& git status --porcelain=v1).Count -gt 0)
+            persistentProcessId = $QuailProcessId
+            queryCountPerBatch = $queries.Count
+            querySetFingerprint = $querySetFingerprint
+            interQueryDelayMilliseconds = $InterQueryDelayMilliseconds
+            createdAtUtc = (Get-Date).ToUniversalTime().ToString('O')
+            workloadCompletedAtUtc = $null
+        }
+        $gates = [System.Collections.Generic.List[object]]::new()
+    }
+
+    $gateName = switch ($PersistentPhase) {
+        'settled-start' { 'settled-start' }
+        'batch' { "post-batch-$BatchNumber" }
+        'idle' { "idle-$($IdleTargetSeconds)s" }
+    }
+    if (@($gates | Where-Object { $_.gate -eq $gateName }).Count -ne 0) {
+        throw "Gate '$gateName' has already been recorded."
+    }
+
+    if ($PersistentPhase -eq 'batch') {
+        $winApp = 'C:\Users\gawry\AppData\Local\Microsoft\WindowsApps\winapp.exe'
+        if (-not (Test-Path -LiteralPath $winApp -PathType Leaf)) {
+            throw 'WinApp.exe was not found at the approved local path.'
+        }
+
+        foreach ($query in $queries) {
+            & $winApp ui send-keys 'ctrl+a' -a $QuailProcessId --target QueryBox --via send-input --json *>> $uiLogPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "WinApp failed to select the query field (exit $LASTEXITCODE)."
+            }
+            & $winApp ui send-keys --verbatim $query -a $QuailProcessId --target QueryBox --via send-input --json *>> $uiLogPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "WinApp failed to type a private M16 query (exit $LASTEXITCODE)."
+            }
+            Start-Sleep -Milliseconds $InterQueryDelayMilliseconds
+        }
+    }
+    elseif ($PersistentPhase -eq 'idle') {
+        if ($null -eq $summary.workloadCompletedAtUtc) {
+            throw 'Cannot record an idle gate before a workload batch completes.'
+        }
+        $workloadCompletedAtUtc = [datetime]::Parse([string]$summary.workloadCompletedAtUtc).ToUniversalTime()
+        $remainingSeconds = [Math]::Max(0, $IdleTargetSeconds - ((Get-Date).ToUniversalTime() - $workloadCompletedAtUtc).TotalSeconds)
+        while ($remainingSeconds -gt 0) {
+            Start-Sleep -Seconds ([Math]::Min(30, [Math]::Ceiling($remainingSeconds)))
+            $remainingSeconds = [Math]::Max(0, $IdleTargetSeconds - ((Get-Date).ToUniversalTime() - $workloadCompletedAtUtc).TotalSeconds)
+        }
+    }
+
+    $sample = Get-ProcessSample $process ([datetime]::Parse([string]$summary.createdAtUtc).ToUniversalTime())
+    $gate = [pscustomobject][ordered]@{
+        gate = $gateName
+        capturedAtUtc = (Get-Date).ToUniversalTime().ToString('O')
+        idleSecondsSinceWorkload = if ($PersistentPhase -eq 'idle') { [Math]::Round(((Get-Date).ToUniversalTime() - [datetime]::Parse([string]$summary.workloadCompletedAtUtc).ToUniversalTime()).TotalSeconds, 3) } else { $null }
+        sample = $sample
+    }
+    $gates.Add($gate)
+    if ($PersistentPhase -eq 'batch') {
+        $summary.workloadCompletedAtUtc = $gate.capturedAtUtc
+    }
+    $summary | Add-Member -NotePropertyName gates -NotePropertyValue @($gates) -Force
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $summaryPath -Encoding utf8
+    Write-Output "PASS gate=$gateName summary=$summaryPath pid=$QuailProcessId"
+}
+
 Push-Location $repositoryRoot
 try {
+    if ($PersistentUi) {
+        Invoke-PersistentUiPhase $repositoryRoot
+        return
+    }
+
     if (Get-Process -Name Quail -ErrorAction SilentlyContinue) {
         throw 'Exit the resident Quail process before collecting M24 resource evidence.'
     }
