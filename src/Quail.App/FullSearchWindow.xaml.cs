@@ -70,7 +70,7 @@ internal sealed partial class FullSearchWindow : Window
         _busyTimer.Tick += OnBusyTimerTick;
         FeatherImage.Source = new SvgImageSource(new Uri("ms-appx:///Assets/quail-feather-A-gradient.svg"));
         ResultsList.ItemsSource = _results;
-        Title = "Quail Full Search";
+        Title = "Quail";
         _windowHandle = WindowNative.GetWindowHandle(this);
         ConfigureApplicationHeader();
         _applicationSmallIcon = BrandingAssets.CreateApplicationSmallIcon();
