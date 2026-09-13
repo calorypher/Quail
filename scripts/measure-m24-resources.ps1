@@ -76,6 +76,17 @@ function Get-QuerySetFingerprint([string[]] $Queries) {
     }
 }
 
+function ConvertTo-UtcTimestamp($Value) {
+    if ($Value -is [datetime]) {
+        return $Value.ToUniversalTime()
+    }
+
+    return [datetime]::Parse(
+        [string]$Value,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+}
+
 function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
     if ([string]::IsNullOrWhiteSpace($PersistentPhase)) {
         throw 'Persistent UI measurement requires -PersistentPhase.'
@@ -136,6 +147,7 @@ function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
         }
         $gates = [System.Collections.Generic.List[object]]::new()
     }
+    $sessionStartedAtUtc = ConvertTo-UtcTimestamp $summary.createdAtUtc
 
     $gateName = switch ($PersistentPhase) {
         'settled-start' { 'settled-start' }
@@ -168,7 +180,7 @@ function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
         if ($null -eq $summary.workloadCompletedAtUtc) {
             throw 'Cannot record an idle gate before a workload batch completes.'
         }
-        $workloadCompletedAtUtc = [datetime]::Parse([string]$summary.workloadCompletedAtUtc).ToUniversalTime()
+        $workloadCompletedAtUtc = ConvertTo-UtcTimestamp $summary.workloadCompletedAtUtc
         $remainingSeconds = [Math]::Max(0, $IdleTargetSeconds - ((Get-Date).ToUniversalTime() - $workloadCompletedAtUtc).TotalSeconds)
         while ($remainingSeconds -gt 0) {
             Start-Sleep -Seconds ([Math]::Min(30, [Math]::Ceiling($remainingSeconds)))
@@ -176,11 +188,11 @@ function Invoke-PersistentUiPhase([string] $RepositoryRoot) {
         }
     }
 
-    $sample = Get-ProcessSample $process ([datetime]::Parse([string]$summary.createdAtUtc).ToUniversalTime())
+    $sample = Get-ProcessSample $process $sessionStartedAtUtc
     $gate = [pscustomobject][ordered]@{
         gate = $gateName
         capturedAtUtc = (Get-Date).ToUniversalTime().ToString('O')
-        idleSecondsSinceWorkload = if ($PersistentPhase -eq 'idle') { [Math]::Round(((Get-Date).ToUniversalTime() - [datetime]::Parse([string]$summary.workloadCompletedAtUtc).ToUniversalTime()).TotalSeconds, 3) } else { $null }
+        idleSecondsSinceWorkload = if ($PersistentPhase -eq 'idle') { [Math]::Round(((Get-Date).ToUniversalTime() - (ConvertTo-UtcTimestamp $summary.workloadCompletedAtUtc)).TotalSeconds, 3) } else { $null }
         sample = $sample
     }
     $gates.Add($gate)
