@@ -2,11 +2,12 @@
 
 ## Status
 
-**COMPLETE — implementation and verification are ready for independent QA.**
+**COMPLETE / MERGED — independent QA passed and PR #29 merged to main.**
 
 This document records M24-C evidence only. It reuses accepted M20–M24-B
-evidence where the reviewed boundary has not changed. M24 remains active; this
-does not authorize a merge, tag, GitHub Release, or release-asset publication.
+evidence where the reviewed boundary has not changed. PR #29 merged M24-C to
+`main` as `12d3e9f3fdb9be5d4c6cc0aa567000d0b86b4d53`. This closeout does not
+authorize a tag, GitHub Release, or release-asset publication.
 
 ## Preparation and candidate boundary
 
@@ -18,6 +19,8 @@ does not authorize a merge, tag, GitHub Release, or release-asset publication.
 - M24-A is **COMPLETE / MERGED** through PR #27 at
   `1a7849e1a8accc1d425b832e847505f568a7c74f`. M24-B is **COMPLETE / MERGED**
   through PR #28 at `8bb8becccab5f5324649b9642bf1521ac4645a2a`.
+- M24-C is **COMPLETE / MERGED** through PR #29 at
+  `12d3e9f3fdb9be5d4c6cc0aa567000d0b86b4d53`.
 - M24-C changes only release documentation plus the bounded native
   caption-theme correction described below. It makes no service, IPC,
   protected-storage, search, ranking, installer, or package-pipeline change.
@@ -62,20 +65,23 @@ customization and states that `PreferredTheme` selects the title-bar theme:
 - [AppWindowTitleBar.PreferredTheme](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindowtitlebar.preferredtheme?view=windows-app-sdk-1.8)
 
 The exact Release build compiles this API with zero warnings/errors. The
-available desktop-automation surface could not bind a native Quail window, so
-the two visual combinations remain a short independent-QA/manual smoke:
+available desktop-automation surface could not bind a native Quail window; the
+subsequent independent-QA manual smoke covered both visual combinations:
 
-1. light Windows with forced Dark Quail, Full Search and Settings;
-2. dark Windows with forced Light Quail, Full Search and Settings.
+1. Windows Light with forced Quail Dark — Full Search PASS, Settings PASS;
+2. Windows Dark with forced Quail Light — Full Search PASS, Settings PASS.
 
-**Disposition: FIXED IN M24-C; visual confirmation pending independent QA.**
+Native title text, caption buttons, minimize/maximize/close, hover states, and
+contrast: **PASS**.
+
+**Disposition: FIXED IN M24-C; independent-QA manual smoke passed.**
 
 ## Known defects and limitations audit
 
 | Item | Disposition | Rationale |
 | --- | --- | --- |
 | Public Smart App Control compatibility | **ACCEPTED NON-BLOCKING LIMITATION / DEFERRED OUTSIDE 0.3** | The owner explicitly accepted unsigned public 0.3.0. The installer and Quail-owned PE files remain NotSigned; SmartScreen/SAC can warn or block on some systems, and disabling Windows security is not a supported workaround. |
-| Mixed Windows/forced-Quail native caption contrast | **FIXED IN M24-C** | The small supported theme API change compiles and preserves the established window architecture. The two visible combinations remain for independent QA. |
+| Mixed Windows/forced-Quail native caption contrast | **FIXED IN M24-C** | The small supported theme API change compiles and preserves the established window architecture. Independent-QA manual smoke passed for both mixed-theme combinations. |
 | Quail-Lab sleep/resume evidence | **ACCEPTED NON-BLOCKING LIMITATION** | The Gen-2 lab exposes no supported sleep/hibernate path. Existing restart/downtime, continuity, and fail-closed evidence applies; a physical sleep/resume observation is not fabricated from VM save/restore. |
 | Cross-session silent uninstall while an interactive GUI remains open | **ACCEPTED NON-BLOCKING LIMITATION** | M24-A established clean uninstall after Quail is closed. A remote `/VERYSILENT` invocation cannot close a GUI in another interactive session; this does not alter the supported closed-app uninstall contract. |
 | Other historical 0.2/deferred scope (content, cloud, network folders, updater, no-admin mode, history, plugins, Linux, AI) | **DEFERRED OUTSIDE 0.3** | These are explicit 0.3 non-goals, not late release defects. |

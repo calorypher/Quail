@@ -487,8 +487,19 @@ Acceptance boundary:
 
 ### M24 — 0.3 Stabilization / Release Candidate
 
-**Status: ACTIVE — M24-C Final Security / Known Defects / RC Freeze is in
-progress. M24-A and M24-B are complete and merged.**
+**Status: COMPLETE / MERGED.**
+
+- M24-A: **COMPLETE / MERGED** through PR #27 at
+  `1a7849e1a8accc1d425b832e847505f568a7c74f`.
+- M24-B: **COMPLETE / MERGED** through PR #28 at
+  `8bb8becccab5f5324649b9642bf1521ac4645a2a`.
+- M24-C: **COMPLETE / MERGED** through PR #29 at
+  `12d3e9f3fdb9be5d4c6cc0aa567000d0b86b4d53`.
+
+Independent QA for M24-C passed, including the manual mixed-theme native-caption
+smoke. Quail 0.3 development/stabilization scope is complete. This does not
+mean that `v0.3.0` has been published: tag creation, GitHub Release, and release
+artifact publication remain separate owner-approval gates.
 
 **Goal:** prove that the integrated 0.3 product satisfies the Everything-replacement workflow and freeze a verified release candidate.
 
