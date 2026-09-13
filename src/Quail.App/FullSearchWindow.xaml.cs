@@ -617,11 +617,7 @@ internal sealed partial class FullSearchWindow : Window
 
     private void OnResultsPreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Key == VirtualKey.Enter && IsDown(VirtualKey.Control))
-        {
-            var handled = TryHandleSearchShortcut(args);
-            AppLog.Write($"Full Search Ctrl+Enter preview handled={handled} selected={SelectedResult is not null}.");
-        }
+        _ = TryHandleSearchShortcut(args);
     }
 
     private void OnResultsKeyDown(object sender, KeyRoutedEventArgs args)
