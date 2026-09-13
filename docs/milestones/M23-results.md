@@ -466,3 +466,95 @@ Pull request: #26.
 
 User-owned final M23 visual/interaction acceptance: pending.
 User-owned high-DPI visual smoke: pending.
+
+### Final keyboard-routing and key-state correction evidence
+
+The current product-code candidate is
+`b2b32a8885c6dd9c10f02ec20fb43b40b5284989` on
+`codex/m23-ui-polish`. It preserves the earlier XamlRoot-safe Full focus
+lifecycle and adds only the final bounded result-list/query-box shortcut routing
+and key-state presentation corrections.
+
+- Full Search uses `PreviewKeyDown` to route `Enter`, `Ctrl+Enter`,
+  `Ctrl+Shift+C`, and `Alt+Enter` before `ListView` consumes those chords. The
+  existing Open, Reveal, Copy path, and collapse actions remain the single
+  execution paths.
+- Quick Search similarly routes supported result actions before its query
+  `TextBox` consumes them; ordinary query `Ctrl+C` remains native selected-text
+  copy.
+- The Full key-state host now presents completed non-empty zero-result queries
+  as centered **No results found** / **Try a different search term.** rather
+  than a duplicate `No results.` footer. Its existing Index unavailable action
+  is centered on the shared icon/title/detail axis.
+- Quick now presents genuine `NoSource` as a centered **Index unavailable**
+  state with the existing Settings action. Empty Quick remains compact, and
+  transient maintenance/service health conditions retain their existing
+  searchable-source semantics.
+
+Non-invasive WinApp smoke on the physical host passed against the exact current
+product code. The host's existing C: and D: search sources were used for normal
+result checks. To reproduce the real no-usable-source state, the two sources
+were temporarily disabled through the existing Settings UI, with no index
+removed or rebuilt; both were then restored and confirmed as enabled.
+
+- Full result shortcuts: `Enter` dispatched Open for a safe test directory,
+  `Ctrl+Enter` dispatched Reveal to its containing directory,
+  `Ctrl+Shift+C` showed `Path copied.`, and `Alt+Enter` returned to Quick.
+  Each observed chord dispatched once. The host's existing shell-launcher
+  diagnostic reports `Process.Start` returning null even when Explorer opens
+  the requested target; this pre-existing diagnostic mismatch is not a routing
+  or M23 action-availability change.
+- Quick result shortcuts: `Enter`, `Ctrl+Enter`, `Ctrl+Shift+C`, and
+  `Alt+Enter` followed the same existing actions. Quick and Full query-box
+  selected-text `Ctrl+C` remained native copy.
+- Full focus stress: ten Quick -> Full -> Quick cycles accepted immediate typing
+  without clicking; the character appended at the end of the transferred query.
+  `Alt+Space` targeted visible and minimized Full, and after Full was closed it
+  summoned Quick.
+- Key-state smoke: Quick No Results, Quick Index unavailable, Full No Results,
+  and Full Index unavailable all rendered in the central state region without a
+  duplicate primary footer message. Both `Open Settings` actions worked. The
+  Full unavailable icon, title, detail, and button shared a centered horizontal
+  axis. Normal Quick and Full results rendered again after source restoration.
+- Representative ignored local screenshots:
+  `.quail-tooling/m23-phase-b-quick-no-results.png`,
+  `.quail-tooling/m23-phase-b-full-no-results.png`,
+  `.quail-tooling/m23-phase-b-quick-index-unavailable.png`, and
+  `.quail-tooling/m23-phase-b-full-index-unavailable.png`.
+
+Final Quail-Lab automated verification ran from a clean detached checkout at
+the exact product commit. Evidence is under
+`C:\Temp\Quail-M23-verify\.quail-tooling\m23-final-b2b32a8`; the host-side
+sync and result logs are ignored under `.quail-tooling/`.
+
+- Focused M23 tests (`FullyQualifiedName~M23`): **23/23 PASS**.
+- Focused M22 Full Search tests (`FullyQualifiedName~M22FullSearchTests`):
+  **16/16 PASS**.
+- Core Release: **328/329 PASS**. The sole failure is unchanged M20 test
+  `Native_pipe_acl_rejects_a_non_elevated_client_before_framing`: its expected
+  `UnauthorizedAccessException` cannot occur under the administrator SSH
+  runner. The test was not changed or weakened and this is not an M23
+  regression.
+- Maintenance Service Release: **13/13 PASS**.
+- Release `Quail.App` `win-x64` build: **PASS, 0 warnings, 0 errors**.
+- Final host `git diff --check`: **PASS**. `dotnet list
+  src/Quail.Core/Quail.Core.csproj reference` reports no project references;
+  Core therefore retains no compile-time dependency on `Quail.FileSystem`.
+
+The final Quail-Lab executable is:
+
+`C:\Temp\Quail-M23-verify\src\Quail.App\bin\Release\net10.0-windows10.0.26100.0\win-x64\Quail.exe`
+
+The earlier physical-host Smart App Control diagnosis remains historical
+environment evidence: Code Integrity Event ID 3077 blocked an unsigned
+development `Quail.FileSystem.dll` that did not meet the Enterprise signing
+level. No Smart App Control, Defender, Code Integrity, signing, registry, or
+other host security policy was changed. The current non-invasive host smoke was
+possible; trusted code-signing/SAC compatibility remains an M24 RC concern.
+
+Mixed Windows/forced-Quail native caption contrast remains deliberately deferred
+to M24. No caption/titlebar experimentation occurred in this correction.
+
+M23 remains **ACTIVE**. User-owned final M23 visual/interaction acceptance and
+user-owned high-DPI visual smoke remain pending; no merge decision is implied by
+this evidence.
