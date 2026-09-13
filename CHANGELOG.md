@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — release candidate, not published
 
 ### Added
 
@@ -15,6 +15,13 @@
 
 - Quick Search, Full Search, and Settings now share a calmer Fluent-adjacent surface, typography, control, and card treatment.
 - Filesystem search now preserves the best-ranked results when many names match, including duplicate names across indexes. Exact and prefix matches in ordinary visible locations rank above weaker matches in the current profile, while internal and system-heavy results remain deprioritized.
+- Full Search and Settings set their native caption-control theme from Quail's effective Light or Dark theme, including when it differs from the Windows theme.
+
+### Release status
+
+- This candidate is not a public release asset. Public distribution remains
+  blocked until the project owner selects and completes a publicly trusted
+  code-signing path that satisfies the documented Smart App Control requirement.
 
 ## 0.2.0 — release-ready
 

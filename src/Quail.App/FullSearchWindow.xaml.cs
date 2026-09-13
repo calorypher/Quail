@@ -165,6 +165,10 @@ internal sealed partial class FullSearchWindow : Window
         };
         RootGrid.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            AppWindow.TitleBar.PreferredTheme = useDark ? TitleBarTheme.Dark : TitleBarTheme.Light;
+        }
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(_windowHandle, NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
     }

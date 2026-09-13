@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.UI.Input;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -369,6 +370,10 @@ internal sealed class SettingsWindow : Window
         if (_navigation is not null) _navigation.RequestedTheme = requested;
         _content.RequestedTheme = requested;
         var useDark = theme == "Dark" || theme == "System" && IsSystemDark();
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            AppWindow.TitleBar.PreferredTheme = useDark ? TitleBarTheme.Dark : TitleBarTheme.Light;
+        }
         var value = useDark ? 1u : 0u;
         _ = NativeMethods.DwmSetWindowAttribute(WindowNative.GetWindowHandle(this), NativeMethods.DwmwaUseImmersiveDarkMode, ref value, sizeof(uint));
     }

@@ -487,7 +487,8 @@ Acceptance boundary:
 
 ### M24 — 0.3 Stabilization / Release Candidate
 
-**Status: ACTIVE — M24-A RC Integration / Deployment / Lifecycle is in progress.**
+**Status: ACTIVE — M24-C Final Security / Known Defects / RC Freeze is in
+progress. M24-A and M24-B are complete and merged.**
 
 **Goal:** prove that the integrated 0.3 product satisfies the Everything-replacement workflow and freeze a verified release candidate.
 
