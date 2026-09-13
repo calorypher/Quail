@@ -81,10 +81,11 @@
           </DataTemplate>
         </ListView.ItemTemplate>
       </ListView>
-      <StackPanel x:Name="QuickKeyStateHost" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" IsHitTestVisible="False">
+      <StackPanel x:Name="QuickKeyStateHost" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
         <FontIcon x:Name="QuickKeyStateIcon" HorizontalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="30" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
         <TextBlock x:Name="QuickKeyStateTitle" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource QuailTextBrush}" />
         <TextBlock x:Name="QuickKeyStateDetail" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
+        <Button x:Name="QuickIndexUnavailableSettingsButton" Content="Open Settings" Click="OnQuickIndexUnavailableSettingsClicked" Visibility="Collapsed" HorizontalAlignment="Center" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
       </StackPanel>
       </Grid>
 

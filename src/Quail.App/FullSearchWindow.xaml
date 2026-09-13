@@ -133,7 +133,7 @@
       <FontIcon x:Name="FullKeyStateIcon" HorizontalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="32" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
       <TextBlock x:Name="FullKeyStateTitle" HorizontalAlignment="Center" FontFamily="Segoe UI Variable" FontSize="16" FontWeight="SemiBold" />
       <TextBlock x:Name="FullKeyStateDetail" HorizontalAlignment="Center" MaxWidth="390" TextAlignment="Center" TextWrapping="Wrap" FontFamily="Segoe UI Variable" FontSize="12" Foreground="{ThemeResource QuailSecondaryTextBrush}" />
-      <Button x:Name="IndexUnavailableSettingsButton" Content="Open Settings" Click="OnIndexUnavailableSettingsClicked" Visibility="Collapsed" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
+      <Button x:Name="IndexUnavailableSettingsButton" Content="Open Settings" Click="OnIndexUnavailableSettingsClicked" Visibility="Collapsed" HorizontalAlignment="Center" Style="{StaticResource QuailSecondaryActionButtonStyle}" />
     </StackPanel>
     </Grid>
 

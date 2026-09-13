@@ -602,7 +602,13 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
         {
             InvalidateSearches();
             ClearResults();
-            StatusText.Text = "No search sources configured.";
+            SetQuickKeyState(SearchKeyStatePresentation.ResolveQuick(
+                hasQuery: true,
+                completedSuccessfully: false,
+                isCurrent: true,
+                hasUsableSource: false,
+                resultCount: 0));
+            StatusText.Text = string.Empty;
             _pipe.Emit(new { @event = "query-changed", query, resultCount = 0 });
             return;
         }
@@ -795,12 +801,15 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
 
     private void SetQuickKeyState(SearchKeyState state)
     {
-        var visible = state == SearchKeyState.QuickNoResults;
+        var visible = state is SearchKeyState.QuickNoResults or SearchKeyState.QuickIndexUnavailable;
         ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
         QuickKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         QuickKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);
         QuickKeyStateTitle.Text = SearchKeyStatePresentation.Title(state);
         QuickKeyStateDetail.Text = SearchKeyStatePresentation.Detail(state);
+        QuickIndexUnavailableSettingsButton.Visibility = state == SearchKeyState.QuickIndexUnavailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void OnSourcesChanged()
@@ -934,6 +943,11 @@ public sealed partial class QuickSearchWindow : Window, IDisposable
     }
 
     private void OnSettingsClicked(object sender, RoutedEventArgs args)
+    {
+        ShowSettings();
+    }
+
+    private void OnQuickIndexUnavailableSettingsClicked(object sender, RoutedEventArgs args)
     {
         ShowSettings();
     }

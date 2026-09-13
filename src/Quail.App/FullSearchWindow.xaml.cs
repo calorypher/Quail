@@ -578,13 +578,13 @@ internal sealed partial class FullSearchWindow : Window
             {
                 ResultsList.SelectedIndex = 0;
             }
-            SetFullKeyState(SearchKeyState.None);
+            var keyState = SearchKeyStatePresentation.ResolveFullCompletion(_results.Count);
+            SetFullKeyState(keyState);
 
             var notice = _searchRuntime.GetSourceStatusNotice();
             StatusText.Text = _results.Count switch
             {
-                0 when notice is not null => $"No results. {notice}",
-                0 => "No results.",
+                0 => notice ?? string.Empty,
                 FullSearchWindowLayout.ResultLimit when notice is not null => $"Showing up to {FullSearchWindowLayout.ResultLimit:N0} results. {notice}",
                 FullSearchWindowLayout.ResultLimit => $"Showing up to {FullSearchWindowLayout.ResultLimit:N0} results.",
                 _ when notice is not null => $"{_results.Count:N0} results. {notice}",
@@ -742,7 +742,7 @@ internal sealed partial class FullSearchWindow : Window
 
     private void SetFullKeyState(SearchKeyState state)
     {
-        var visible = state is SearchKeyState.FullEmptySearch or SearchKeyState.FullIndexUnavailable;
+        var visible = state is SearchKeyState.FullEmptySearch or SearchKeyState.FullNoResults or SearchKeyState.FullIndexUnavailable;
         ResultsList.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
         FullKeyStateHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         FullKeyStateIcon.Glyph = SearchKeyStatePresentation.IconGlyph(state);

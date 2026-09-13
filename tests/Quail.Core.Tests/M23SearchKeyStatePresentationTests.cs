@@ -31,6 +31,19 @@ public sealed class M23SearchKeyStatePresentationTests
     }
 
     [Fact]
+    public void Quick_nonempty_query_without_a_usable_source_shows_index_unavailable()
+    {
+        var state = SearchKeyStatePresentation.ResolveQuick(
+            hasQuery: true,
+            completedSuccessfully: false,
+            isCurrent: true,
+            hasUsableSource: false,
+            resultCount: 0);
+
+        Assert.Equal(SearchKeyState.QuickIndexUnavailable, state);
+    }
+
+    [Fact]
     public void Quick_results_and_superseded_completion_do_not_restore_no_results()
     {
         var results = SearchKeyStatePresentation.ResolveQuick(
@@ -74,5 +87,12 @@ public sealed class M23SearchKeyStatePresentationTests
 
         Assert.Equal(FullSearchInputState.Ready, input);
         Assert.Equal(SearchKeyState.None, SearchKeyStatePresentation.ResolveFull(input));
+    }
+
+    [Fact]
+    public void Full_successful_zero_result_query_shows_no_results()
+    {
+        Assert.Equal(SearchKeyState.FullNoResults, SearchKeyStatePresentation.ResolveFullCompletion(0));
+        Assert.Equal(SearchKeyState.None, SearchKeyStatePresentation.ResolveFullCompletion(1));
     }
 }
