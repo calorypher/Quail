@@ -41,10 +41,11 @@
 - `dotnet list src/Quail.Core/Quail.Core.csproj reference` reported no project
   references, preserving the Core-to-FileSystem dependency direction.
 - `git diff --check` — PASS during the candidate baseline.
-- The initial canonical installer build produced a framework-dependent payload
-  of `66` files / `45,567,849` bytes and an installer of `10,243,817` bytes.
-  The final committed-candidate artifact identity is recorded after the
-  post-commit rebuild below.
+- The final canonical build from `ffbd72a49dbce4f25b7769cb836c3d055ce7b395`
+  produced `Quail-0.3.0-Setup.exe`: framework-dependent payload `66` files /
+  `45,567,865` bytes; installer `10,243,997` bytes; SHA-256
+  `7c1b82e29a729a0f7a8dc445f12ea6b1daa5097c966fd18904bde4b8f220d01d`.
+  The existing installer script's release-build provenance guard passed.
 - `Quail.exe`, `Quail.Cli.exe`, and `Quail.MaintenanceService.exe` each reported
   file version `0.3.0.0`; installed CLI reported `quail 0.3.0`. Settings About
   continues to read the entry assembly version rather than a separate UI value.
@@ -69,6 +70,9 @@
   restored `QuailMaintenance` to `Running`, and preserved ProgramData, settings,
   catalog, and sentinel hashes exactly. No automatic schema/data migration was
   added or claimed.
+- The final committed artifact was then installed through the supported
+  same-version replacement path with exit `0`; both Quail.exe and the service
+  reported product version `0.3.0+ffbd72a49dbce4f25b7769cb836c3d055ce7b395`.
 
 ## Service and lifecycle evidence
 
@@ -119,8 +123,6 @@ required visible M24-A acceptance check.
 
 After the user-owned startup smoke, complete the candidate uninstall check:
 payload, service registration, and owned PATH entry must be removed while
-ProgramData and LocalAppData state remain preserved. Record the final committed
-installer manifest/hash and exact candidate commit after rebuilding from the
-committed worktree. Unchanged M20 protected-service and M21 startup evidence is
-referenced rather than copied unless M24-A validation changes the relevant
-boundary.
+ProgramData and LocalAppData state remain preserved. Unchanged M20
+protected-service and M21 startup evidence is referenced rather than copied
+unless M24-A validation changes the relevant boundary.
