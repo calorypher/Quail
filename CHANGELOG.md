@@ -19,9 +19,11 @@
 
 ### Release status
 
-- This candidate is not a public release asset. Public distribution remains
-  blocked until the project owner selects and completes a publicly trusted
-  code-signing path that satisfies the documented Smart App Control requirement.
+- Quail 0.3.0 is distributed unsigned. Windows SmartScreen and Smart App
+  Control may warn about or block unsigned binaries on some systems. Disabling
+  Windows security features is not a supported workaround. Trusted public code
+  signing is deferred outside 0.3 by the project owner's release-policy
+  decision.
 
 ## 0.2.0 — release-ready
 

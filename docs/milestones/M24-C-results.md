@@ -2,8 +2,7 @@
 
 ## Status
 
-**BLOCKED — public 0.3.0 release readiness requires a project-owner decision
-and external completion of a publicly trusted code-signing/SAC workflow.**
+**COMPLETE — implementation and verification are ready for independent QA.**
 
 This document records M24-C evidence only. It reuses accepted M20–M24-B
 evidence where the reviewed boundary has not changed. M24 remains active; this
@@ -75,7 +74,7 @@ the two visual combinations remain a short independent-QA/manual smoke:
 
 | Item | Disposition | Rationale |
 | --- | --- | --- |
-| Public Smart App Control compatibility | **RELEASE BLOCKER — external prerequisite** | A single successful unsigned execution is not a public trust guarantee. The final technical RC cannot be published until it is signed and verified with a public-trust RSA identity. |
+| Public Smart App Control compatibility | **ACCEPTED NON-BLOCKING LIMITATION / DEFERRED OUTSIDE 0.3** | The owner explicitly accepted unsigned public 0.3.0. The installer and Quail-owned PE files remain NotSigned; SmartScreen/SAC can warn or block on some systems, and disabling Windows security is not a supported workaround. |
 | Mixed Windows/forced-Quail native caption contrast | **FIXED IN M24-C** | The small supported theme API change compiles and preserves the established window architecture. The two visible combinations remain for independent QA. |
 | Quail-Lab sleep/resume evidence | **ACCEPTED NON-BLOCKING LIMITATION** | The Gen-2 lab exposes no supported sleep/hibernate path. Existing restart/downtime, continuity, and fail-closed evidence applies; a physical sleep/resume observation is not fabricated from VM save/restore. |
 | Cross-session silent uninstall while an interactive GUI remains open | **ACCEPTED NON-BLOCKING LIMITATION** | M24-A established clean uninstall after Quail is closed. A remote `/VERYSILENT` invocation cannot close a GUI in another interactive session; this does not alter the supported closed-app uninstall contract. |
@@ -125,19 +124,19 @@ selected provider, identity, credentials/secret handling, and owner approval.
 | Azure Artifact Signing (formerly Trusted Signing), Public Trust | Microsoft's recommended non-Store path; about USD 9.99/month, identity validation, Azure subscription/account and certificate profile required. Organizations are eligible in the USA, Canada, EU, and UK; individuals only in the USA and Canada. Reputation still builds over time. | Preferred only if the owner confirms an eligible organization and accepts Azure account, cost, identity validation, and CI/credential setup. |
 | Traditional RSA OV certificate from a Microsoft-trusted CA | Worldwide option; Microsoft lists typical USD 150–300/year, legal-identity validation, and HSM/token/cloud-HSM private-key handling. Reputation also builds over time. | Fallback when Azure individual/organization eligibility is unavailable or a chosen CA is required. It still needs purchase, validation, and secure signing-operation design. |
 | Microsoft Store MSIX | Store re-signs an MSIX, but the current product is an Inno Setup EXE installer; Store EXE/MSI submissions still require publisher signing. | Outside 0.3 because it changes the approved deployment mode. |
-| Self-signed or unsigned artifact | Not accepted for public SAC trust. | Rejected; dev/test only. |
+| Self-signed or unsigned artifact | Does not satisfy public SAC trust. | 0.3 deliberately accepts unsigned public distribution as a documented non-blocking limitation; it does not claim SAC compatibility. |
 
 Sources: [Microsoft's current option comparison](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options) and [Artifact Signing overview](https://learn.microsoft.com/en-us/azure/artifact-signing/overview).
 
-### Required owner decision
+### Owner release-policy decision
 
-The owner must select a public-trust provider/path and authorize its external
-cost, registration, identity validation, account/resource creation, and secure
-credential/CI configuration. Only after that decision may Codex add the
-minimal pipeline integration, configure secrets outside the repository, sign a
-fresh artifact, verify every required signature, and perform a signed
-installed-candidate smoke. No certificate, account, secret, policy change, or
-signing integration was attempted in M24-C.
+The owner explicitly accepted unsigned public 0.3.0 and deferred trusted public
+code signing outside 0.3. No certificate, account, secret, policy change, or
+signing integration was attempted in M24-C. The research above remains the
+future reference for a later owner-approved signing decision; it would require
+the selected provider, external cost/registration and identity requirements,
+and a separately approved secure credential/CI configuration before a fresh
+signed candidate could be built and verified.
 
 ## Final RC build and verification
 
@@ -190,7 +189,9 @@ file versions:
 
 This artifact is reproducible by checking out the source commit in a clean
 worktree, running the final Release tests/build above, then invoking
-`scripts/build-installer.ps1`. It is technical RC evidence only, **not a public
-release asset**. After the owner completes the signing decision, build a new
-signed candidate through the approved integration, verify every required
-signature and timestamp, and run the affected installed-candidate smoke.
+`scripts/build-installer.ps1`. It supports the owner-approved unsigned 0.3.0
+release candidate, but does not guarantee Smart App Control compatibility:
+Windows SmartScreen and Smart App Control may warn about or block the NotSigned
+installer and Quail-owned PE files on some systems. Disabling Windows security
+features is not a supported workaround. A future signed release must build and
+verify a new candidate through an owner-approved signing integration.
