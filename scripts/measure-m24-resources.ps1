@@ -100,7 +100,7 @@ try {
     $process = Start-Process -FilePath $resolvedAppPath -ArgumentList (($arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ') -PassThru
     $startedAtUtc = (Get-Date).ToUniversalTime()
     $samples = [System.Collections.Generic.List[object]]::new()
-    $sessionId = "m24b-$($process.Id)-$([guid]::NewGuid().ToString('N'))"
+    $sessionId = [guid]::NewGuid().ToString()
     $vsOutputPath = Join-Path $outputRoot 'resource-workload.diagsession'
     $vsStarted = $false
 
