@@ -551,7 +551,11 @@ begin
       Exit;
     end;
 
-    if not SameText(RegisteredVersion, '{#AppVersion}') then
+    { M24-A permits only the released 0.2.0 predecessor. Other
+      development-version transitions retain the existing uninstall-first
+      boundary until separately verified. }
+    if not SameText(RegisteredVersion, '{#AppVersion}') and
+       not SameText(RegisteredVersion, '0.2.0') then
     begin
       Result := 'Uninstall the previous Quail development build before installing this version.';
       Exit;

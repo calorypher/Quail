@@ -60,6 +60,17 @@ foreach ($requiredToken in @(
 }
 
 foreach ($requiredToken in @(
+    "SameText(RegisteredVersion, '0.2.0')")) {
+    if ($installerScript -notlike "*$requiredToken*") {
+        throw "Released 0.2.0 to 0.3.0 upgrade guard is missing: $requiredToken"
+    }
+}
+
+if ($installerScript -match "(?s)if not SameText\(RegisteredVersion, '\{#AppVersion\}'\) then") {
+    throw 'Packaging must not reject the supported released 0.2.0 to 0.3.0 transition outright.'
+}
+
+foreach ($requiredToken in @(
     'SERVICE_CONFIG_DELAYED_AUTO_START_INFO = $00000003',
     'ChangeServiceConfig2W@advapi32.dll',
     'DelayedAutoStart.DelayedAutostart := False',

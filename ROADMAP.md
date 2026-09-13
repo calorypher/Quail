@@ -456,7 +456,8 @@ Acceptance boundary:
 
 ### M23 — Quick Search & UI Polish
 
-**Status: ACTIVE — implementation branch `codex/m23-ui-polish`.**
+**Status: COMPLETE / MERGED — PR #26 merged to `main` as
+`c1c0606440b2cca96eaff0068a4bbb8c04e7dec8`.**
 
 **Goal:** polish the integrated 0.3 UI after the functional surfaces are in place, without sacrificing perceived search latency.
 
@@ -482,6 +483,8 @@ Acceptance boundary:
 - manual visual/interaction QA passes.
 
 ### M24 — 0.3 Stabilization / Release Candidate
+
+**Status: ACTIVE — M24-A RC Integration / Deployment / Lifecycle is in progress.**
 
 **Goal:** prove that the integrated 0.3 product satisfies the Everything-replacement workflow and freeze a verified release candidate.
 
