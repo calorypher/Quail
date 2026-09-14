@@ -1,12 +1,18 @@
 # Quail
 
+> **WARNING — QUAIL 0.3.0 WITHDRAWN**
+>
+> Quail 0.3.0 has been withdrawn due to a critical maintenance-service defect
+> that can cause sustained CPU and disk-write activity while idle on the system
+> volume. Do not install 0.3.0. Use 0.2.0 until the 0.3.1 hotfix is available.
+
 Quail is a Windows-first, local-first filesystem search application for
 Windows 11 x64. It indexes local NTFS volumes and searches local file and
 directory names without sending indexes or queries to a cloud service.
 
-## Quail 0.3.0
+## Quail 0.3.0 (withdrawn)
 
-Quail 0.3.0 is the current published development release. Its primary
+Quail 0.3.0 is a withdrawn development release. Its primary
 surfaces are Quick Search, a global hotkey, tray integration, Full Search,
 Settings, and an administrative/diagnostic `Quail.Cli`.
 
@@ -20,19 +26,18 @@ file changes. If USN continuity cannot be proven, Quail fails closed with
 
 ## Install
 
-Download [Quail 0.3.0](https://github.com/calorypher/Quail/releases/tag/v0.3.0)
-from GitHub Releases. The installer asset is `Quail-0.3.0-Setup.exe`.
+Do not download or install Quail 0.3.0. Its historical installer asset is
+`Quail-0.3.0-Setup.exe`.
 
-Verify the SHA-256 before running it:
+The historical asset's SHA-256 is recorded below for provenance only:
 
 ```text
 2b17072506027d304d295273f1998d467586d2828ac27d63221751c5a7ba495c
 ```
 
-Run setup with normal Windows elevation. Quail installs only to
-`C:\Program Files\Quail`; custom destinations are not supported. The installer
-installs only missing pinned prerequisites: .NET 10 Desktop Runtime, Windows
-App Runtime, and the x64 Visual C++ Redistributable.
+The withdrawn installer was fixed at `C:\Program Files\Quail`; custom
+destinations were not supported. Its pinned prerequisites were .NET 10 Desktop
+Runtime, Windows App Runtime, and the x64 Visual C++ Redistributable.
 
 The representative released `0.2.0` to `0.3.0` transition at the canonical
 installation path is supported and preserves existing ProgramData and
@@ -86,7 +91,7 @@ or LocalAppData.
 
 ## Development status
 
-Quail 0.3.0 is a published development release. See [ROADMAP.md](ROADMAP.md)
+Quail 0.3.0 is a withdrawn development release. See [ROADMAP.md](ROADMAP.md)
 for planned work; the roadmap is not a feature list for the current release.
 
 ## License
