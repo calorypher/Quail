@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — release candidate, not published
+## 0.3.0 — released 2026-09-14
 
 ### Added
 
@@ -19,6 +19,10 @@
 
 ### Release status
 
+- Quail 0.3.0 was published on 2026-09-14 as tag `v0.3.0` from source commit
+  `e6802343d8463a68d20d9f35659a550bd1eabfc6`. The published installer is
+  `Quail-0.3.0-Setup.exe` (10,244,038 bytes, SHA-256
+  `2b17072506027d304d295273f1998d467586d2828ac27d63221751c5a7ba495c`).
 - Quail 0.3.0 is distributed unsigned. Windows SmartScreen and Smart App
   Control may warn about or block unsigned binaries on some systems. Disabling
   Windows security features is not a supported workaround. Trusted public code
