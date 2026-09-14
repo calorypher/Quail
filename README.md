@@ -1,77 +1,93 @@
 # Quail
 
-Quail is a Windows-first, local-first file search application. It maintains its
-own local NTFS index so that indexed file and directory names can be searched
-quickly without sending the index or queries to a cloud service.
+Quail is a Windows-first, local-first filesystem search application for
+Windows 11 x64. It indexes local NTFS volumes and searches local file and
+directory names without sending indexes or queries to a cloud service.
 
-## Quail 0.2
+## Quail 0.3.0
 
-0.2 is Quail's first public development release. It includes the WinUI Quick
-Search desktop shell, global hotkey and tray integration, persistent
-GUI-managed local NTFS indexes, and the `Quail.Cli` command-line tool.
+Quail 0.3.0 is the current published development release. Its primary
+surfaces are Quick Search, a global hotkey, tray integration, Full Search,
+Settings, and an administrative/diagnostic `Quail.Cli`.
 
-It requires Windows 11 x64 and local NTFS volumes. The application UI and CLI
-are currently English-only.
+Protected machine-wide indexes are maintained by the LocalSystem
+`QuailMaintenance` service, which is their sole writer. Quick Search and Full
+Search read those indexes directly in read-only SQLite mode; ordinary searches
+do not use service IPC. NTFS USN tracking keeps normal filesystem changes
+current, so users normally do not need to refresh or synchronize after routine
+file changes. If USN continuity cannot be proven, Quail fails closed with
+`RebuildRequired` rather than silently running a full rebuild.
 
 ## Install
 
-Download the `Quail-0.2.0-Setup.exe` release asset, verify its published
-SHA-256, and run it with normal Windows elevation.
+Download [Quail 0.3.0](https://github.com/calorypher/Quail/releases/tag/v0.3.0)
+from GitHub Releases. The installer asset is `Quail-0.3.0-Setup.exe`.
 
-Quail installs only to `C:\Program Files\Quail`; custom destinations are not
-supported. The installer detects missing prerequisites and, only when needed,
-downloads and SHA-256-verifies the .NET 10 Desktop Runtime, Windows App
-Runtime, and x64 Visual C++ Redistributable from Microsoft before copying
-Quail.
+Verify the SHA-256 before running it:
 
-The installer adds the canonical Program Files directory to the system `PATH`.
-Open a new terminal after setup:
+```text
+2b17072506027d304d295273f1998d467586d2828ac27d63221751c5a7ba495c
+```
+
+Run setup with normal Windows elevation. Quail installs only to
+`C:\Program Files\Quail`; custom destinations are not supported. The installer
+installs only missing pinned prerequisites: .NET 10 Desktop Runtime, Windows
+App Runtime, and the x64 Visual C++ Redistributable.
+
+The representative released `0.2.0` to `0.3.0` transition at the canonical
+installation path is supported and preserves existing ProgramData and
+LocalAppData. Other historical development builds remain uninstall-first.
+
+## Basic usage
+
+### Quick Search
+
+Use the global hotkey to open keyboard-first Quick Search, type a filename or
+directory name, and open the selected result. From Quick Search, you can move
+to Full Search or Settings.
+
+### Full Search
+
+Full Search is a persistent, resizable window for inspecting a larger result
+set. It provides filters and sorting, plus Open, Reveal, and Copy path actions.
+
+### Settings
+
+Settings includes General, Indexing, and About pages, including the Windows
+startup option.
+
+### CLI
+
+`Quail.Cli` is an administrative and diagnostic surface, not the normal daily
+search workflow. Open a new terminal after setup:
 
 ```text
 Quail.Cli --version
 Quail.Cli --help
 ```
 
-## Basic usage
-
-The GUI manages persistent indexes and makes indexed file and directory names
-available through Quick Search. The CLI can build, synchronize, inspect, and
-search a chosen index:
-
-```text
-Quail.Cli build --index %LOCALAPPDATA%\Quail\Indexes\c.db --volume C:\
-Quail.Cli sync --index %LOCALAPPDATA%\Quail\Indexes\c.db --volume C:\
-Quail.Cli search --index %LOCALAPPDATA%\Quail\Indexes\c.db report --type file --ext pdf --limit 50
-Quail.Cli open --index %LOCALAPPDATA%\Quail\Indexes\c.db --file-id 0011223344556677
-```
-
-Search is a literal case-insensitive indexed-name substring match. It supports
-filters including `--type`, `--ext`, size, modified-time, hidden, read-only,
-and system attributes. Search does not traverse or stat the live filesystem.
-Full-volume NTFS MFT/USN build and sync operations can require an elevated CLI
-process.
-
 ## Privacy and limitations
 
-Quail 0.2 is local-first: it has no telemetry backend, cloud or network
-indexing, content indexing, third-party plugin system, Windows Service,
-automatic updater, or cross-platform build. User index data is not created or
-owned by the installer.
+Quail is filesystem-only: it searches local NTFS file and directory names, not
+file contents. It has no browser, cloud, mail, or network-folder source; no
+third-party plugin system; no automatic updater; no Linux or cross-platform
+build; and no preview, history, or file-manager functionality. The application
+UI remains English-first.
 
-This development release is unsigned. Windows SmartScreen or reputation
-warnings may appear; verify the release hash before running it. Code signing
-may be reconsidered for a later release.
+The installer and Quail-owned binaries are unsigned. Windows SmartScreen or
+Smart App Control may warn about or block them. Disabling Windows security
+features is not a supported workaround.
 
 ## Uninstall
 
 Use Windows Installed apps or Quail's generated uninstaller. It removes Quail
-and Quail's own system `PATH` entry, but does not remove user index data.
+and Quail's own system `PATH` entry, but does not remove existing ProgramData
+or LocalAppData.
 
 ## Development status
 
-0.2 is a development release, not a statement that later roadmap features are
-available. See [ROADMAP.md](ROADMAP.md) for planned work; it is not a feature
-list for this version.
+Quail 0.3.0 is a published development release. See [ROADMAP.md](ROADMAP.md)
+for planned work; the roadmap is not a feature list for the current release.
 
 ## License
 
