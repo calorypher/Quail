@@ -497,9 +497,9 @@ Acceptance boundary:
   `12d3e9f3fdb9be5d4c6cc0aa567000d0b86b4d53`.
 
 Independent QA for M24-C passed, including the manual mixed-theme native-caption
-smoke. Quail 0.3 development/stabilization scope is complete. This does not
-mean that `v0.3.0` has been published: tag creation, GitHub Release, and release
-artifact publication remain separate owner-approval gates.
+smoke. Quail 0.3 development/stabilization scope is complete, and the verified
+release was published as `v0.3.0` on 2026-09-14. The immutable release source is
+`e6802343d8463a68d20d9f35659a550bd1eabfc6`.
 
 **Goal:** prove that the integrated 0.3 product satisfies the Everything-replacement workflow and freeze a verified release candidate.
 
