@@ -59,6 +59,31 @@ internal static class ShortQueryIndex
 
     public static void Build(SqliteConnection connection)
     {
+        var nodes = BuildRankNodes(connection);
+
+        using var transaction = connection.BeginTransaction();
+        ReplaceDerivedState(connection, transaction, nodes, "1");
+        SetMeta(connection, transaction, "namespace_generation", "1");
+        transaction.Commit();
+    }
+
+    public static void RebuildDerivedState(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        if (!long.TryParse(GetMeta(connection, "namespace_generation"), out var generation) || generation < 1)
+        {
+            throw new InvalidOperationException("Short-query generation is invalid; rebuild is required.");
+        }
+
+        var nodes = BuildRankNodes(connection);
+        ReplaceDerivedState(
+            connection,
+            transaction,
+            nodes,
+            generation.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static List<RankNode> BuildRankNodes(SqliteConnection connection)
+    {
         var nodes = ReadNodes(connection);
         var byId = nodes.ToDictionary(node => node.FileId);
         var mountPoint = GetMeta(connection, "mount_point") ?? string.Empty;
@@ -93,14 +118,31 @@ internal static class ShortQueryIndex
                 new FileSearchRankingContext(null)).Location == FileSearchLocation.SystemHeavy;
         }
 
-        using var transaction = connection.BeginTransaction();
+        return nodes;
+    }
+
+    private static void ReplaceDerivedState(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyList<RankNode> nodes,
+        string generation)
+    {
+        using (var clear = connection.CreateCommand())
+        {
+            clear.Transaction = transaction;
+            clear.CommandText = """
+                DELETE FROM short_query_posting_chunks;
+                DELETE FROM short_query_rank_order_chunks;
+                DELETE FROM short_query_rank_chunks;
+                """;
+            clear.ExecuteNonQuery();
+        }
+
         InsertRankChunks(connection, transaction, nodes);
         InsertRankOrderChunks(connection, transaction, nodes);
         InsertPostingChunks(connection, transaction, nodes);
         SetMeta(connection, transaction, "short_query_format", Format);
-        SetMeta(connection, transaction, "namespace_generation", "1");
-        SetMeta(connection, transaction, "short_query_generation", "1");
-        transaction.Commit();
+        SetMeta(connection, transaction, "short_query_generation", generation);
     }
 
     public static bool IsCurrent(SqliteConnection connection) =>
@@ -308,7 +350,7 @@ internal static class ShortQueryIndex
         {
             label = AllocateLabel(insertion.PreviousLabel, insertion.NextLabel);
         }
-        catch (InvalidOperationException exception) when (exception.Message.Contains("gap is exhausted", StringComparison.Ordinal))
+        catch (ShortQueryRankLabelGapExhaustedException)
         {
             if (!TryRecoverExhaustedLeafGap(connection, transaction, node, insertion)) throw;
             return;
@@ -494,7 +536,7 @@ internal static class ShortQueryIndex
         if (previous is null)
         {
             if (next is null) return InitialLabelSpacing;
-            if (next <= 1) throw new InvalidOperationException("Short-query rank label gap is exhausted; rebuild is required.");
+            if (next <= 1) throw new ShortQueryRankLabelGapExhaustedException();
             return next.Value / 2;
         }
 
@@ -504,7 +546,7 @@ internal static class ShortQueryIndex
             return previous.Value + InitialLabelSpacing;
         }
 
-        if (next <= previous + 1) throw new InvalidOperationException("Short-query rank label gap is exhausted; rebuild is required.");
+        if (next <= previous + 1) throw new ShortQueryRankLabelGapExhaustedException();
         return previous.Value + (next.Value - previous.Value) / 2;
     }
 
@@ -1638,3 +1680,6 @@ internal static class ShortQueryIndex
         }
     }
 }
+
+internal sealed class ShortQueryRankLabelGapExhaustedException()
+    : InvalidOperationException("Short-query rank label gap is exhausted; rebuild is required.");

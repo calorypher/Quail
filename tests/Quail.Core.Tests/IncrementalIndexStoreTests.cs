@@ -181,6 +181,175 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
+    public void Short_query_clustered_directory_burst_regenerates_after_more_than_twelve_gap_insertions()
+    {
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000011"), _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000012"), _root, "zzzz", 0, 0, 2));
+        }, checkpoint: Checkpoint(100));
+        var created = Enumerable.Range(0, 14)
+            .Select(index => new JournalRecord(
+                new NamespaceRecord(
+                    Id((0x1800L + index).ToString("X16")),
+                    _root,
+                    new string((char)('b' + index), 4),
+                    16,
+                    index + 1,
+                    2),
+                UsnReason.FileCreate))
+            .ToArray();
+        var records = created.Append(new JournalRecord(
+            created[0].NamespaceRecord with { Usn = 20 },
+            UsnReason.FileDelete)).ToArray();
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(100),
+            [Batch(200, records)]);
+
+        Assert.Equal(200, Store.GetStatus().Checkpoint!.NextUsn);
+        Assert.False(Store.ReconstructPath(created[0].NamespaceRecord.FileId).Success);
+        Assert.All(created.Skip(1), record => Assert.True(Store.ReconstructPath(record.NamespaceRecord.FileId).Success));
+        Assert.Empty(Store.Search(new FileSearchQuery("bbbb", Limit: 10)));
+        Assert.Equal("nnnn", Assert.Single(Store.Search(new FileSearchQuery("nnnn", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+        Assert.Equal(ReadMetadata("namespace_generation"), ReadMetadata("short_query_generation"));
+    }
+
+    [Fact]
+    public void Short_query_directory_create_recovers_gap_exhausted_by_insert_delete_churn()
+    {
+        var (checkpoint, survivingLeaf) = BuildExhaustedShortQueryGap();
+
+        var directory = Id("0000000000003000");
+        var committedCheckpoint = checkpoint + 100;
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(checkpoint),
+            [Batch(committedCheckpoint, new JournalRecord(
+                new NamespaceRecord(directory, _root, "nnnn", 16, checkpoint + 1, 2),
+                UsnReason.FileCreate))]);
+
+        Assert.Equal(committedCheckpoint, Store.GetStatus().Checkpoint!.NextUsn);
+        Assert.Equal("X:\\nnnn", Store.ReconstructPath(directory).Path);
+        Assert.Equal("nnnn", Assert.Single(Store.Search(new FileSearchQuery("nnnn", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+        Assert.Equal(ReadMetadata("namespace_generation"), ReadMetadata("short_query_generation"));
+
+        var cleanPath = System.IO.Path.Combine(_directory, "clean-derived.db");
+        var clean = new IndexStore(cleanPath);
+        clean.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000011"), _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000012"), _root, "zzzz", 0, 0, 2));
+            sink(new NamespaceRecord(survivingLeaf, _root, "mmmm", 0, 0, 2));
+            sink(new NamespaceRecord(directory, _root, "nnnn", 16, 0, 2));
+        }, checkpoint: Checkpoint(committedCheckpoint));
+
+        Assert.Equal(ReadShortQueryOrder(cleanPath), ReadShortQueryOrder(DatabasePath));
+        foreach (var query in new[] { "a", "m", "n", "z" })
+        {
+            Assert.Equal(
+                clean.Search(new FileSearchQuery(query, Limit: 20)).Select(result => result.FileId),
+                Store.Search(new FileSearchQuery(query, Limit: 20)).Select(result => result.FileId));
+        }
+    }
+
+    [Fact]
+    public void Short_query_leaf_create_still_uses_local_recovery_after_insert_delete_churn()
+    {
+        var (checkpoint, _) = BuildExhaustedShortQueryGap();
+        var leaf = Id("0000000000003001");
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(checkpoint),
+            [Batch(checkpoint + 100, new JournalRecord(
+                new NamespaceRecord(leaf, _root, "nnnn", 0, checkpoint + 1, 2),
+                UsnReason.FileCreate))]);
+
+        Assert.Equal("nnnn", Assert.Single(Store.Search(new FileSearchQuery("nnnn", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_rename_recovers_fragmented_gap_and_parent_labels()
+    {
+        var directory = Id("0000000000003100");
+        var child = Id("0000000000003101");
+        var (checkpoint, _) = BuildExhaustedShortQueryGap(
+            new NamespaceRecord(directory, _root, "directory-before", 16, 0, 2),
+            new NamespaceRecord(child, directory, "child.txt", 0, 0, 2));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(checkpoint),
+            [Batch(checkpoint + 100, new JournalRecord(
+                new NamespaceRecord(directory, _root, "nnnn", 16, checkpoint + 1, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\nnnn\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("child", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_directory_move_recovers_fragmented_gap_and_parent_labels()
+    {
+        var parent = Id("0000000000003200");
+        var directory = Id("0000000000003201");
+        var child = Id("0000000000003202");
+        var (checkpoint, _) = BuildExhaustedShortQueryGap(
+            new NamespaceRecord(parent, _root, "parent-before", 16, 0, 2),
+            new NamespaceRecord(directory, parent, "nnnn", 16, 0, 2),
+            new NamespaceRecord(child, directory, "child.txt", 0, 0, 2));
+
+        Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(checkpoint),
+            [Batch(checkpoint + 100, new JournalRecord(
+                new NamespaceRecord(directory, _root, "nnnn", 16, checkpoint + 1, 2),
+                UsnReason.RenameNewName))]);
+
+        Assert.Equal("X:\\nnnn\\child.txt", Store.ReconstructPath(child).Path);
+        Assert.Equal("child.txt", Assert.Single(Store.Search(new FileSearchQuery("child", Limit: 1))).Name);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
+    public void Short_query_regeneration_rolls_back_namespace_generation_and_checkpoint_before_commit()
+    {
+        var (checkpoint, _) = BuildExhaustedShortQueryGap();
+        var directory = Id("0000000000003300");
+        var batch = Batch(checkpoint + 100, new JournalRecord(
+            new NamespaceRecord(directory, _root, "nnnn", 16, checkpoint + 1, 2),
+            UsnReason.FileCreate));
+        var namespaceGeneration = ReadMetadata("namespace_generation");
+
+        Assert.Throws<InvalidOperationException>(() => Store.ApplyParsedBatchesForTesting(
+            Volume,
+            Journal(checkpoint),
+            [batch],
+            failBeforeCommit: true));
+
+        var reopened = new IndexStore(DatabasePath);
+        Assert.Equal(checkpoint, reopened.GetStatus().Checkpoint!.NextUsn);
+        Assert.False(reopened.ReconstructPath(directory).Success);
+        Assert.Empty(reopened.Search(new FileSearchQuery("nnnn", Limit: 10)));
+        Assert.Equal(namespaceGeneration, ReadMetadata("namespace_generation"));
+        Assert.Equal(namespaceGeneration, ReadMetadata("short_query_generation"));
+        AssertShortQueryIntegrity();
+
+        reopened.ApplyParsedBatchesForTesting(Volume, Journal(checkpoint), [batch]);
+        Assert.Equal(checkpoint + 100, reopened.GetStatus().Checkpoint!.NextUsn);
+        Assert.Equal("X:\\nnnn", reopened.ReconstructPath(directory).Path);
+        AssertShortQueryIntegrity();
+    }
+
+    [Fact]
     public void Short_query_deduplicates_metadata_acquisition_without_relabeling_metadata_only_updates()
     {
         Store.BuildFromRecords(Volume, Produce, checkpoint: Checkpoint(100));
@@ -1044,6 +1213,110 @@ public sealed class IncrementalIndexStoreTests : IDisposable
 
         Assert.Equal(100, Store.GetStatus().Checkpoint!.NextUsn);
         Assert.DoesNotContain(Store.ReadAllForDiagnostics(), record => record.Name == "unsupported-v3.txt");
+    }
+
+    private (long Checkpoint, NativeFileId SurvivingLeaf) BuildExhaustedShortQueryGap(
+        params NamespaceRecord[] additionalInitialRecords)
+    {
+        Store.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000011"), _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000012"), _root, "zzzz", 0, 0, 2));
+            foreach (var record in additionalInitialRecords) sink(record);
+        }, checkpoint: Checkpoint(100));
+
+        NativeFileId? previous = null;
+        var checkpoint = 100L;
+        for (var index = 0; index < 12; index++)
+        {
+            var current = Id((0x2000L + index).ToString("X16"));
+            var name = new string((char)('b' + index), 4);
+            var records = new List<JournalRecord>
+            {
+                new(new NamespaceRecord(current, _root, name, 0, checkpoint + 1, 2), UsnReason.FileCreate)
+            };
+            if (previous is NativeFileId deleted)
+            {
+                records.Add(new JournalRecord(
+                    new NamespaceRecord(deleted, _root, new string((char)('a' + index), 4), 0, checkpoint + 2, 2),
+                    UsnReason.FileDelete));
+            }
+
+            var nextCheckpoint = checkpoint + 100;
+            Store.ApplyParsedBatchesForTesting(
+                Volume,
+                Journal(checkpoint),
+                [Batch(nextCheckpoint, records.ToArray())]);
+            checkpoint = nextCheckpoint;
+            previous = current;
+        }
+
+        return (checkpoint, previous!.Value);
+    }
+
+    private string? ReadMetadata(string key)
+    {
+        using var connection = new SqliteConnection($"Data Source={DatabasePath};Mode=ReadOnly;Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT value FROM metadata WHERE key=$key;";
+        command.Parameters.AddWithValue("$key", key);
+        return command.ExecuteScalar() as string;
+    }
+
+    private static IReadOnlyList<string> ReadShortQueryOrder(string databasePath)
+    {
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly;Pooling=False");
+        connection.Open();
+        var entryByRowId = new Dictionary<long, string>();
+        using (var entries = connection.CreateCommand())
+        {
+            entries.CommandText = "SELECT rowid,file_id,name FROM namespace_entries;";
+            using var reader = entries.ExecuteReader();
+            while (reader.Read())
+            {
+                entryByRowId.Add(
+                    reader.GetInt64(0),
+                    $"{Convert.ToHexString((byte[])reader[1])}|{reader.GetString(2)}");
+            }
+        }
+
+        var rowIdByLabel = new Dictionary<long, long>();
+        using (var ranks = connection.CreateCommand())
+        {
+            ranks.CommandText = "SELECT entry_count,payload FROM short_query_rank_chunks ORDER BY first_label;";
+            using var reader = ranks.ExecuteReader();
+            while (reader.Read())
+            {
+                var count = reader.GetInt32(0);
+                var payload = (byte[])reader[1];
+                for (var index = 0; index < count; index++)
+                {
+                    var offset = index * 28;
+                    rowIdByLabel.Add(
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset, 8)),
+                        BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(offset + 8, 8)));
+                }
+            }
+        }
+
+        var result = new List<string>();
+        using var order = connection.CreateCommand();
+        order.CommandText = "SELECT entry_count,payload FROM short_query_rank_order_chunks ORDER BY first_sort_key;";
+        using var orderReader = order.ExecuteReader();
+        while (orderReader.Read())
+        {
+            var count = orderReader.GetInt32(0);
+            var payload = (byte[])orderReader[1];
+            for (var index = 0; index < count; index++)
+            {
+                var label = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(index * sizeof(long), sizeof(long)));
+                result.Add(entryByRowId[rowIdByLabel[label]]);
+            }
+        }
+
+        return result;
     }
 
     private IndexStore Store => new(DatabasePath);

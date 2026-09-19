@@ -918,6 +918,7 @@ public sealed class IndexStore
         }
         using var transaction = connection.BeginTransaction();
         var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
+        var rebuildShortQueryIndex = false;
         foreach (var record in canonicalRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
@@ -926,13 +927,32 @@ public sealed class IndexStore
                     connection,
                     transaction,
                     record.NamespaceRecord.FileId,
-                    maintainShortQueryIndex);
+                    maintainShortQueryIndex && !rebuildShortQueryIndex);
             }
             else if (!UsnReason.IsRenameOldName(record.Reason))
             {
-                if (maintainShortQueryIndex)
+                if (maintainShortQueryIndex && !rebuildShortQueryIndex)
                 {
-                    UpsertWithShortQueryIndex(
+                    try
+                    {
+                        UpsertWithShortQueryIndex(
+                            connection,
+                            transaction,
+                            record.NamespaceRecord,
+                            metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                    }
+                    catch (ShortQueryRankLabelGapExhaustedException)
+                    {
+                        // The authoritative namespace mutation precedes rank insertion.
+                        // Finish this bounded journal batch without further derived-state
+                        // mutations, then regenerate the complete derived state once from
+                        // the final namespace inside the same transaction.
+                        rebuildShortQueryIndex = true;
+                    }
+                }
+                else if (maintainShortQueryIndex)
+                {
+                    UpsertAuthoritativeNamespaceOnly(
                         connection,
                         transaction,
                         record.NamespaceRecord,
@@ -943,6 +963,10 @@ public sealed class IndexStore
                     Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
                 }
             }
+        }
+        if (rebuildShortQueryIndex)
+        {
+            ShortQueryIndex.RebuildDerivedState(connection, transaction);
         }
         if (failBeforeCommit)
         {
@@ -963,6 +987,22 @@ public sealed class IndexStore
             "record_count",
             CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
         transaction.Commit();
+    }
+
+    private static void UpsertAuthoritativeNamespaceOnly(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NamespaceRecord record,
+        FileMetadata? metadata)
+    {
+        if (!record.FileId.Equals(record.ParentFileId) &&
+            !IsNamespaceEntryRooted(connection, record.ParentFileId))
+        {
+            DeleteCurrentEntry(connection, transaction, record.FileId, maintainShortQueryIndex: false);
+            return;
+        }
+
+        Upsert(connection, transaction, record, metadata);
     }
 
     private static void UpsertWithShortQueryIndex(
