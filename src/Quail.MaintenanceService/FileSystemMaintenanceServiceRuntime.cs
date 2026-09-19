@@ -320,6 +320,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
             {
                 var volume = ResolveVolume(identity);
                 IncrementalCheckpoint checkpoint;
+                IncrementalCheckpoint waitCheckpoint;
                 await _writer.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
@@ -349,6 +350,23 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                         checkpoint,
                         null,
                         null));
+                    var gap = MaintenanceJournalGap.Inspect(volume, checkpoint, storage.DatabasePath);
+                    if (gap.RebuildRequiredReason is not null)
+                    {
+                        throw new RebuildRequiredException(gap.RebuildRequiredReason);
+                    }
+
+                    if (gap.UnavailableReason is not null)
+                    {
+                        throw new IOException(gap.UnavailableReason);
+                    }
+
+                    if (!gap.CanWait)
+                    {
+                        continue;
+                    }
+
+                    waitCheckpoint = gap.WaitCheckpoint;
                 }
                 finally
                 {
@@ -356,7 +374,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                 }
 
                 retryDelay = TimeSpan.FromSeconds(1);
-                await NtfsJournal.WaitForChangesAsync(volume, checkpoint, cancellationToken).ConfigureAwait(false);
+                await NtfsJournal.WaitForChangesAsync(volume, waitCheckpoint, cancellationToken).ConfigureAwait(false);
             }
             catch (RebuildRequiredException exception)
             {

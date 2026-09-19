@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+### Fixed
+
+- Same-volume maintenance no longer wakes itself indefinitely when protected
+  SQLite, checkpoint, WAL/SHM, lock, or health publication writes occur on the
+  same NTFS volume being watched. The service preserves the durable applied
+  checkpoint and advances only its in-memory wait frontier after proving that
+  the intervening journal gap contains exclusively Quail-owned protected-state
+  activity.
+- External or unknown changes in the Sync-to-wait gap force another
+  authoritative sync, while journal continuity loss remains fail-closed as
+  `RebuildRequired`.
+
+### Verification
+
+- The maintenance resource gate now includes service read/write bytes and
+  operation counts, checkpoint progression, and WAL/SHM lifecycle in addition
+  to CPU, memory, handles, and threads.
+- Release acceptance adds an explicit physical-host same-volume C: regression
+  gate plus real CREATE, metadata, RENAME, MOVE, DELETE, restart/catch-up, and
+  separate-volume control checks.
+
+### Release status
+
+- Quail 0.3.1 is an unpublished hotfix candidate. Quail 0.3.0 remains
+  withdrawn; its tag, release source, and historical asset are unchanged.
+
 ## 0.3.0 — WITHDRAWN (released 2026-09-14)
 
 ### Added

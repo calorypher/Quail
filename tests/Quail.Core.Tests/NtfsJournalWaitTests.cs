@@ -6,7 +6,7 @@ namespace Quail.Core.Tests;
 public sealed class NtfsJournalWaitTests
 {
     [Fact]
-    public async Task UsesCommittedFrontierAndCompletesAsSignalOnly()
+    public async Task UsesProvidedFrontierAndCompletesAsSignalOnly()
     {
         using var handle = new SafeFileHandle(new IntPtr(1), ownsHandle: false);
         var backend = new FakeBackend();

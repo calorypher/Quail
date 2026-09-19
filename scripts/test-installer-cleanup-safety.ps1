@@ -61,14 +61,20 @@ foreach ($requiredToken in @(
 
 foreach ($requiredToken in @(
     "SameText('{#AppVersion}', '0.3.0')",
-    "SameText(RegisteredVersion, '0.2.0')")) {
+    "SameText('{#AppVersion}', '0.3.1')",
+    "SameText(RegisteredVersion, '0.2.0')",
+    "SameText(RegisteredVersion, '0.3.0')")) {
     if ($installerScript -notlike "*$requiredToken*") {
-        throw "Bounded released 0.2.0 to 0.3.0 upgrade guard is missing: $requiredToken"
+        throw "Bounded 0.2.0/0.3.0 patch-upgrade guard is missing: $requiredToken"
     }
 }
 
 if ($installerScript -notmatch "(?s)not \(SameText\('\{#AppVersion\}', '0\.3\.0'\)\s+and\s+SameText\(RegisteredVersion, '0\.2\.0'\)\)") {
     throw 'Released 0.2.0 must be allowed only when the candidate target is exactly 0.3.0.'
+}
+
+if ($installerScript -notmatch "(?s)not \(SameText\('\{#AppVersion\}', '0\.3\.1'\)\s+and\s+\(SameText\(RegisteredVersion, '0\.2\.0'\)\s+or\s+SameText\(RegisteredVersion, '0\.3\.0'\)\)\)") {
+    throw 'Only released 0.2.0 and withdrawn 0.3.0 may upgrade directly to the 0.3.1 hotfix.'
 }
 
 foreach ($requiredToken in @(
