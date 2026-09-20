@@ -13,6 +13,11 @@
 - External or unknown changes in the Sync-to-wait gap force another
   authoritative sync, while journal continuity loss remains fail-closed as
   `RebuildRequired`.
+- Local short-query rank-label exhaustion no longer forces a full filesystem
+  index rebuild for an otherwise valid directory change. The journal batch
+  finishes its authoritative namespace mutations and regenerates the derived
+  short-query state once in the same transaction; generation and durable
+  checkpoint advancement occur only with the successful commit.
 
 ### Verification
 
@@ -22,6 +27,9 @@
 - Release acceptance adds an explicit physical-host same-volume C: regression
   gate plus real CREATE, metadata, RENAME, MOVE, DELETE, restart/catch-up, and
   separate-volume control checks.
+- A deterministic directory-exhaustion regression and a representative
+  500,002-record derived-state regeneration gate verify bounded recovery,
+  rollback, generation/checkpoint consistency, and Search correctness.
 
 ### Release status
 
