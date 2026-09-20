@@ -266,7 +266,7 @@ public sealed class IndexStore
             try
             {
                 metadata = new NtfsMetadataAcquirer(volume);
-                var finalCursor = NtfsJournal.Read(volume, finalCheckpoint, batch =>
+                var finalCursor = NtfsJournal.Read(volume, finalCheckpoint, journal.NextUsn, batch =>
                 {
                     try
                     {
@@ -758,7 +758,7 @@ public sealed class IndexStore
             }
 
             var finalCheckpoint = initialCheckpoint;
-            var finalCursor = NtfsJournal.Read(volumeHandle, initialCheckpoint, batch =>
+            var finalCursor = NtfsJournal.Read(volumeHandle, initialCheckpoint, afterEnumeration.NextUsn, batch =>
             {
                 ApplyBatch(connection, batch, afterEnumeration, false, acquireMetadata);
                 finalCheckpoint = finalCheckpoint with { NextUsn = batch.NextUsn };

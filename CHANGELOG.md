@@ -13,6 +13,11 @@
 - External or unknown changes in the Sync-to-wait gap force another
   authoritative sync, while journal continuity loss remains fail-closed as
   `RebuildRequired`.
+- Each authoritative sync and initial-build journal handoff is bounded by the
+  `NextUsn` captured before reading. Native buffers that cross that half-open
+  frontier are clipped, so same-volume SQLite writes cannot make one sync
+  chase its own moving journal tail indefinitely; later records remain for the
+  next authoritative iteration.
 - Local short-query rank-label exhaustion no longer forces a full filesystem
   index rebuild for an otherwise valid directory change. The journal batch
   finishes its authoritative namespace mutations and regenerates the derived

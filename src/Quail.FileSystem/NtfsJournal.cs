@@ -44,7 +44,18 @@ public static class NtfsJournal
     public static long Read(VolumeDescriptor volume, IncrementalCheckpoint checkpoint, Action<JournalBatch> onBatch)
     {
         using var handle = NtfsVolume.Open(volume.MountPoint);
-        return Read(handle, checkpoint, onBatch);
+        var journal = Query(handle);
+        return Read(handle, checkpoint, journal.NextUsn, onBatch);
+    }
+
+    internal static long Read(
+        VolumeDescriptor volume,
+        IncrementalCheckpoint checkpoint,
+        long exclusiveUpperBound,
+        Action<JournalBatch> onBatch)
+    {
+        using var handle = NtfsVolume.Open(volume.MountPoint);
+        return Read(handle, checkpoint, exclusiveUpperBound, onBatch);
     }
 
     /// <summary>
@@ -62,35 +73,123 @@ public static class NtfsJournal
 
     internal static long Read(SafeFileHandle handle, IncrementalCheckpoint checkpoint, Action<JournalBatch> onBatch)
     {
-        var input = new ReadUsnJournalDataV1(checkpoint.NextUsn, uint.MaxValue, 0, 0, 0, checkpoint.JournalId, 2, 3);
-        var buffer = new byte[BufferSize];
-        var cursor = checkpoint.NextUsn;
+        var journal = Query(handle);
+        return Read(handle, checkpoint, journal.NextUsn, onBatch);
+    }
 
-        while (true)
+    internal static long Read(
+        SafeFileHandle handle,
+        IncrementalCheckpoint checkpoint,
+        long exclusiveUpperBound,
+        Action<JournalBatch> onBatch)
+    {
+        var buffer = new byte[BufferSize];
+        return ReadPages(
+            checkpoint,
+            exclusiveUpperBound,
+            cursor => ReadPage(handle, checkpoint.JournalId, cursor, buffer),
+            onBatch);
+    }
+
+    internal static long ReadPages(
+        IncrementalCheckpoint checkpoint,
+        long exclusiveUpperBound,
+        Func<long, JournalReadPage> readPage,
+        Action<JournalBatch> onBatch)
+    {
+        if (exclusiveUpperBound < checkpoint.NextUsn)
         {
-            var returned = Ioctl(handle, FsctlReadUsnJournal, input, buffer);
-            if (returned < sizeof(long))
+            throw new InvalidDataException(
+                "The captured USN journal frontier precedes the durable checkpoint.");
+        }
+
+        var cursor = checkpoint.NextUsn;
+        if (cursor == exclusiveUpperBound)
+        {
+            return cursor;
+        }
+
+        while (cursor < exclusiveUpperBound)
+        {
+            var page = readPage(cursor);
+            if (page.StartUsn != cursor)
             {
                 throw new InvalidDataException(
-                    "FSCTL_READ_USN_JOURNAL returned an invalid buffer.");
+                    "FSCTL_READ_USN_JOURNAL returned a page for an unexpected cursor.");
             }
 
-            var nextUsn = BitConverter.ToInt64(buffer, 0);
+            var nextUsn = page.NextUsn;
             if (nextUsn < cursor)
             {
                 throw new InvalidDataException(
                     "FSCTL_READ_USN_JOURNAL moved the cursor backwards.");
             }
 
-            var records = NtfsEnumerator.ParseJournalRecords(buffer, sizeof(long), checked((int)returned));
-            if (records.Count > 0)
+            long previousRecordUsn = cursor;
+            foreach (var record in page.Records)
             {
-                onBatch(new JournalBatch(nextUsn, records));
+                var recordUsn = record.NamespaceRecord.Usn;
+                if (recordUsn < cursor || recordUsn < previousRecordUsn || recordUsn >= nextUsn)
+                {
+                    throw new InvalidDataException(
+                        "FSCTL_READ_USN_JOURNAL returned inconsistent record ordering.");
+                }
+
+                previousRecordUsn = recordUsn;
             }
+
+            // QUERY_USN_JOURNAL.NextUsn is the first USN outside this invocation's
+            // half-open range. A live read may return a buffer that crosses it;
+            // later records must remain available from the durable frontier to the
+            // next authoritative Sync instead of extending this read indefinitely.
+            var boundedNextUsn = Math.Min(nextUsn, exclusiveUpperBound);
+            IReadOnlyList<JournalRecord> boundedRecords = page.Records;
+            if (nextUsn > exclusiveUpperBound)
+            {
+                boundedRecords = page.Records
+                    .TakeWhile(record => record.NamespaceRecord.Usn < exclusiveUpperBound)
+                    .ToArray();
+            }
+
+            if (boundedRecords.Count > 0)
+            {
+                onBatch(new JournalBatch(boundedNextUsn, boundedRecords));
+            }
+
+            if (nextUsn >= exclusiveUpperBound)
+            {
+                return exclusiveUpperBound;
+            }
+
+            if (nextUsn == cursor)
+            {
+                throw new InvalidDataException(
+                    "FSCTL_READ_USN_JOURNAL did not reach the captured frontier.");
+            }
+
             cursor = nextUsn;
-            if (records.Count == 0 || nextUsn == input.StartUsn) return cursor;
-            input = input with { StartUsn = nextUsn };
         }
+
+        return cursor;
+    }
+
+    private static JournalReadPage ReadPage(
+        SafeFileHandle handle,
+        ulong journalId,
+        long startUsn,
+        byte[] buffer)
+    {
+        var input = new ReadUsnJournalDataV1(startUsn, uint.MaxValue, 0, 0, 0, journalId, 2, 3);
+        var returned = Ioctl(handle, FsctlReadUsnJournal, input, buffer);
+        if (returned < sizeof(long))
+        {
+            throw new InvalidDataException(
+                "FSCTL_READ_USN_JOURNAL returned an invalid buffer.");
+        }
+
+        var nextUsn = BitConverter.ToInt64(buffer, 0);
+        var records = NtfsEnumerator.ParseJournalRecords(buffer, sizeof(long), checked((int)returned));
+        return new JournalReadPage(startUsn, nextUsn, records);
     }
 
     private static uint Ioctl(SafeFileHandle handle, uint code, ReadUsnJournalDataV1 input, byte[] output)
@@ -131,6 +230,11 @@ public static class NtfsJournal
         ulong UsnJournalId,
         ushort MinMajorVersion,
         ushort MaxMajorVersion);
+
+    internal readonly record struct JournalReadPage(
+        long StartUsn,
+        long NextUsn,
+        IReadOnlyList<JournalRecord> Records);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

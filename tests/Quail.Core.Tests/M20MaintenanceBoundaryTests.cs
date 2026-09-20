@@ -161,12 +161,12 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
         var result = MaintenanceJournalGap.CreateResult(
             applied,
             journal,
-            cursor: 180,
+            cursor: 150,
             recordsInspected: 12,
             onlyOwnedChanges: true);
 
         Assert.True(result.CanWait);
-        Assert.Equal(180, result.WaitCheckpoint.NextUsn);
+        Assert.Equal(150, result.WaitCheckpoint.NextUsn);
         Assert.Equal(100, applied.NextUsn);
         Assert.Equal(12, result.RecordsInspected);
         Assert.Null(result.RebuildRequiredReason);
@@ -181,12 +181,32 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
         var result = MaintenanceJournalGap.CreateResult(
             applied,
             journal,
-            cursor: 180,
+            cursor: 150,
             recordsInspected: 2,
             onlyOwnedChanges: false);
 
         Assert.False(result.CanWait);
         Assert.Null(result.RebuildRequiredReason);
+    }
+
+    [Theory]
+    [InlineData(149)]
+    [InlineData(151)]
+    public void Wait_gap_rejects_a_cursor_other_than_the_captured_frontier(long cursor)
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+        var journal = new UsnJournalState(1, 10, 150, 5, 2, 3);
+
+        var result = MaintenanceJournalGap.CreateResult(
+            applied,
+            journal,
+            cursor,
+            recordsInspected: 0,
+            onlyOwnedChanges: true);
+
+        Assert.False(result.CanWait);
+        Assert.Equal("journal-read-or-parse-failed", result.RebuildRequiredReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
     }
 
     [Fact]

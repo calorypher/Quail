@@ -43,7 +43,7 @@ internal static class MaintenanceJournalGap
                 FirstUsn = journal.FirstUsn,
                 LowestValidUsn = journal.LowestValidUsn
             };
-            var cursor = NtfsJournal.Read(volume, scanCheckpoint, batch =>
+            var cursor = NtfsJournal.Read(volume, scanCheckpoint, journal.NextUsn, batch =>
             {
                 foreach (var record in batch.Records)
                 {
@@ -85,7 +85,7 @@ internal static class MaintenanceJournalGap
             return new MaintenanceJournalGapResult(false, appliedCheckpoint, recordsInspected, reason);
         }
 
-        if (cursor < appliedCheckpoint.NextUsn)
+        if (cursor != journal.NextUsn)
         {
             return new MaintenanceJournalGapResult(
                 false,
