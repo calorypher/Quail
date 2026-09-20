@@ -12,12 +12,9 @@ internal static class ShortQueryIndex
     internal const string Format = "compact-short-query-v3";
     // This leaves twelve local midpoint insertions inside a freshly built gap
     // while keeping direct-build labels close enough for compact postings.
-    // An exhausted gap remains an explicit rebuild-required recovery path.
+    // An exhausted gap remains an explicit derived-state regeneration path.
     private const long InitialLabelSpacing = 1L << 12;
     private const int ChunkEntryCount = 1_024;
-    // Keep local relabeling bounded to one persisted chunk. A normal burst can
-    // insert many adjacent leaves between two previously built labels.
-    private const int MaximumRecoveryLeafEntries = ChunkEntryCount;
     private const int RankEntryBytes = 28;
     private const uint InternalAttributes = 0x2 | 0x4;
 
@@ -345,17 +342,11 @@ internal static class ShortQueryIndex
         node.FullPath = ResolveNodePath(connection, node);
         node.SortKey = CreateStaticSortKey(node);
         var insertion = FindOrderInsertion(connection, node.SortKey);
-        long label;
-        try
-        {
-            label = AllocateLabel(insertion.PreviousLabel, insertion.NextLabel);
-        }
-        catch (ShortQueryRankLabelGapExhaustedException)
-        {
-            if (!TryRecoverExhaustedLeafGap(connection, transaction, node, insertion)) throw;
-            return;
-        }
-
+        // A gap exhaustion is a derived-state concern. Let ApplyBatch finish its
+        // authoritative namespace work and regenerate short-query state once for
+        // the whole transaction. Local leaf relabeling can repeat inside a large
+        // journal page and is not bounded by the batch's derived-state recovery.
+        var label = AllocateLabel(insertion.PreviousLabel, insertion.NextLabel);
         InsertCurrentEntry(connection, transaction, node, insertion, label);
     }
 
@@ -383,101 +374,6 @@ internal static class ShortQueryIndex
         {
             InsertPostingLabel(connection, transaction, term, label);
         }
-    }
-
-    private static bool TryRecoverExhaustedLeafGap(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        RankNode inserted,
-        OrderInsertion insertion)
-    {
-        // Only relabel leaves. Their labels are not parent references for other
-        // rank entries, so this remains a bounded local rewrite rather than a
-        // topology-wide parent-label update.
-        if ((inserted.Attributes & 0x10) != 0 || insertion.Chunk is null || insertion.Labels is null)
-        {
-            return false;
-        }
-
-        var labels = insertion.Labels;
-        var before = new List<RankNode>();
-        for (var index = insertion.Position - 1; index >= 0 && before.Count < MaximumRecoveryLeafEntries / 2; index--)
-        {
-            var node = ReadNodeByLabel(connection, labels[index]);
-            if ((node.Attributes & 0x10) != 0) break;
-            before.Add(node);
-        }
-
-        before.Reverse();
-        var after = new List<RankNode>();
-        var maximumAfter = MaximumRecoveryLeafEntries - before.Count - 1;
-        for (var index = insertion.Position; index < labels.Count && after.Count < maximumAfter; index++)
-        {
-            var node = ReadNodeByLabel(connection, labels[index]);
-            if ((node.Attributes & 0x10) != 0) break;
-            after.Add(node);
-        }
-
-        if (before.Count == 0 && after.Count == 0) return false;
-
-        var firstIndex = insertion.Position - before.Count;
-        var afterIndex = insertion.Position + after.Count;
-        var previous = firstIndex > 0
-            ? labels[firstIndex - 1]
-            : PreviousOrderLabel(connection, insertion.Chunk.FirstSortKey);
-        var next = afterIndex < labels.Count
-            ? labels[afterIndex]
-            : NextOrderLabel(connection, insertion.Chunk.LastSortKey);
-        var recovered = before.Append(inserted).Concat(after)
-            .OrderBy(node => node.SortKey!, Comparer<byte[]>.Create((left, right) => CompareBytes(left, right)))
-            .ToArray();
-        if (!TryAllocateRecoveryLabels(previous, next, recovered.Length, out var recoveryLabels)) return false;
-
-        foreach (var node in before.Concat(after))
-        {
-            RemoveCurrentEntry(connection, transaction, node.FileId);
-        }
-
-        // Assign the recovered labels before reinserting their posting and rank
-        // entries, so every affected chunk observes one transactional state.
-        for (var index = 0; index < recovered.Length; index++)
-        {
-            var node = recovered[index];
-            var recoveryInsertion = FindOrderInsertion(connection, node.SortKey!);
-            InsertCurrentEntry(connection, transaction, node, recoveryInsertion, recoveryLabels[index]);
-        }
-
-        return true;
-    }
-
-    private static bool TryAllocateRecoveryLabels(long? previous, long? next, int count, out long[] labels)
-    {
-        labels = new long[count];
-        if (previous is long lower && next is long upper)
-        {
-            var spacing = (upper - lower) / (count + 1L);
-            if (spacing <= 0) return false;
-            for (var index = 0; index < count; index++) labels[index] = lower + spacing * (index + 1L);
-            return true;
-        }
-
-        if (previous is long last)
-        {
-            if (last > long.MaxValue - InitialLabelSpacing * count) return false;
-            for (var index = 0; index < count; index++) labels[index] = last + InitialLabelSpacing * (index + 1L);
-            return true;
-        }
-
-        if (next is long first)
-        {
-            var spacing = first / (count + 1L);
-            if (spacing <= 0) return false;
-            for (var index = 0; index < count; index++) labels[index] = spacing * (index + 1L);
-            return true;
-        }
-
-        for (var index = 0; index < count; index++) labels[index] = InitialLabelSpacing * (index + 1L);
-        return true;
     }
 
     private static RankNode? ReadNode(SqliteConnection connection, NativeFileId fileId)

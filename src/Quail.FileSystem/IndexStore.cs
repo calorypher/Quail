@@ -357,7 +357,7 @@ public sealed class IndexStore
     };
 
     // Used by focused automated tests to prove transaction boundaries without a Windows volume.
-    public void ApplyParsedBatchesForTesting(
+    public int ApplyParsedBatchesForTesting(
         VolumeDescriptor volume,
         UsnJournalState journal,
         IEnumerable<JournalBatch> batches,
@@ -386,11 +386,13 @@ public sealed class IndexStore
             }
 
             var acquire = acquireMetadata ?? UnavailableMetadata;
+            var derivedStateRegenerations = 0;
             foreach (var batch in materializedBatches)
             {
-                ApplyBatch(connection, batch, journal, failBeforeCommit, acquire);
+                if (ApplyBatch(connection, batch, journal, failBeforeCommit, acquire)) derivedStateRegenerations++;
             }
             PersistSuccessfulSync(connection, ReadCheckpoint(connection) ?? throw new InvalidOperationException("Test sync requires a checkpoint."));
+            return derivedStateRegenerations;
         }
         finally
         {
@@ -887,7 +889,7 @@ public sealed class IndexStore
         }
     }
 
-    private static void ApplyBatch(
+    private static bool ApplyBatch(
         SqliteConnection connection,
         JournalBatch batch,
         UsnJournalState journal,
@@ -987,6 +989,7 @@ public sealed class IndexStore
             "record_count",
             CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
         transaction.Commit();
+        return rebuildShortQueryIndex;
     }
 
     private static void UpsertAuthoritativeNamespaceOnly(

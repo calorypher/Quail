@@ -259,20 +259,42 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     [Fact]
-    public void Short_query_leaf_create_still_uses_local_recovery_after_insert_delete_churn()
+    public void Short_query_leaf_create_regenerates_derived_state_after_insert_delete_churn()
     {
-        var (checkpoint, _) = BuildExhaustedShortQueryGap();
+        var (checkpoint, deleted) = BuildExhaustedShortQueryGap();
         var leaf = Id("0000000000003001");
 
-        Store.ApplyParsedBatchesForTesting(
+        var derivedStateRegenerations = Store.ApplyParsedBatchesForTesting(
             Volume,
             Journal(checkpoint),
-            [Batch(checkpoint + 100, new JournalRecord(
-                new NamespaceRecord(leaf, _root, "nnnn", 0, checkpoint + 1, 2),
-                UsnReason.FileCreate))]);
+            [Batch(
+                checkpoint + 100,
+                new JournalRecord(
+                    new NamespaceRecord(leaf, _root, "nnnn", 0, checkpoint + 2, 2),
+                    UsnReason.FileCreate),
+                new JournalRecord(
+                    new NamespaceRecord(deleted, _root, "mmmm", 0, checkpoint + 3, 2),
+                    UsnReason.FileDelete))]);
 
+        Assert.Equal(1, derivedStateRegenerations);
+        Assert.Equal(checkpoint + 100, Store.GetStatus().Checkpoint!.NextUsn);
         Assert.Equal("nnnn", Assert.Single(Store.Search(new FileSearchQuery("nnnn", Limit: 1))).Name);
+        Assert.DoesNotContain(Store.Search(new FileSearchQuery("mmmm", Limit: 10)), result => result.FileId.Equals(deleted));
+        Assert.False(Store.ReconstructPath(deleted).Success);
+        Assert.Equal(ReadMetadata("namespace_generation"), ReadMetadata("short_query_generation"));
         AssertShortQueryIntegrity();
+
+        var cleanPath = System.IO.Path.Combine(_directory, "clean-leaf-derived.db");
+        var clean = new IndexStore(cleanPath);
+        clean.BuildFromRecords(Volume, sink =>
+        {
+            sink(new NamespaceRecord(_root, _root, "", 16, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000011"), _root, "aaaa", 0, 0, 2));
+            sink(new NamespaceRecord(Id("0000000000000012"), _root, "zzzz", 0, 0, 2));
+            sink(new NamespaceRecord(leaf, _root, "nnnn", 0, 0, 2));
+        }, checkpoint: Checkpoint(checkpoint + 100));
+
+        Assert.Equal(ReadRankLabel(leaf, cleanPath), ReadRankLabel(leaf));
     }
 
     [Fact]
@@ -1340,9 +1362,12 @@ public sealed class IncrementalIndexStoreTests : IDisposable
     }
 
     private long ReadRankLabel(NativeFileId fileId)
+        => ReadRankLabel(fileId, DatabasePath);
+
+    private static long ReadRankLabel(NativeFileId fileId, string databasePath)
     {
         var canonical = fileId.Bytes.Length == 16 ? fileId : V3(fileId);
-        using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={databasePath};Pooling=False");
         connection.Open();
         using var rowIdCommand = connection.CreateCommand();
         rowIdCommand.CommandText = "SELECT rowid FROM namespace_entries WHERE file_id=$id;";
