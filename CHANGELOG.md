@@ -18,11 +18,12 @@
   frontier are clipped, so same-volume SQLite writes cannot make one sync
   chase its own moving journal tail indefinitely; later records remain for the
   next authoritative iteration.
-- Local short-query rank-label exhaustion no longer forces a full filesystem
-  index rebuild for an otherwise valid directory change. The journal batch
-  finishes its authoritative namespace mutations and regenerates the derived
-  short-query state once in the same transaction; generation and durable
-  checkpoint advancement occur only with the successful commit.
+- Typed short-query rank-label exhaustion, for both leaf and directory changes,
+  no longer forces a full filesystem index rebuild. The journal batch finishes
+  its authoritative namespace mutations and regenerates the derived short-query
+  state once in the same transaction; there is no local leaf-relabel fallback,
+  and generation and durable checkpoint advancement occur only with the
+  successful commit.
 
 ### Verification
 
