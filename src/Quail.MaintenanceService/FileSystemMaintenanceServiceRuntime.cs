@@ -314,10 +314,16 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     private async Task MaintainTargetAsync(string identity, CancellationToken cancellationToken)
     {
         var retryDelay = TimeSpan.FromSeconds(1);
+        var scheduling = new ContinuousMaintenanceScheduling();
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
+                if (scheduling.HasPendingCoalescing(DateTimeOffset.UtcNow))
+                {
+                    await scheduling.WaitForPendingCoalescingAsync(DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+                }
+
                 var volume = ResolveVolume(identity);
                 IncrementalCheckpoint checkpoint;
                 IncrementalCheckpoint waitCheckpoint;
@@ -363,6 +369,8 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
 
                     if (!gap.CanWait)
                     {
+                        scheduling.BeginAfterExternalGap(DateTimeOffset.UtcNow);
+
                         continue;
                     }
 
@@ -375,6 +383,7 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
 
                 retryDelay = TimeSpan.FromSeconds(1);
                 await NtfsJournal.WaitForChangesAsync(volume, waitCheckpoint, cancellationToken).ConfigureAwait(false);
+                scheduling.BeginAfterChangeWake(DateTimeOffset.UtcNow);
             }
             catch (RebuildRequiredException exception)
             {

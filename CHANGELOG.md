@@ -10,8 +10,10 @@
   checkpoint and advances only its in-memory wait frontier after proving that
   the intervening journal gap contains exclusively Quail-owned protected-state
   activity.
-- External or unknown changes in the Sync-to-wait gap force another
-  authoritative sync, while journal continuity loss remains fail-closed as
+- In normal steady-state maintenance, an external or unknown change starts one
+  fixed 60-second coalescing window before the next authoritative sync.
+  Further changes do not extend that deadline; startup catch-up remains
+  immediate, and journal continuity loss remains fail-closed as
   `RebuildRequired`.
 - Each authoritative sync and initial-build journal handoff is bounded by the
   `NextUsn` captured before reading. Native buffers that cross that half-open
@@ -40,6 +42,10 @@
   production `QuailMaintenance` SCM policy: automatic start, restart after
   5,000 ms and 30,000 ms, 86,400-second failure reset period, and recovery on
   non-crash failures enabled.
+- Same-volume continuous churn is verified as batch work rather than an
+  immediate Sync loop: pending changes have a bounded approximately 60-second
+  Search freshness lag, the service can cancel the wait for Stop or Rebuild,
+  and no in-memory Search overlay is used.
 
 ### Release status
 
