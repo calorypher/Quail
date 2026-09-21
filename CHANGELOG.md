@@ -38,7 +38,7 @@
 - A deterministic directory-exhaustion regression and a representative
   500,002-record derived-state regeneration gate verify bounded recovery,
   rollback, generation/checkpoint consistency, and Search correctness.
-- Final package verification must prove that installation restores the
+- Final package verification confirmed that installation restores the
   production `QuailMaintenance` SCM policy: automatic start, restart after
   5,000 ms and 30,000 ms, 86,400-second failure reset period, and recovery on
   non-crash failures enabled.
