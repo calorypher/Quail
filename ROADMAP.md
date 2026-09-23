@@ -497,9 +497,13 @@ Acceptance boundary:
   `12d3e9f3fdb9be5d4c6cc0aa567000d0b86b4d53`.
 
 Independent QA for M24-C passed, including the manual mixed-theme native-caption
-smoke. Quail 0.3 development/stabilization scope is complete, and the verified
-release was published as `v0.3.0` on 2026-09-14. The immutable release source is
-`e6802343d8463a68d20d9f35659a550bd1eabfc6`.
+smoke. Quail 0.3 development/stabilization scope is complete. The original
+`v0.3.0` release was published on 2026-09-14 from
+`e6802343d8463a68d20d9f35659a550bd1eabfc6` and was subsequently withdrawn for
+a critical same-volume maintenance defect. The maintenance hotfix was published
+as `v0.3.1` on 2026-09-23 from immutable tagged/package source
+`4e870df444b03ea73cc429a57e24bd98e26f4cbe`; its final integration on `main` is
+`304e1699a36a35d3bd6c288d94cc474cf19306a7`.
 
 **Goal:** prove that the integrated 0.3 product satisfies the Everything-replacement workflow and freeze a verified release candidate.
 
@@ -536,7 +540,10 @@ Acceptance boundary:
 - no release-blocking known defect remains;
 - the branch/PR is ready for final independent QA.
 
-Creating/moving `v0.3.0`, publishing a GitHub Release, or replacing release assets remains a separate explicit approval gate.
+For the original `v0.3.0` candidate, creating/moving the tag, publishing a
+GitHub Release, or replacing release assets was a separate explicit approval
+gate. `v0.3.0` remains immutable and withdrawn; the independently approved
+`v0.3.1` maintenance hotfix was published on 2026-09-23.
 
 ### Explicitly outside 0.3
 

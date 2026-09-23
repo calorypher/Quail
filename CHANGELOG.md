@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 — Unreleased
+## 0.3.1 — 2026-09-23
 
 ### Fixed
 
@@ -49,14 +49,17 @@
 
 ### Release status
 
-- Quail 0.3.1 is an unpublished hotfix candidate with implementation, release
-  acceptance, and independent final QA passed. PR #34 is ready for explicit
-  owner-approved merge. Final same-volume
+- **RELEASED.** Quail 0.3.1 was published as `v0.3.1` on 2026-09-23 from the
+  immutable tagged/package source `4e870df444b03ea73cc429a57e24bd98e26f4cbe`.
+  The final hotfix merge on `main` is
+  `304e1699a36a35d3bd6c288d94cc474cf19306a7`; the installer is
+  `Quail-0.3.1-Setup.exe` (10,248,326 bytes, SHA-256
+  `90FFFC9BC9086B0A319C5311F262048C623DA1D2965C92208BAA5CA242135D1D`).
+  Final same-volume
   physical-host acceptance covered fresh C:/D: builds, C: CRUD, reboot
   catch-up, post-reboot idle behavior, and D: CREATE/DELETE. Quail 0.3.0
   remains withdrawn; its tag, release source, and historical asset are
-  unchanged. No `v0.3.1` tag, GitHub Release, or release asset has been
-  created; publication remains a separate explicit owner approval gate.
+  unchanged.
 
 ## 0.3.0 — WITHDRAWN (released 2026-09-14)
 
