@@ -84,7 +84,7 @@ Do not use this direction to create a public plugin SDK, generalized frontend fr
 
 ## Timing
 
-- No mandatory refactor is added to Quail 0.3.
-- The current `Quail.App` / `Quail.Core` split remains acceptable for the 0.3 release.
-- Plan the source-neutral orchestration extraction in the first suitable post-0.3 release before a second frontend or shared search surface would otherwise duplicate it.
+- Quail 0.3 is complete; no historical 0.3 scope is reopened for this refactor.
+- The approved Quail 0.4 planning baseline schedules the smallest behavior-preserving source-neutral orchestration extraction as M28, before history-aware search expands GUI/CLI behavior.
+- Quail 0.4 execution is currently paused pending the explicit workflow migration to Consensus, so M28 is planned but not active.
 - Preserve CLI/Core parity incrementally as new non-visual product capabilities are added, rather than allowing GUI-only implementations to accumulate and planning a large parity rewrite later.
