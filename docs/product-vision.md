@@ -240,11 +240,9 @@ The north-star vision is intentionally much broader than the scope of any single
 
 Quail should continue to be built as small validated vertical slices. Do not attempt to implement all sources at once and do not build a speculative public plugin framework around imagined future adapters.
 
-Quail 0.2 established the first public file-search desktop baseline: Quick Search, real local NTFS indexes, GUI-managed index configuration, ranking, packaging, and a diagnostic CLI.
+Quail 0.2 established the first public file-search desktop baseline. Quail 0.3.1 is the current released filesystem-search baseline: Quick Search, Full Search, Settings, source-neutral Core/FileSystem separation, measured search/ranking work, automatic protected machine-mode NTFS maintenance, launch-on-startup, and a diagnostic/administrative CLI. The withdrawn 0.3.0 release remains historical provenance; 0.3.1 is the corrective current 0.3 release.
 
-The approved Quail 0.3 release plan makes filesystem search good enough for ordinary daily use and aims to replace Everything in the developer's normal local-file-search workflow. Its M15 architecture milestone establishes a source-neutral Core/FileSystem dependency boundary; later 0.3 milestones cover measured performance, ranking/relevance, automatic filesystem maintenance, launch-on-startup, UI/settings integration, Full Search v1, polish, and stabilization.
-
-Stable NTFS file identity/history is the preferred deeper filesystem direction after that foundation. 0.3 should preserve stable identity and a reliable change stream but should not silently introduce historical/deleted-item retention.
+Stable NTFS file identity/history is the approved next deeper filesystem direction. Quail 0.4 should preserve useful source-native identity and observed rename/move lineage, make historical names/locations useful for finding the current object, and expose bounded history without silently turning maintenance observations into an indefinite deleted-item archive.
 
 After the filesystem experience and identity/history foundation are mature enough, a genuinely different source should validate and refine the shared model. Browser history/bookmarks remain a plausible low-friction first candidate because they test heterogeneous unified search without requiring a cloud account. A later cloud source such as Google Drive or Gmail can then validate incremental remote synchronization, OAuth/account handling, credential storage, and retention semantics.
 
@@ -268,10 +266,14 @@ Quail is not intended to replace NTFS, become an operating-system storage platfo
 
 This document records the strategic north star, not a committed implementation sequence for all future versions.
 
-Quail 0.2 is the current public baseline. Quail 0.3 has an approved M15-M24 release plan focused on a daily-usable, fast, automatically maintained filesystem-search product with Quick Search and Full Search. M15 additionally establishes the source-neutral dependency direction needed for future heterogeneous and physically optional first-party sources without implementing a runtime plugin/loading framework.
+Quail 0.3.1 is the current public filesystem-search baseline. The 0.3 line established a source-neutral Core/FileSystem dependency boundary, continuous protected machine-mode maintenance, Quick Search, Full Search, Settings, and the practical Everything-replacement workflow for local NTFS filename search.
 
-Frontend interchangeability and CLI/Core parity are approved post-0.3 architectural directions. They do not add scope to Quail 0.3, but the first suitable post-0.3 planning cycle should schedule source-neutral orchestration extraction before a second frontend/shared search surface would otherwise duplicate it.
+Quail 0.4 File Identity & History has an approved roadmap boundary in `docs/0.4-direction.md`: supported source-native NTFS identity and observed rename/move lineage, historical-name/location search for the current object, bounded history/details UX, persistence/migration/recovery work, and evidence-driven resource verification. A searchable deleted-item archive is outside that boundary.
 
-The machine/full plus per-user/limited deployment/indexing direction is restored pre-implementation planning material. Quail 0.3 completes only the machine/full path; per-user/limited deployment and the reusable non-service filesystem indexing path are future roadmap work with version assignment intentionally unfrozen.
+0.4 execution is intentionally paused until the Quail development workflow has been explicitly migrated to Consensus. The repository remains the canonical technical source, and the existing architecture, Git/PR, QA, verification, release, and safety gates remain authoritative unless a later explicit cross-version methodology decision changes them.
 
-File identity/history is directional work after the 0.3 filesystem-usability foundation. Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases. Later sequencing should continue to change when measured behavior and real usage provide better evidence.
+Frontend interchangeability and CLI/Core parity remain approved post-0.3 architectural directions. The 0.4 plan may perform the smallest source-neutral search-session orchestration extraction needed to prevent history-aware GUI and CLI behavior from diverging.
+
+The machine/full plus per-user/limited deployment/indexing direction remains approved pre-implementation planning material, but per-user/limited deployment and the reusable non-service filesystem indexing path are deferred from the approved 0.4 boundary.
+
+Browser history/bookmarks remain the likely first heterogeneous source after the filesystem-focused releases, subject to later roadmap sequencing and evidence. Later sequencing should continue to change when measured behavior and real usage provide better evidence.

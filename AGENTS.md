@@ -22,9 +22,13 @@ Chat history and Google Drive are not substitutes for repository state. The priv
 
 ## Project intent
 
-Quail is a Windows-first, local-first universal search system for the user's digital information. The current public implementation is deliberately file-first: Quail 0.2 provides a WinUI Quick Search desktop application backed by Quail's own local NTFS indexes, with GUI-managed index configuration and a diagnostic/administrative CLI.
+Quail is a Windows-first, local-first universal search system for the user's digital information. The current public baseline is Quail 0.3.1, a file-first Windows 11 x64 release with Quick Search, Full Search, Settings, local NTFS indexes, continuous machine-mode maintenance through the protected `QuailMaintenance` service, and an administrative/diagnostic CLI. Ordinary Search reads compatible indexes directly and does not depend on service IPC.
 
-The near-term product goal is to make filesystem search fast, relevant, continuously current, and comfortable enough for ordinary daily use before adding heterogeneous sources. Later sources should be added through validated vertical slices rather than through a speculative provider framework.
+The next approved product direction is Quail 0.4 File Identity & History: preserve useful source-native NTFS identity and observed rename/move lineage so the current object can be found through previous names and locations. The detailed boundary is canonical in `docs/0.4-direction.md`.
+
+Quail 0.4 execution is intentionally paused while Consensus is being built. Do not start 0.4 implementation or create executable 0.4 milestone branches until the roadmap explicitly records completion of the workflow migration to Consensus. The Quail repository remains the canonical technical source throughout that transition.
+
+Later heterogeneous sources should continue to be added through validated vertical slices rather than through a speculative provider framework.
 
 ## Language and artifact conventions
 
@@ -168,7 +172,7 @@ Stop when the approved acceptance criteria are met. Do not add extra rounds of h
 
 ## Packaging and update direction
 
-Quail 0.2 uses Inno Setup and a fixed per-machine installation under `C:\Program Files\Quail`. User settings and index data live outside the application directory. The 0.2 development-release contract does not promise compatible in-place upgrade across every historical development build or installation variant.
+Quail 0.3.1 uses Inno Setup and a fixed machine/full installation under `C:\Program Files\Quail`, with protected machine index/state under ProgramData and per-user settings under LocalAppData where applicable. The supported released-version transition contract is intentionally bounded; do not infer compatibility with every historical development build or installation variant.
 
 Do not recreate broad legacy cleanup or upgrade machinery without a new product requirement. A documented manual uninstall/reinstall or index rebuild is acceptable for an unusual development-release transition when it is materially simpler and does not risk user-owned data.
 

@@ -6,7 +6,7 @@
 
 This direction predates the Quail 1.0 scope freeze. Restoring it does not add scope to Quail 0.3 and is not a new post-freeze product idea.
 
-Quail 0.3 remains focused on finishing the machine/full deployment and indexing path. The per-user/limited path belongs to future roadmap work after 0.3; its exact release number is intentionally not frozen.
+Quail 0.3.1 is the completed current machine/full deployment and indexing baseline. The per-user/limited path remains future roadmap work; the approved 0.4 boundary defers it and its exact later release number is intentionally not frozen.
 
 ## Product modes
 
@@ -24,7 +24,7 @@ Intended characteristics:
 - the interactive application remains unelevated;
 - Search reads compatible complete indexes directly and does not require service IPC.
 
-This is the deployment/indexing path implemented by Quail 0.3.
+This is the deployment/indexing path implemented by the current Quail 0.3.1 baseline.
 
 ### Per-user / limited mode
 
@@ -85,9 +85,9 @@ Whether network shares are presented as a distinct filesystem-like source, a Fil
 
 ## Roadmap timing
 
-Quail 0.3 does **not** implement per-user/limited deployment or the general user-mode folder/network indexing backend. It finishes the machine/full path selected by M19/M20 and preserves the search/service separation needed for later work.
+Quail 0.3.1 is the current released machine/full baseline and preserves the search/service separation needed for later work.
 
-After 0.3, roadmap planning should explicitly schedule the per-user/limited direction. It may be suitable for 0.4 or another early post-0.3 release, but the version number must be chosen alongside the other post-0.3 priorities rather than frozen here.
+The approved Quail 0.4 boundary explicitly defers per-user/limited deployment and the general user-mode folder/network indexing backend so the first identity/history release can be established on the existing machine-mode NTFS backend. The exact later release assignment remains intentionally unfrozen and should be reconsidered after 0.4 evidence is available.
 
 The eventual implementation should be treated as a bounded vertical slice with at least:
 
@@ -99,4 +99,4 @@ The eventual implementation should be treated as a bounded vertical slice with a
 - safe transition between modes, with rebuild accepted where appropriate;
 - representative network-share verification if network targets are included in that release.
 
-This direction does not require Quail 0.3 to implement or simulate any of those future capabilities.
+This direction is not part of the approved Quail 0.4 boundary and does not require 0.4 to implement or simulate any of those future capabilities.

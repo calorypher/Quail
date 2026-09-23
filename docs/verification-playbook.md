@@ -128,6 +128,39 @@ Do not use the VM as justification for repeating unrelated full-product campaign
 
 Use the physical host only when the requirement cannot be established adequately in automated tests/Quail-Lab, the change affects host-specific integration, or an environment-specific regression appears. Do not repeat a previous physical-host release campaign for unchanged boundaries.
 
+
+### Mandatory maintenance-service release topology
+
+The withdrawn Quail 0.3.0 release demonstrated that a VM test topology can miss a privileged/background feedback loop when the watched filesystem and Quail's own writable protected state live on the same physical volume.
+
+For every public release candidate that contains the production `QuailMaintenance` service, final acceptance must include one real installed physical-Windows-host test with the normal machine/full topology:
+
+- system `C:` is an indexed target;
+- `%ProgramData%\Quail` and the protected index/state for that target are on the same `C:`;
+- the final installed service is running under its production SCM configuration;
+- the C: index is complete, healthy, and trusted;
+- observe several minutes of settled idle with bounded service CPU/I/O and no monotonic Quail-owned WAL/SHM or checkpoint churn;
+- perform representative CREATE, metadata/update where relevant, RENAME, MOVE, and DELETE operations and prove they become searchable/removed correctly;
+- prove that the service returns to quiescent bounded behavior after the changes;
+- perform a normal Windows restart and prove startup catch-up plus a second quiescent observation;
+- use a separate-volume target as a control where one is naturally available.
+
+The acceptance criterion is not absolute zero CPU or zero bytes because a real system volume has external churn. It is the absence of a self-sustaining Quail-generated workload, preservation of trust/correctness, and bounded return to idle. Record enough CPU, I/O, checkpoint, and WAL/SHM evidence to distinguish finite work from the withdrawn 0.3.0 failure mode.
+
+Quail-Lab remains the canonical environment for destructive recovery, corruption, ACL/security, controlled downtime, SCM failure/recovery, and installer-lifecycle testing. The physical-host gate complements the VM; it does not replace it.
+
+### Frozen release-candidate dogfooding gate
+
+Automated, VM, and scripted physical acceptance are necessary but are not the final publication boundary.
+
+Before a normal public release, freeze one exact release candidate: a specific source commit and the exact installer/package intended for publication. Install that candidate on the normal physical development PC and use it as the real daily Quail installation for several days, normally about 2-3 days, exercising ordinary startup/reboot, background maintenance, Quick Search, Full Search, Settings, and normal filesystem churn.
+
+The purpose is to expose emergent topology, lifecycle, resource, and UX failures that narrow scripted tests may not model. Dogfooding is not a substitute for deterministic verification and should not be turned into an unbounded exploratory test campaign.
+
+If a release-blocking product change is made after the soak begins, the previous candidate is no longer the publication candidate. Produce a new frozen candidate and repeat the applicable acceptance/soak evidence. Do not silently rebuild a different installer after successful acceptance and publish it as though it were the tested artifact.
+
+A security-critical or urgent corrective release may use a deliberately shorter soak only through an explicit release decision that records why waiting several days is riskier than publishing the verified fix.
+
 ## Build, publish, and installer verification
 
 Treat build, publish, packaging, installation, and release validation as separate evidence levels. Use the smallest applicable proof:
