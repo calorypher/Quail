@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+### Fixed
+
+- Same-volume maintenance no longer wakes itself indefinitely when protected
+  SQLite, checkpoint, WAL/SHM, lock, or health publication writes occur on the
+  same NTFS volume being watched. The service preserves the durable applied
+  checkpoint and advances only its in-memory wait frontier after proving that
+  the intervening journal gap contains exclusively Quail-owned protected-state
+  activity.
+- In normal steady-state maintenance, an external or unknown change starts one
+  fixed 60-second coalescing window before the next authoritative sync.
+  Further changes do not extend that deadline; startup catch-up remains
+  immediate, and journal continuity loss remains fail-closed as
+  `RebuildRequired`.
+- Each authoritative sync and initial-build journal handoff is bounded by the
+  `NextUsn` captured before reading. Native buffers that cross that half-open
+  frontier are clipped, so same-volume SQLite writes cannot make one sync
+  chase its own moving journal tail indefinitely; later records remain for the
+  next authoritative iteration.
+- Typed short-query rank-label exhaustion, for both leaf and directory changes,
+  no longer forces a full filesystem index rebuild. The journal batch finishes
+  its authoritative namespace mutations and regenerates the derived short-query
+  state once in the same transaction; there is no local leaf-relabel fallback,
+  and generation and durable checkpoint advancement occur only with the
+  successful commit.
+
+### Verification
+
+- The maintenance resource gate now includes service read/write bytes and
+  operation counts, checkpoint progression, and WAL/SHM lifecycle in addition
+  to CPU, memory, handles, and threads.
+- Release acceptance adds an explicit physical-host same-volume C: regression
+  gate plus real CREATE, metadata, RENAME, MOVE, DELETE, restart/catch-up, and
+  separate-volume control checks.
+- A deterministic directory-exhaustion regression and a representative
+  500,002-record derived-state regeneration gate verify bounded recovery,
+  rollback, generation/checkpoint consistency, and Search correctness.
+- Final package verification confirmed that installation restores the
+  production `QuailMaintenance` SCM policy: automatic start, restart after
+  5,000 ms and 30,000 ms, 86,400-second failure reset period, and recovery on
+  non-crash failures enabled.
+- Same-volume continuous churn is verified as batch work rather than an
+  immediate Sync loop: pending changes have a bounded approximately 60-second
+  Search freshness lag, the service can cancel the wait for Stop or Rebuild,
+  and no in-memory Search overlay is used.
+
+### Release status
+
+- Quail 0.3.1 is an unpublished hotfix candidate with implementation, release
+  acceptance, and independent final QA passed. PR #34 is ready for explicit
+  owner-approved merge. Final same-volume
+  physical-host acceptance covered fresh C:/D: builds, C: CRUD, reboot
+  catch-up, post-reboot idle behavior, and D: CREATE/DELETE. Quail 0.3.0
+  remains withdrawn; its tag, release source, and historical asset are
+  unchanged. No `v0.3.1` tag, GitHub Release, or release asset has been
+  created; publication remains a separate explicit owner approval gate.
+
 ## 0.3.0 — WITHDRAWN (released 2026-09-14)
 
 ### Added

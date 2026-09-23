@@ -266,7 +266,7 @@ public sealed class IndexStore
             try
             {
                 metadata = new NtfsMetadataAcquirer(volume);
-                var finalCursor = NtfsJournal.Read(volume, finalCheckpoint, batch =>
+                var finalCursor = NtfsJournal.Read(volume, finalCheckpoint, journal.NextUsn, batch =>
                 {
                     try
                     {
@@ -357,7 +357,7 @@ public sealed class IndexStore
     };
 
     // Used by focused automated tests to prove transaction boundaries without a Windows volume.
-    public void ApplyParsedBatchesForTesting(
+    public int ApplyParsedBatchesForTesting(
         VolumeDescriptor volume,
         UsnJournalState journal,
         IEnumerable<JournalBatch> batches,
@@ -386,11 +386,13 @@ public sealed class IndexStore
             }
 
             var acquire = acquireMetadata ?? UnavailableMetadata;
+            var derivedStateRegenerations = 0;
             foreach (var batch in materializedBatches)
             {
-                ApplyBatch(connection, batch, journal, failBeforeCommit, acquire);
+                if (ApplyBatch(connection, batch, journal, failBeforeCommit, acquire)) derivedStateRegenerations++;
             }
             PersistSuccessfulSync(connection, ReadCheckpoint(connection) ?? throw new InvalidOperationException("Test sync requires a checkpoint."));
+            return derivedStateRegenerations;
         }
         finally
         {
@@ -758,7 +760,7 @@ public sealed class IndexStore
             }
 
             var finalCheckpoint = initialCheckpoint;
-            var finalCursor = NtfsJournal.Read(volumeHandle, initialCheckpoint, batch =>
+            var finalCursor = NtfsJournal.Read(volumeHandle, initialCheckpoint, afterEnumeration.NextUsn, batch =>
             {
                 ApplyBatch(connection, batch, afterEnumeration, false, acquireMetadata);
                 finalCheckpoint = finalCheckpoint with { NextUsn = batch.NextUsn };
@@ -887,7 +889,7 @@ public sealed class IndexStore
         }
     }
 
-    private static void ApplyBatch(
+    private static bool ApplyBatch(
         SqliteConnection connection,
         JournalBatch batch,
         UsnJournalState journal,
@@ -918,6 +920,7 @@ public sealed class IndexStore
         }
         using var transaction = connection.BeginTransaction();
         var maintainShortQueryIndex = ShortQueryIndex.IsCurrent(connection);
+        var rebuildShortQueryIndex = false;
         foreach (var record in canonicalRecords)
         {
             if (UsnReason.IsFileDelete(record.Reason))
@@ -926,13 +929,32 @@ public sealed class IndexStore
                     connection,
                     transaction,
                     record.NamespaceRecord.FileId,
-                    maintainShortQueryIndex);
+                    maintainShortQueryIndex && !rebuildShortQueryIndex);
             }
             else if (!UsnReason.IsRenameOldName(record.Reason))
             {
-                if (maintainShortQueryIndex)
+                if (maintainShortQueryIndex && !rebuildShortQueryIndex)
                 {
-                    UpsertWithShortQueryIndex(
+                    try
+                    {
+                        UpsertWithShortQueryIndex(
+                            connection,
+                            transaction,
+                            record.NamespaceRecord,
+                            metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
+                    }
+                    catch (ShortQueryRankLabelGapExhaustedException)
+                    {
+                        // The authoritative namespace mutation precedes rank insertion.
+                        // Finish this bounded journal batch without further derived-state
+                        // mutations, then regenerate the complete derived state once from
+                        // the final namespace inside the same transaction.
+                        rebuildShortQueryIndex = true;
+                    }
+                }
+                else if (maintainShortQueryIndex)
+                {
+                    UpsertAuthoritativeNamespaceOnly(
                         connection,
                         transaction,
                         record.NamespaceRecord,
@@ -943,6 +965,10 @@ public sealed class IndexStore
                     Upsert(connection, transaction, record.NamespaceRecord, metadata.GetValueOrDefault(record.NamespaceRecord.FileId));
                 }
             }
+        }
+        if (rebuildShortQueryIndex)
+        {
+            ShortQueryIndex.RebuildDerivedState(connection, transaction);
         }
         if (failBeforeCommit)
         {
@@ -963,6 +989,23 @@ public sealed class IndexStore
             "record_count",
             CountEntries(connection, transaction).ToString(System.Globalization.CultureInfo.InvariantCulture));
         transaction.Commit();
+        return rebuildShortQueryIndex;
+    }
+
+    private static void UpsertAuthoritativeNamespaceOnly(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        NamespaceRecord record,
+        FileMetadata? metadata)
+    {
+        if (!record.FileId.Equals(record.ParentFileId) &&
+            !IsNamespaceEntryRooted(connection, record.ParentFileId))
+        {
+            DeleteCurrentEntry(connection, transaction, record.FileId, maintainShortQueryIndex: false);
+            return;
+        }
+
+        Upsert(connection, transaction, record, metadata);
     }
 
     private static void UpsertWithShortQueryIndex(

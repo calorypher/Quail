@@ -153,6 +153,165 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
     }
 
     [Fact]
+    public void Same_volume_owned_maintenance_gap_advances_only_the_in_memory_wait_frontier()
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+        var journal = new UsnJournalState(1, 10, 150, 5, 2, 3);
+
+        var result = MaintenanceJournalGap.CreateResult(
+            applied,
+            journal,
+            cursor: 150,
+            recordsInspected: 12,
+            onlyOwnedChanges: true);
+
+        Assert.True(result.CanWait);
+        Assert.Equal(150, result.WaitCheckpoint.NextUsn);
+        Assert.Equal(100, applied.NextUsn);
+        Assert.Equal(12, result.RecordsInspected);
+        Assert.Null(result.RebuildRequiredReason);
+    }
+
+    [Fact]
+    public void External_change_in_sync_to_wait_gap_requires_another_authoritative_sync()
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+        var journal = new UsnJournalState(1, 10, 150, 5, 2, 3);
+
+        var result = MaintenanceJournalGap.CreateResult(
+            applied,
+            journal,
+            cursor: 150,
+            recordsInspected: 2,
+            onlyOwnedChanges: false);
+
+        Assert.False(result.CanWait);
+        Assert.Null(result.RebuildRequiredReason);
+    }
+
+    [Theory]
+    [InlineData(149)]
+    [InlineData(151)]
+    public void Wait_gap_rejects_a_cursor_other_than_the_captured_frontier(long cursor)
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+        var journal = new UsnJournalState(1, 10, 150, 5, 2, 3);
+
+        var result = MaintenanceJournalGap.CreateResult(
+            applied,
+            journal,
+            cursor,
+            recordsInspected: 0,
+            onlyOwnedChanges: true);
+
+        Assert.False(result.CanWait);
+        Assert.Equal("journal-read-or-parse-failed", result.RebuildRequiredReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
+    }
+
+    [Fact]
+    public void Wait_gap_continuity_loss_preserves_rebuild_required_semantics()
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+        var changedJournal = new UsnJournalState(2, 10, 150, 5, 2, 3);
+
+        var result = MaintenanceJournalGap.CreateResult(
+            applied,
+            changedJournal,
+            cursor: 150,
+            recordsInspected: 0,
+            onlyOwnedChanges: true);
+
+        Assert.False(result.CanWait);
+        Assert.Equal("journal-id-mismatch", result.RebuildRequiredReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
+    }
+
+    [Fact]
+    public void Transient_wait_gap_failure_retries_without_advancing_the_durable_checkpoint()
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+
+        var result = MaintenanceJournalGap.CreateFailureResult(applied, new IOException("device unavailable"));
+
+        Assert.False(result.CanWait);
+        Assert.Null(result.RebuildRequiredReason);
+        Assert.Equal("journal-read-unavailable", result.UnavailableReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
+    }
+
+    [Theory]
+    [InlineData(1179)]
+    [InlineData(1181)]
+    public void Continuity_wait_gap_failure_remains_fail_closed(int nativeErrorCode)
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+
+        var result = MaintenanceJournalGap.CreateFailureResult(
+            applied,
+            new System.ComponentModel.Win32Exception(nativeErrorCode));
+
+        Assert.False(result.CanWait);
+        Assert.Equal("journal-read-or-parse-failed", result.RebuildRequiredReason);
+        Assert.Null(result.UnavailableReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
+    }
+
+    [Theory]
+    [MemberData(nameof(NonTransientGapFailures))]
+    public void Invalid_or_unsupported_wait_gap_is_rebuild_required(Exception failure)
+    {
+        var applied = new IncrementalCheckpoint(1, 100, 10, 5);
+
+        var result = MaintenanceJournalGap.CreateFailureResult(applied, failure);
+
+        Assert.False(result.CanWait);
+        Assert.Equal("journal-read-or-parse-failed", result.RebuildRequiredReason);
+        Assert.Null(result.UnavailableReason);
+        Assert.Equal(applied, result.WaitCheckpoint);
+    }
+
+    [Fact]
+    public void Owned_change_classifier_is_narrow_to_exact_protected_artifacts()
+    {
+        var common = Id(1);
+        var root = Id(2);
+        var legacyIndexesBytes = new byte[16];
+        Array.Fill(legacyIndexesBytes, (byte)3, 0, 8);
+        var indexes = new NativeFileId(legacyIndexesBytes);
+        var locks = Id(4);
+        var scope = new MaintenanceOwnedChangeScope(
+            common,
+            root,
+            indexes,
+            locks,
+            "volume-test.db",
+            "volume-test.lock");
+
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(indexes, "volume-test.db-wal"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(indexes, "volume-test.db-journal"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(root, "maintenance-health.json"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(root, ".maintenance-health.json.0123456789abcdef0123456789abcdef.tmp"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(root, "maintenance-health.json~RF1234.TMP"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(locks, "volume-test.lock"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(Record(common, "Quail"), scope));
+        Assert.True(MaintenanceJournalGap.IsOwnedChange(
+            Record(new NativeFileId(indexes.Bytes.Span[..8]), "volume-test.db-shm"),
+            scope));
+
+        Assert.False(MaintenanceJournalGap.IsOwnedChange(Record(indexes, "unrelated.db-wal"), scope));
+        Assert.False(MaintenanceJournalGap.IsOwnedChange(Record(root, "maintenance-targets.json"), scope));
+        Assert.False(MaintenanceJournalGap.IsOwnedChange(Record(Id(9), "volume-test.db-wal"), scope));
+    }
+
+    [Fact]
+    public void Separate_volume_storage_does_not_need_same_volume_gap_inspection()
+    {
+        Assert.True(MaintenanceJournalGap.IsOnVolume(@"C:\ProgramData\Quail", @"C:\"));
+        Assert.False(MaintenanceJournalGap.IsOnVolume(@"C:\ProgramData\Quail", @"D:\"));
+    }
+
+    [Fact]
     public async Task Native_pipe_acl_rejects_a_non_elevated_client_before_framing()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -190,4 +349,16 @@ public sealed class M20MaintenanceBoundaryTests : IDisposable
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
+
+    private static NativeFileId Id(byte value) => new(Enumerable.Repeat(value, 16).ToArray());
+
+    private static JournalRecord Record(NativeFileId parent, string name) => new(
+        new NamespaceRecord(Id(8), parent, name, 0, 0, 3),
+        UsnReason.Close);
+
+    public static TheoryData<Exception> NonTransientGapFailures => new()
+    {
+        new InvalidDataException("malformed record"),
+        new NotSupportedException("unsupported record version")
+    };
 }

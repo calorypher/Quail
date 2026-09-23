@@ -4,15 +4,18 @@
 >
 > Quail 0.3.0 has been withdrawn due to a critical maintenance-service defect
 > that can cause sustained CPU and disk-write activity while idle on the system
-> volume. Do not install 0.3.0. Use 0.2.0 until the 0.3.1 hotfix is available.
+> volume. Do not install 0.3.0. Quail 0.3.1 is the narrowly scoped maintenance
+> hotfix candidate and is not published until its physical-host QA gate passes.
 
 Quail is a Windows-first, local-first filesystem search application for
 Windows 11 x64. It indexes local NTFS volumes and searches local file and
 directory names without sending indexes or queries to a cloud service.
 
-## Quail 0.3.0 (withdrawn)
+## Quail 0.3.1 (hotfix candidate)
 
-Quail 0.3.0 is a withdrawn development release. Its primary
+Quail 0.3.1 preserves the withdrawn 0.3.0 feature set and changes only the
+critical maintenance idle-write path, its regression coverage, and release
+evidence. Its primary
 surfaces are Quick Search, a global hotkey, tray integration, Full Search,
 Settings, and an administrative/diagnostic `Quail.Cli`.
 
@@ -26,8 +29,8 @@ file changes. If USN continuity cannot be proven, Quail fails closed with
 
 ## Install
 
-Do not download or install Quail 0.3.0. Its historical installer asset is
-`Quail-0.3.0-Setup.exe`.
+Quail 0.3.1 has not been published. Do not download or install Quail 0.3.0. Its
+historical installer asset remains available only as withdrawn provenance.
 
 The historical asset's SHA-256 is recorded below for provenance only:
 
@@ -35,13 +38,14 @@ The historical asset's SHA-256 is recorded below for provenance only:
 2b17072506027d304d295273f1998d467586d2828ac27d63221751c5a7ba495c
 ```
 
-The withdrawn installer was fixed at `C:\Program Files\Quail`; custom
-destinations were not supported. Its pinned prerequisites were .NET 10 Desktop
-Runtime, Windows App Runtime, and the x64 Visual C++ Redistributable.
+The 0.3.x installer is fixed at `C:\Program Files\Quail`; custom destinations
+are not supported. Its pinned prerequisites are .NET 10 Desktop Runtime,
+Windows App Runtime, and the x64 Visual C++ Redistributable.
 
-The representative released `0.2.0` to `0.3.0` transition at the canonical
-installation path is supported and preserves existing ProgramData and
-LocalAppData. Other historical development builds remain uninstall-first.
+The 0.3.1 hotfix candidate supports the bounded `0.2.0` to `0.3.1` and
+withdrawn `0.3.0` to `0.3.1` transitions at the canonical installation path,
+preserving existing ProgramData and LocalAppData. Other historical development
+builds remain uninstall-first.
 
 ## Basic usage
 
@@ -91,8 +95,11 @@ or LocalAppData.
 
 ## Development status
 
-Quail 0.3.0 is a withdrawn development release. See [ROADMAP.md](ROADMAP.md)
-for planned work; the roadmap is not a feature list for the current release.
+Quail 0.3.1 is an unpublished maintenance hotfix candidate for the withdrawn
+0.3.0 release. It does not begin Quail 0.4 or change the 0.4 roadmap goal. See
+[the 0.3.1 release notes](docs/releases/0.3.1-release-notes.md) for the hotfix
+boundary and [ROADMAP.md](ROADMAP.md) for planned work; the roadmap is not a
+feature list for the current release.
 
 ## License
 

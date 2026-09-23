@@ -314,12 +314,19 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
     private async Task MaintainTargetAsync(string identity, CancellationToken cancellationToken)
     {
         var retryDelay = TimeSpan.FromSeconds(1);
+        var scheduling = new ContinuousMaintenanceScheduling();
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
+                if (scheduling.HasPendingCoalescing(DateTimeOffset.UtcNow))
+                {
+                    await scheduling.WaitForPendingCoalescingAsync(DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+                }
+
                 var volume = ResolveVolume(identity);
                 IncrementalCheckpoint checkpoint;
+                IncrementalCheckpoint waitCheckpoint;
                 await _writer.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
@@ -349,6 +356,25 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                         checkpoint,
                         null,
                         null));
+                    var gap = MaintenanceJournalGap.Inspect(volume, checkpoint, storage.DatabasePath);
+                    if (gap.RebuildRequiredReason is not null)
+                    {
+                        throw new RebuildRequiredException(gap.RebuildRequiredReason);
+                    }
+
+                    if (gap.UnavailableReason is not null)
+                    {
+                        throw new IOException(gap.UnavailableReason);
+                    }
+
+                    if (!gap.CanWait)
+                    {
+                        scheduling.BeginAfterExternalGap(DateTimeOffset.UtcNow);
+
+                        continue;
+                    }
+
+                    waitCheckpoint = gap.WaitCheckpoint;
                 }
                 finally
                 {
@@ -356,7 +382,8 @@ internal sealed class FileSystemMaintenanceServiceRuntime : IMaintenanceServiceR
                 }
 
                 retryDelay = TimeSpan.FromSeconds(1);
-                await NtfsJournal.WaitForChangesAsync(volume, checkpoint, cancellationToken).ConfigureAwait(false);
+                await NtfsJournal.WaitForChangesAsync(volume, waitCheckpoint, cancellationToken).ConfigureAwait(false);
+                scheduling.BeginAfterChangeWake(DateTimeOffset.UtcNow);
             }
             catch (RebuildRequiredException exception)
             {

@@ -79,6 +79,31 @@ public static class NtfsVolume
         }
     }
 
+    internal static NativeFileId GetPathFileId(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        using var handle = CreateFile(
+            Path.GetFullPath(path),
+            0,
+            0x00000001 | 0x00000002 | 0x00000004,
+            IntPtr.Zero,
+            3,
+            0x02000000,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            ThrowLastError($"CreateFile({path})");
+        }
+
+        var fileIdInfo = new byte[24];
+        if (!GetFileInformationByHandleEx(handle, 18, fileIdInfo, fileIdInfo.Length))
+        {
+            ThrowLastError("GetFileInformationByHandleEx(FileIdInfo)");
+        }
+
+        return new NativeFileId(fileIdInfo.AsSpan(8, 16));
+    }
+
     private static void ThrowLastError(string operation) =>
         throw new Win32Exception(Marshal.GetLastWin32Error(), operation);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
