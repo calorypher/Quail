@@ -49,12 +49,14 @@
 
 ### Release status
 
-- Quail 0.3.1 is an unpublished hotfix candidate with implementation and
-  release acceptance passed, ready for independent final QA. Final same-volume
+- Quail 0.3.1 is an unpublished hotfix candidate with implementation, release
+  acceptance, and independent final QA passed. PR #34 is ready for explicit
+  owner-approved merge. Final same-volume
   physical-host acceptance covered fresh C:/D: builds, C: CRUD, reboot
   catch-up, post-reboot idle behavior, and D: CREATE/DELETE. Quail 0.3.0
   remains withdrawn; its tag, release source, and historical asset are
-  unchanged.
+  unchanged. No `v0.3.1` tag, GitHub Release, or release asset has been
+  created; publication remains a separate explicit owner approval gate.
 
 ## 0.3.0 — WITHDRAWN (released 2026-09-14)
 
