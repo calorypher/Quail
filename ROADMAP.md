@@ -583,7 +583,7 @@ The approved direction is:
 - **Search must not depend on the Windows Service.** The service is a machine-mode filesystem maintenance/write mechanism, while ordinary Search remains source-neutral and reads compatible searchable state without service IPC.
 - The long-term UX should allow changing between machine/full and per-user/limited deployment without a manual uninstall/reinstall workflow. Exact installer/service/ACL/shortcut migration is deferred; rebuilding filesystem indexes during a mode transition is acceptable.
 
-The exact release assignment remains open. This work is a candidate for an early post-0.3 release, potentially 0.4, but must be scheduled alongside file identity/history and other post-0.3 priorities rather than silently changing the already directional 0.4 scope.
+The exact release assignment remains open. The approved Quail 0.4 boundary deliberately defers this work so identity/history can be established first on the existing machine-mode NTFS backend. Reconsider the deployment/user-mode filesystem slice in a later roadmap decision after 0.4 evidence is available.
 
 ## 0.4 — File Identity & History — PLANNING APPROVED / EXECUTION PAUSED
 
