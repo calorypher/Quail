@@ -1,21 +1,12 @@
 # Quail
 
-> **WARNING — QUAIL 0.3.0 WITHDRAWN**
->
-> Quail 0.3.0 has been withdrawn due to a critical maintenance-service defect
-> that can cause sustained CPU and disk-write activity while idle on the system
-> volume. Do not install 0.3.0. Quail 0.3.1 is the narrowly scoped maintenance
-> hotfix release. Install Quail 0.3.1 instead.
-
 Quail is a Windows-first, local-first filesystem search application for
 Windows 11 x64. It indexes local NTFS volumes and searches local file and
 directory names without sending indexes or queries to a cloud service.
 
 ## Quail 0.3.1
 
-Quail 0.3.1 preserves the withdrawn 0.3.0 feature set and changes only the
-critical maintenance idle-write path, its regression coverage, and release
-evidence. Its primary
+Quail 0.3.1 is the current released filesystem-search baseline. Its primary
 surfaces are Quick Search, a global hotkey, tray integration, Full Search,
 Settings, and an administrative/diagnostic `Quail.Cli`.
 
@@ -30,15 +21,7 @@ file changes. If USN continuity cannot be proven, Quail fails closed with
 ## Install
 
 Quail 0.3.1 is the current 0.3 release. Download it from the
-[GitHub Release](https://github.com/calorypher/Quail/releases/tag/v0.3.1). Do
-not download or install Quail 0.3.0; its historical installer asset remains
-available only as withdrawn provenance.
-
-The historical asset's SHA-256 is recorded below for provenance only:
-
-```text
-2b17072506027d304d295273f1998d467586d2828ac27d63221751c5a7ba495c
-```
+[GitHub Release](https://github.com/calorypher/Quail/releases/tag/v0.3.1).
 
 The 0.3.x installer is fixed at `C:\Program Files\Quail`; custom destinations
 are not supported. Its pinned prerequisites are .NET 10 Desktop Runtime,
@@ -97,10 +80,12 @@ or LocalAppData.
 
 ## Development status
 
-Quail 0.3.1 was released on 2026-09-23 as the maintenance hotfix for withdrawn
-0.3.0. It does not begin Quail 0.4 or change the 0.4 roadmap goal. See
+Quail 0.3.1 was released on 2026-09-23 and is the current public baseline.
+Quail 0.3.0 remains withdrawn as historical provenance; its release page and
+release notes record the reason. Quail 0.4 planning is approved but execution
+is paused pending the workflow migration to Consensus. See
 [the 0.3.1 release notes](docs/releases/0.3.1-release-notes.md) and
-[ROADMAP.md](ROADMAP.md) for the release history and planned work.
+[ROADMAP.md](ROADMAP.md) for release history and planned work.
 
 ## License
 
