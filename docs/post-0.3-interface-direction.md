@@ -4,7 +4,7 @@
 
 **Approved cross-version architectural direction.**
 
-This document records a post-Quail-0.3 architectural invariant. It does not change the scope or acceptance boundary of Quail 0.3, and it does not require refactoring the current post-M15 frontend/search coordination before the 0.3 release is complete.
+This document records the approved post-Quail-0.3 architectural invariant. Quail 0.3 is complete; the current roadmap schedules the smallest needed extraction in Quail 0.4 without reopening historical 0.3 scope.
 
 ## Frontend interchangeability
 
@@ -34,7 +34,7 @@ The architectural test is:
 
 > Replacing WinUI with another frontend should not require reimplementing Quail's source-neutral search-session semantics.
 
-The current post-M15 separation is acceptable through Quail 0.3. Do not broaden 0.3 merely to move every existing coordinator into Core. Perform this separation before introducing a second frontend or another shared search surface whose implementation would otherwise duplicate the same orchestration behavior.
+The post-M15 separation was accepted through Quail 0.3. The approved 0.4 plan performs the smallest behavior-preserving separation needed before history-aware behavior would otherwise diverge across interfaces; broader extraction should still wait for demonstrated reuse.
 
 ## CLI as a first-class interface
 
