@@ -6,7 +6,7 @@
 
 This direction predates the Quail 1.0 scope freeze. Restoring it does not add scope to Quail 0.3 and is not a new post-freeze product idea.
 
-Quail 0.3 remains focused on finishing the machine/full deployment and indexing path. The per-user/limited path belongs to future roadmap work after 0.3; its exact release number is intentionally not frozen.
+Quail 0.3.1 is the completed current machine/full deployment and indexing baseline. The per-user/limited path remains future roadmap work; the approved 0.4 boundary defers it and its exact later release number is intentionally not frozen.
 
 ## Product modes
 
@@ -24,7 +24,7 @@ Intended characteristics:
 - the interactive application remains unelevated;
 - Search reads compatible complete indexes directly and does not require service IPC.
 
-This is the deployment/indexing path implemented by Quail 0.3.
+This is the deployment/indexing path implemented by the current Quail 0.3.1 baseline.
 
 ### Per-user / limited mode
 
