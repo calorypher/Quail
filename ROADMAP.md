@@ -65,9 +65,9 @@ The `v0.2.0` tag is an immutable release baseline. Post-release documentation an
 
 ### Product goal
 
-Quail 0.3 should be able to replace Everything for ordinary daily local-file search on the developer's Windows PC.
+Quail 0.3 was intended to replace Everything for ordinary daily local-file search on the developer's Windows PC. That product goal is now represented by the released 0.3.1 baseline after the original 0.3.0 release was withdrawn and corrected.
 
-This does **not** mean feature parity with Everything. The target workflow is:
+This did **not** mean feature parity with Everything. The target workflow was:
 
 ```text
 Windows starts
@@ -90,7 +90,7 @@ Quick Search
 
 The detailed product and architectural direction is recorded in `docs/0.3-direction.md`.
 
-The approved release plan is M15 through M24 with two bounded decision/investigation gates currently present in the performance phase: M17-S after the M17 short-query storage stop condition, and M17.5 after M17 is resolved to investigate full build/rebuild performance. This is the current plan, not an immutable milestone decomposition. The dedicated Quail 0.3 execution thread owns evidence-driven adaptation of milestones inside the approved 0.3 product/scope boundary. Return to the parent roadmap thread only if evidence requires changing the 0.3 release goal or boundary, moving substantial scope between releases, or changing a major cross-version product/architecture direction.
+The completed release sequence was M15 through M24, with M17-S and M17.5 inserted as bounded evidence-driven gates during execution. The detailed milestone sections below are retained as historical specifications and results context; they are no longer an active execution plan.
 
 ### M15 — Core / FileSystem Boundary Extraction
 
