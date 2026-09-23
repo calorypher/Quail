@@ -5,13 +5,13 @@
 > Quail 0.3.0 has been withdrawn due to a critical maintenance-service defect
 > that can cause sustained CPU and disk-write activity while idle on the system
 > volume. Do not install 0.3.0. Quail 0.3.1 is the narrowly scoped maintenance
-> hotfix candidate and is not published until its physical-host QA gate passes.
+> hotfix release. Install Quail 0.3.1 instead.
 
 Quail is a Windows-first, local-first filesystem search application for
 Windows 11 x64. It indexes local NTFS volumes and searches local file and
 directory names without sending indexes or queries to a cloud service.
 
-## Quail 0.3.1 (hotfix candidate)
+## Quail 0.3.1
 
 Quail 0.3.1 preserves the withdrawn 0.3.0 feature set and changes only the
 critical maintenance idle-write path, its regression coverage, and release
@@ -29,8 +29,10 @@ file changes. If USN continuity cannot be proven, Quail fails closed with
 
 ## Install
 
-Quail 0.3.1 has not been published. Do not download or install Quail 0.3.0. Its
-historical installer asset remains available only as withdrawn provenance.
+Quail 0.3.1 is the current 0.3 release. Download it from the
+[GitHub Release](https://github.com/calorypher/Quail/releases/tag/v0.3.1). Do
+not download or install Quail 0.3.0; its historical installer asset remains
+available only as withdrawn provenance.
 
 The historical asset's SHA-256 is recorded below for provenance only:
 
@@ -42,7 +44,7 @@ The 0.3.x installer is fixed at `C:\Program Files\Quail`; custom destinations
 are not supported. Its pinned prerequisites are .NET 10 Desktop Runtime,
 Windows App Runtime, and the x64 Visual C++ Redistributable.
 
-The 0.3.1 hotfix candidate supports the bounded `0.2.0` to `0.3.1` and
+The 0.3.1 hotfix supports the bounded `0.2.0` to `0.3.1` and
 withdrawn `0.3.0` to `0.3.1` transitions at the canonical installation path,
 preserving existing ProgramData and LocalAppData. Other historical development
 builds remain uninstall-first.
@@ -95,11 +97,10 @@ or LocalAppData.
 
 ## Development status
 
-Quail 0.3.1 is an unpublished maintenance hotfix candidate for the withdrawn
-0.3.0 release. It does not begin Quail 0.4 or change the 0.4 roadmap goal. See
-[the 0.3.1 release notes](docs/releases/0.3.1-release-notes.md) for the hotfix
-boundary and [ROADMAP.md](ROADMAP.md) for planned work; the roadmap is not a
-feature list for the current release.
+Quail 0.3.1 was released on 2026-09-23 as the maintenance hotfix for withdrawn
+0.3.0. It does not begin Quail 0.4 or change the 0.4 roadmap goal. See
+[the 0.3.1 release notes](docs/releases/0.3.1-release-notes.md) and
+[ROADMAP.md](ROADMAP.md) for the release history and planned work.
 
 ## License
 
